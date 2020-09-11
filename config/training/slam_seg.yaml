@@ -1,0 +1,109 @@
+################################################################################
+# dataset parameters
+################################################################################
+DATASET:
+  labels: None
+  color_map: None
+  content: None
+  learning_map: None
+  learning_map_inv: None
+  learning_ignore: None
+  split: None
+  max_points: 150000 # max of any scan in dataset
+  sensor_name: "HDL64"
+  proj_type: "spherical" # projective
+  proj_fov_up: 3
+  proj_fov_down: -25
+  img_width: 2048
+  img_height: 64
+  z_dim: 14
+  num_class: 20
+  nframe: 2
+  scans: "kitti"
+  augment: True # no augmentation
+  voxel_size: [0.25, 0.25, 0.4] # voxel size in meter
+  area_extents: [[-48., 48.], [-48., 48.], [-3.2, 3.2]]
+  random_flip: True
+  img_means: #range,x,y,z,signal
+    - 12.12
+    - 10.88
+    - 0.23
+    - -1.04
+    - 0.21
+  img_stds: #range,x,y,z,signal
+    - 12.32
+    - 11.47
+    - 6.91
+    - 0.86
+    - 0.16
+  # Augmentations
+  augment_scale_anisotropic: True
+  augment_symmetries: [True, False, False]
+  augment_rotation: 'vertical'
+  augment_scale_min: 0.8
+  augment_scale_max: 1.2
+  augment_noise: 0.001
+  augment_color: 0.8
+################################################################################
+# training parameters
+################################################################################
+TRAIN:
+  world_size: 1
+  train_encoder: False
+  train_decoder: True
+  train_head: False
+  train_crf: False
+  use_head: False
+  use_crf: False
+  use_rv: False
+  use_bev: True
+  batch_size: 8
+  batch_size_per_gpu: 4
+  num_epoch: 2000
+  start_epoch: 0
+  warmup_epochs: 1       
+  loss: "xentropy"
+  loss_weight: 1.0
+  epsilon_w: 0.001
+  optim: "SGD"
+  lr_encoder: 0.01         
+  lr_decoder: 0.01
+  running_lr_encoder: 0.01
+  running_lr_decoder: 0.01
+  lr_pow: 1.0
+  lr_decay: 0.998
+  lr_warmup: True
+  beta1: 0.9
+  momentum: 0.9
+  weight_decay: 1e-4
+  fix_bn: False
+  dropout: 0.1
+  bn_d: 0.01
+  workers: 6
+  epoch_iters: 5000
+  max_iters: 10000
+  disp_iter: 20
+  report_batch: 1        # every x batches, report loss
+  report_epoch: 1        # every x epochs, report validation set
+  save_summary: False    # Summary of weight histograms for tensorboard
+  save_scans: False
+  show_scans: False      # show scans during training
+  seed: 304
+
+
+# MODEL:
+  # arch_encoder: "identical"
+  # arch_decoder: "pointnet2"
+  # arch_head: "segmentation"
+  # upmode_decoder: 'upconv'
+  # in_channels: 1
+  # stack_factor: 14
+  # depth_decoder: 4
+  # fc_dim: 512
+  # label_dim: 2
+  # num_class: 26
+  # nframe: 2
+  # knn: True
+  # radius: '[0.2, 0.2]'
+  # weights_encoder: ""
+  # weights_decoder: "/work/cascades/lxiaol9/4DSeg/log/point/pointmotion_2.4/pointnet2_meteornet_0/decoder_best_point_val.pth"

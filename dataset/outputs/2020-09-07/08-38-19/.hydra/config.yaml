@@ -1,0 +1,440 @@
+exp_num: '0'
+exp_name: default
+task: category_pose
+name_dset: shape2motion
+item: eyeglasses
+name_model: pointnet2_charlesmsg
+root_data: /groups/CESCA-CV/dataset/
+log_dir: /model/${item}/${name_model}_${exp_num}
+port: '8803'
+pretty_print: false
+distributed: false
+num_gpus: 1
+gpu: '0'
+num_workers: 16
+nframe: 1
+f: aa
+num_expr: 0.01
+n_max_parts: 3
+nocs_type: A
+data_mode: test
+is_debug: false
+is_testing: false
+HEAD:
+  W:
+  - 128
+  - 3
+  - softmax
+  nocs_per_point:
+  - 128
+  - None
+  - softmax
+  gocs_per_point:
+  - 128
+  - 3
+  - sigmoid
+  confi_per_point:
+  - 128
+  - 1
+  - sigmoid
+  heatmap_per_point:
+  - 128
+  - 128
+  - 1
+  - sigmoid
+  unitvec_per_point:
+  - 128
+  - 128
+  - 3
+  - tanh
+  joint_axis_per_point:
+  - 128
+  - 128
+  - 3
+  - tanh
+  index_per_point:
+  - 128
+  - 128
+  - 3
+  - softmax
+TRAIN:
+  shuffle_train: true
+  use_direct_regression: false
+  direct_loss_multiplier: 1.0
+  batch_size: 8
+  batch_size_per_gpu: 8
+  miou_loss_multiplier: 1.0
+  nocs_loss_multiplier: 10.0
+  gocs_loss_multiplier: 1.0
+  offset_loss_multiplier: 5.0
+  orient_loss_multiplier: 0.2
+  index_loss_multiplier: 1.0
+  type_loss_multiplier: 1.0
+  parameter_loss_multiplier: 1.0
+  residue_loss_multiplier: 1.0
+  total_loss_multiplier: 1.0
+  parametri_type: orth
+  list_of_primitives:
+  - sphere
+  - plane
+  - cylinder
+  - cone
+  train_data_file: shape2motion/hdf5/0.01/train.txt
+  train_first_n: -1
+  train_data_add_noise: true
+  val_data_file: shape2motion/hdf5/0.01/test.txt
+  val_first_n: -1
+  val_data_add_noise: true
+  test_data_file: shape2motion/hdf5/0.01/test.txt
+  test_first_n: -1
+  test_data_noisy: true
+  start_epoch: 0
+  num_epoch: 1000
+  orthogonality_loss_weight: 0.1
+  bn_decay_step: 200000
+  decay_step: 200000
+  decay_rate: 0.7
+  running_lr: 0.0
+  lr_encoder: 0.001
+  lr_decoder: 0.001
+  momentum: 0.9
+  weight_decay: 0.0001
+  init_learning_rate: 0.001
+  val_interval: 5000
+  snapshot_interval: 1000
+  in_model_dir: results/model
+  out_model_dir: results/model
+  val_prediction_dir: results/val_pred
+  val_prediction_n_keep: 2
+  test_prediction_dir: results/test_pred
+  demo_prediction_dir: results/demo
+  log_dir: results/log
+  writer_start_step: 100
+  coord_regress_loss: L2
+  seed: 100
+MODEL:
+  arch_encoder: identical
+  arch_decoder: pointnet2_single
+  arch_head: segmentation
+  weights_encoder: ''
+  weights_decoder: ''
+models:
+  pointnet2:
+    class: pointnet2.PointNet2_MP
+    conv_type: MESSAGE_PASSING
+    down_conv:
+      module_name: SAModule
+      ratios:
+      - 0.2
+      - 0.25
+      radius:
+      - 0.2
+      - 0.4
+      down_conv_nn:
+      - - 0 + 3
+        - 64
+        - 64
+        - 128
+      - - 128 + 3
+        - 128
+        - 128
+        - 256
+      radius_num_points:
+      - 64
+      - 64
+    up_conv:
+      module_name: FPModule
+      up_conv_nn:
+      - - 1024 + 256
+        - 256
+        - 256
+      - - 256 + 128
+        - 256
+        - 128
+      - - 128 + 0
+        - 128
+        - 128
+        - 128
+      up_k:
+      - 1
+      - 3
+      - 3
+      skip: true
+    innermost:
+      module_name: GlobalBaseModule
+      aggr: max
+      nn:
+      - 256 + 3
+      - 256
+      - 512
+      - 1024
+    mlp_cls:
+      nn:
+      - 128
+      - 128
+      - 128
+      - 128
+      - 128
+      dropout: 0.5
+  pointnet2ms:
+    class: pointnet2.PointNet2_MP
+    conv_type: MESSAGE_PASSING
+    down_conv:
+      module_name: SAModule
+      ratios:
+      - 0.25
+      - 0.25
+      radius:
+      - - 0.1
+        - 0.2
+        - 0.4
+      - - 0.4
+        - 0.8
+      radius_num_points:
+      - - 32
+        - 64
+        - 128
+      - - 64
+        - 128
+      down_conv_nn:
+      - - 0+3
+        - 64
+        - 96
+        - 128
+      - - 128 * 3 + 3
+        - 128
+        - 196
+        - 256
+    up_conv:
+      module_name: FPModule
+      up_conv_nn:
+      - - 1024 + 256 * 2
+        - 256
+        - 256
+      - - 256 + 128 * 3
+        - 128
+        - 128
+      - - 128 + 0
+        - 128
+        - 128
+      up_k:
+      - 1
+      - 3
+      - 3
+      skip: true
+    innermost:
+      module_name: GlobalBaseModule
+      aggr: max
+      nn:
+      - 256* 2 + 3
+      - 256
+      - 512
+      - 1024
+    mlp_cls:
+      nn:
+      - 128
+      - 128
+      - 128
+      - 128
+      - 128
+      dropout: 0.5
+  pointnet2_largemsg:
+    class: pointnet2.PointNet2_D
+    conv_type: DENSE
+    use_category: ${data.use_category}
+    down_conv:
+      module_name: PointNetMSGDown
+      npoint:
+      - 1024
+      - 256
+      - 64
+      - 16
+      radii:
+      - - 0.05
+        - 0.1
+      - - 0.1
+        - 0.2
+      - - 0.2
+        - 0.4
+      - - 0.4
+        - 0.8
+      nsamples:
+      - - 16
+        - 32
+      - - 16
+        - 32
+      - - 16
+        - 32
+      - - 16
+        - 32
+      down_conv_nn:
+      - - - 0+3
+          - 16
+          - 16
+          - 32
+        - - 0+3
+          - 32
+          - 32
+          - 64
+      - - - 32 + 64+3
+          - 64
+          - 64
+          - 128
+        - - 32 + 64+3
+          - 64
+          - 96
+          - 128
+      - - - 128 + 128+3
+          - 128
+          - 196
+          - 256
+        - - 128 + 128+3
+          - 128
+          - 196
+          - 256
+      - - - 256 + 256+3
+          - 256
+          - 256
+          - 512
+        - - 256 + 256+3
+          - 256
+          - 384
+          - 512
+    up_conv:
+      module_name: DenseFPModule
+      up_conv_nn:
+      - - 512 + 512 + 256 + 256
+        - 512
+        - 512
+      - - 512 + 128 + 128
+        - 512
+        - 512
+      - - 512 + 64 + 32
+        - 256
+        - 256
+      - - 256 + 0
+        - 128
+        - 128
+      skip: true
+    mlp_cls:
+      nn:
+      - 128
+      - 128
+      dropout: 0.5
+  pointnet2_charlesmsg:
+    class: pointnet2.PointNet2_D
+    conv_type: DENSE
+    use_category: ${data.use_category}
+    down_conv:
+      module_name: PointNetMSGDown
+      npoint:
+      - 512
+      - 128
+      radii:
+      - - 0.1
+        - 0.2
+        - 0.4
+      - - 0.4
+        - 0.8
+      nsamples:
+      - - 32
+        - 64
+        - 128
+      - - 64
+        - 128
+      down_conv_nn:
+      - - - 0+3
+          - 32
+          - 32
+          - 64
+        - - 0+3
+          - 64
+          - 64
+          - 128
+        - - 0+3
+          - 64
+          - 96
+          - 128
+      - - - 64 + 128 + 128+3
+          - 128
+          - 128
+          - 256
+        - - 64 + 128 + 128+3
+          - 128
+          - 196
+          - 256
+    innermost:
+      module_name: GlobalDenseBaseModule
+      nn:
+      - 256 * 2 + 3
+      - 256
+      - 512
+      - 1024
+    up_conv:
+      module_name: DenseFPModule
+      up_conv_nn:
+      - - 1024 + 256*2
+        - 256
+        - 256
+      - - 256 + 128 * 2 + 64
+        - 256
+        - 128
+      - - 128 + 0
+        - 128
+        - 128
+      skip: true
+    mlp_cls:
+      nn:
+      - 128
+      - 128
+      dropout: 0.5
+  pointnet2_charlesssg:
+    class: pointnet2.PointNet2_D
+    conv_type: DENSE
+    use_category: ${data.use_category}
+    down_conv:
+      module_name: PointNetMSGDown
+      npoint:
+      - 512
+      - 128
+      radii:
+      - - 0.2
+      - - 0.4
+      nsamples:
+      - - 64
+      - - 64
+      down_conv_nn:
+      - - - 0 + 3
+          - 64
+          - 64
+          - 128
+      - - - 128+3
+          - 128
+          - 128
+          - 256
+    innermost:
+      module_name: GlobalDenseBaseModule
+      nn:
+      - 256 + 3
+      - 256
+      - 512
+      - 1024
+    up_conv:
+      module_name: DenseFPModule
+      up_conv_nn:
+      - - 1024 + 256
+        - 256
+        - 256
+      - - 256 + 128
+        - 256
+        - 128
+      - - 128 + 0
+        - 128
+        - 128
+        - 128
+      skip: true
+    mlp_cls:
+      nn:
+      - 128
+      - 128
+      dropout: 0.5
