@@ -6,6 +6,126 @@ import functools
 import fnmatch
 import numpy as np
 
+import torch.optim.lr_scheduler as toptim
+import tensorflow as tf
+import numpy as np
+import scipy.misc
+try:
+  from StringIO import StringIO  # Python 2.7
+except ImportError:
+  from io import BytesIO         # Python 3.x
+
+
+class Logger(object):
+
+  def __init__(self, log_dir):
+    """Create a summary writer logging to log_dir."""
+    self.writer = tf.summary.FileWriter(log_dir)
+
+  def scalar_summary(self, tag, value, step):
+    """Log a scalar variable."""
+    summary = tf.Summary(
+        value=[tf.Summary.Value(tag=tag, simple_value=value)])
+    self.writer.add_summary(summary, step)
+    self.writer.flush()
+
+  def image_summary(self, tag, images, step):
+    """Log a list of images."""
+
+    img_summaries = []
+    for i, img in enumerate(images):
+      # Write the image to a string
+      try:
+        s = StringIO()
+      except:
+        s = BytesIO()
+      scipy.misc.toimage(img).save(s, format="png")
+
+      # Create an Image object
+      img_sum = tf.Summary.Image(encoded_image_string=s.getvalue(),
+                                 height=img.shape[0],
+                                 width=img.shape[1])
+      # Create a Summary value
+      img_summaries.append(tf.Summary.Value(
+          tag='%s/%d' % (tag, i), image=img_sum))
+
+    # Create and write Summary
+    summary = tf.Summary(value=img_summaries)
+    self.writer.add_summary(summary, step)
+    self.writer.flush()
+
+  def histo_summary(self, tag, values, step, bins=1000):
+    """Log a histogram of the tensor of values."""
+
+    # Create a histogram using numpy
+    counts, bin_edges = np.histogram(values, bins=bins)
+
+    # Fill the fields of the histogram proto
+    hist = tf.HistogramProto()
+    hist.min = float(np.min(values))
+    hist.max = float(np.max(values))
+    hist.num = int(np.prod(values.shape))
+    hist.sum = float(np.sum(values))
+    hist.sum_squares = float(np.sum(values**2))
+
+    # Drop the start of the first bin
+    bin_edges = bin_edges[1:]
+
+    # Add bin edges and counts
+    for edge in bin_edges:
+      hist.bucket_limit.append(edge)
+    for c in counts:
+      hist.bucket.append(c)
+
+    # Create and write Summary
+    summary = tf.Summary(value=[tf.Summary.Value(tag=tag, histo=hist)])
+    self.writer.add_summary(summary, step)
+    self.writer.flush()
+
+class warmupLR(toptim._LRScheduler):
+  """ Warmup learning rate scheduler.
+      Initially, increases the learning rate from 0 to the final value, in a
+      certain number of steps. After this number of steps, each step decreases
+      LR exponentially.
+  """
+  def __init__(self, optimizer, lr, warmup_steps, momentum, decay):
+    # cyclic params
+    self.optimizer = optimizer
+    self.lr = lr
+    self.warmup_steps = warmup_steps
+    self.momentum = momentum
+    self.decay = decay
+
+    # cap to one
+    if self.warmup_steps < 1:
+      self.warmup_steps = 1
+
+    # cyclic lr
+    self.initial_scheduler = toptim.CyclicLR(self.optimizer,
+                                             base_lr=0,
+                                             max_lr=self.lr,
+                                             step_size_up=self.warmup_steps,
+                                             step_size_down=self.warmup_steps,
+                                             cycle_momentum=False,
+                                             base_momentum=self.momentum,
+                                             max_momentum=self.momentum)
+
+    # our params
+    self.last_epoch = -1  # fix for pytorch 1.1 and below
+    self.finished = False  # am i done
+    super().__init__(optimizer)
+
+  def get_lr(self):
+    return [self.lr * (self.decay ** self.last_epoch) for lr in self.base_lrs]
+
+  def step(self, epoch=None):
+    if self.finished or self.initial_scheduler.last_epoch >= self.warmup_steps:
+      if not self.finished:
+        self.base_lrs = [self.lr for lr in self.base_lrs]
+        self.finished = True
+      return super(warmupLR, self).step(epoch)
+    else:
+      return self.initial_scheduler.step(epoch)
 
 def setup_logger(distributed_rank=0, filename="log.txt"):
     logger = logging.getLogger("Logger")

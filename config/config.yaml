@@ -6,41 +6,29 @@ defaults:
   - dataset: shape2motion
     optional: True
   - models: '${defaults.1.model_type}.yaml'
-  
+
 exp_num: '0'
 exp_name: 'default'
 task: 'category_pose'
 name_dset: 'shape2motion'
 item: 'eyeglasses'
+n_max_parts : 3
+nocs_type: 'A'
+num_expr: 0.01
 name_model: pointnet2_charlesmsg # Name of the specific model to load
-root_data: "/groups/CESCA-CV/dataset/"
-log_dir: '/model/${item}/${name_model}_${exp_num}' # 
+root_data: "/groups/CESCA-CV/ICML2021/data"
+log_dir: '/model/${item}/${name_model}_${exp_num}' #
 
 # control
-port: '8803'
+is_debug: False
+is_testing: False
+pred_joint: False
+pred_joint_ind: False
 pretty_print: False
 distributed: False
+port: '8803'
 num_gpus: 1
 gpu: '0'
 num_workers: 16
 nframe: 1
-
 f: aa
-
-# name and mode
-num_expr: 0.01
-n_max_parts : 3
-nocs_type: 'A'
-data_mode: 'test'
-is_debug: False
-is_testing: False
-
-HEAD: 
-  W: [128, 3, 'softmax']
-  nocs_per_point : [128, None, 'softmax']
-  gocs_per_point : [128, 3, 'sigmoid']
-  confi_per_point : [128, 1, 'sigmoid']
-  heatmap_per_point :  [128, 128, 1, 'sigmoid']
-  unitvec_per_point :  [128, 128, 3, 'tanh']
-  joint_axis_per_point : [128, 128, 3, 'tanh']
-  index_per_point : [128, 128, 3, 'softmax']

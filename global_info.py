@@ -33,7 +33,7 @@ _DATASETS = dict(
         spec_map=None,
         exp='8.1',
         baseline='8.11',
-        joint_baseline='5.0',
+        joint_baseline='8.12',
         style='new'
        ),
    humanhand=DatasetInfo(

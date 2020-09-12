@@ -20,7 +20,7 @@ from kaolin.models.PointNet2 import three_interpolate
 # from torch_points3d.core.data_transform import GridSampling
 import __init__
 from modules.sampling import SampleK, Group
-from modules.conv_layer import Identity, BaseModule, MLP
+from modules.layers import Identity, BaseModule, MLP
 from common.pytorch_utils import SharedMLP
 
 def breakpoint():
@@ -49,61 +49,6 @@ def get_activation(act_opt, create_cls=True):
         return act(**args)
     else:
         return act
-# Simply sample npoint xyz, return index
-class Sample(nn.Module):
-    def __init__(self, npoint, fps=False):
-        super(Sample, self).__init__()
-        self.npoint = npoint
-        self.fps=fps
-
-    def forward(self, xyz):
-        """
-
-        """
-        if self.fps:
-            xyz_ind = furthest_point_sampling(xyz.permute(0, 2, 1).contiguous().float(), self.npoint)
-        else:
-            xyz_ind = None
-
-        return xyz_ind
-
-class GlobalDenseBaseModule(nn.Module):
-    def __init__(self, nn, aggr="max", bn=True, activation="LeakyReLU", **kwargs):
-        super(GlobalDenseBaseModule, self).__init__()
-        nn = [eval(nn[0]), *nn[1:]]
-        self.nn = SharedMLP(nn, bn=bn, activation=get_activation(activation))
-        if aggr.lower() not in ["mean", "max"]:
-            raise Exception("The aggregation provided is unrecognized {}".format(aggr))
-        self._aggr = aggr.lower()
-
-    @property
-    def nb_params(self):
-        """[This property is used to return the number of trainable parameters for a given layer]
-        It is useful for debugging and reproducibility.
-        Returns:
-            [type] -- [description]
-        """
-        model_parameters = filter(lambda p: p.requires_grad, self.parameters())
-        self._nb_params = sum([np.prod(p.size()) for p in model_parameters])
-        return self._nb_params
-
-    def forward(self, pos, x, **kwargs):
-
-        x = self.nn(torch.cat([x, pos], dim=1).unsqueeze(-1))
-
-        if self._aggr == "max": # global
-            x = x.squeeze(-1).max(-1)[0]
-        elif self._aggr == "mean":
-            x = x.squeeze(-1).mean(-1)
-        else:
-            raise NotImplementedError("The following aggregation {} is not recognized".format(self._aggr))
-
-        pos = None  # pos.mean(1).unsqueeze(1)
-        x = x.unsqueeze(-1)
-        return pos, x
-
-    def __repr__(self):
-        return "{}: {} (aggr={}, {})".format(self.__class__.__name__, self.nb_params, self._aggr, self.nn)
 
 class PointNetMSGDown3d(nn.Module):
     def __init__(
@@ -160,7 +105,7 @@ class PointNetMSGDown3d(nn.Module):
             self.neighbors_sample_list.append(neighbors_sample)
             out_channels = [in_channels, *out_channels]
             if self.kernel_type == 'pointnet++':
-                
+
                 layers = []
                 j = 1
                 if self.share:
@@ -198,7 +143,7 @@ class PointNetMSGDown3d(nn.Module):
                 for j in range(1, len(mlp_att)):
                     layers+=[nn.Conv2d(mlp_att[j - 1], mlp_att[j], 1, bias=True), nn.BatchNorm2d(mlp_att[j], eps=0.001), nn.LeakyReLU(0.2)]
                 self.att_nn.append(nn.Sequential(*layers))
-                
+
                 # spatial pooling
                 layers  = []
                 out_channels[0] = out_channels[0]+32-3
@@ -213,7 +158,7 @@ class PointNetMSGDown3d(nn.Module):
                 for j in range(1, len(mlp_att)):
                     layers+=[nn.Conv2d(mlp_att[j - 1], mlp_att[j], 1, bias=True), nn.BatchNorm2d(mlp_att[j], eps=0.001), nn.LeakyReLU(0.2)]
                 self.att_nn.append(nn.Sequential(*layers))
-                
+
                 # spatial pooling
                 layers          = []
                 out_channels[0] = out_channels[0]
@@ -394,12 +339,11 @@ class PointNetMSGDown(nn.Module):
         use_xyz=True,
         scale_idx=0,
         kernel_type='pointnet++',
-        verbose=True,
+        verbose=False,
         **kwargs
     ):
         super(PointNetMSGDown, self).__init__()
         self.npoint = npoint
-        self.sample = Sample(npoint)
         self.blocks = nn.ModuleList()
         self.radii  = radii
         self.nsample=nsample
@@ -409,7 +353,7 @@ class PointNetMSGDown(nn.Module):
         for i in range(len(radii)):
             in_channels=eval(down_conv_nn[i][0])
             out_channels=down_conv_nn[i][1:]
-            neighbors_sample = SampleK(radii[i], nsample[i], knn=True)
+            neighbors_sample = SampleK(radii[i], nsample[i], knn=False)
             self.neighbors_sample_list.append(neighbors_sample)
 
             layers = []
@@ -424,11 +368,14 @@ class PointNetMSGDown(nn.Module):
 
     def forward(self, query_points, support_points, x): # x, pos, new_pos, radius_idx, scale_idx
         """
-        - query_points(torch Tensor): query of size [Batch_size, 3, N]
-        - support_points(torch Tensor): support points of size [Batch_size, 3, N0]
-        - x : feature of size [Batch_size, d, N0] (d is the number of inputs feature channels, with xyz included)
+        Module: PointNetMSGDown
+        - query_points(torch Tensor):   [Batch_size, 3, N]
+        - support_points(torch Tensor): [Batch_size, 3, N0]
+        - x : feature of size [Batch_size, d, N0] with xyz included)
         """
-        xyz1 = self.sample(query_points) # FPS
+        # by default, we use fps sampling
+        xyz_ind = furthest_point_sampling(query_points.permute(0, 2, 1).contiguous().float(), self.npoint) # FPS
+        xyz1    = fps_gather_by_index(query_points, xyz_ind)
         new_features = []
         for i in range(len(self.radii)):
             neighbor_indices = self.neighbors_sample_list[i](support_points.view(-1, 3, support_points.size(-1)).contiguous(), xyz1) #
@@ -437,6 +384,61 @@ class PointNetMSGDown(nn.Module):
             new_features.append(torch.max(new_feat, dim=-1)[0]) # pointnet++-like operation
         features = torch.cat(new_features, dim=1)
         return xyz1, features
+
+class Sample(nn.Module):
+    def __init__(self, npoint, fps=True):
+        super(Sample, self).__init__()
+        self.npoint = npoint
+        self.fps=fps
+
+    def forward(self, xyz):
+        """
+
+        """
+        if self.fps:
+            xyz_ind = furthest_point_sampling(xyz.permute(0, 2, 1).contiguous().float(), self.npoint)
+        else:
+            xyz_ind = None
+
+        return xyz_ind
+
+class GlobalDenseBaseModule(nn.Module):
+    def __init__(self, nn, aggr="max", bn=True, activation="LeakyReLU", **kwargs):
+        super(GlobalDenseBaseModule, self).__init__()
+        nn = [eval(nn[0]), *nn[1:]]
+        self.nn = SharedMLP(nn, bn=bn, activation=get_activation(activation))
+        if aggr.lower() not in ["mean", "max"]:
+            raise Exception("The aggregation provided is unrecognized {}".format(aggr))
+        self._aggr = aggr.lower()
+
+    @property
+    def nb_params(self):
+        """[This property is used to return the number of trainable parameters for a given layer]
+        It is useful for debugging and reproducibility.
+        Returns:
+            [type] -- [description]
+        """
+        model_parameters = filter(lambda p: p.requires_grad, self.parameters())
+        self._nb_params = sum([np.prod(p.size()) for p in model_parameters])
+        return self._nb_params
+
+    def forward(self, pos, x, **kwargs):
+
+        x = self.nn(torch.cat([x, pos], dim=1).unsqueeze(-1))
+
+        if self._aggr == "max": # global
+            x = x.squeeze(-1).max(-1)[0]
+        elif self._aggr == "mean":
+            x = x.squeeze(-1).mean(-1)
+        else:
+            raise NotImplementedError("The following aggregation {} is not recognized".format(self._aggr))
+
+        pos = None  # pos.mean(1).unsqueeze(1)
+        x = x.unsqueeze(-1)
+        return pos, x
+
+    def __repr__(self):
+        return "{}: {} (aggr={}, {})".format(self.__class__.__name__, self.nb_params, self._aggr, self.nn)
 
 class DenseFPModule(nn.Module):
     """Defines the Unet submodule with skip connection.
@@ -456,10 +458,10 @@ class DenseFPModule(nn.Module):
 
     def forward(self, xyz, skip, xyz_prev=None, feat_prev=None):
         """
-        xyz is current full points, [BS, 3, N0]
-        xyz_prev is points to interpolate; [BS, C, N]
-        feat_prev is features to interpolate; [BS, C, N]
-        skip: features for current current full points, [BS, C, N0]
+        xyz:       current full points, [BS, 3, N0]
+        skip:      features for current current full points, [BS, C, N0]
+        xyz_prev:  points to interpolate; [BS, C, N]
+        feat_prev: features to interpolate; [BS, C, N]
         """
         if xyz_prev is not None:
             dist, ind = three_nn(xyz.permute(0, 2, 1).contiguous(), xyz_prev.permute(0, 2, 1).contiguous())
@@ -468,77 +470,11 @@ class DenseFPModule(nn.Module):
             inverse_dist = 1.0 / (dist + 1e-8)
             norm = torch.sum(inverse_dist, dim=2, keepdim=True)
             weights = inverse_dist / norm
-            #new_features = three_interpolate(feat1, ind, weights) # wrong gradients
             new_features = torch.sum(group_gather_by_index(feat_prev, ind) * weights.unsqueeze(1), dim = 3)
-            new_features = torch.cat([new_features, skip], dim=1)
+            if skip is not None:
+                new_features = torch.cat([new_features, skip], dim=1)
         else:
             new_features = torch.cat([skip, feat_prev.repeat(1, 1, skip.size(-1))], dim=1)
 
         new_features = self.conv(new_features) # no temporal channel just simple features for current points
         return xyz, new_features
-
-class KPDualBlock(BaseModule):
-    """ Dual KPConv block (usually strided + non strided)
-
-    Arguments: Accepted kwargs
-        block_names: Name of the blocks to be used as part of this dual block
-        down_conv_nn: Size of the convs e.g. [64,128],
-        grid_size: Size of the grid for each block,
-        prev_grid_size: Size of the grid in the previous KPConv
-        has_bottleneck: Wether a block should implement the bottleneck
-        max_num_neighbors: Max number of neighboors for the radius search,
-        deformable: Is deformable,
-        add_one: Add one as a feature,
-    """
-
-    def __init__(
-        self,
-        block_names=None,
-        down_conv_nn=None,
-        grid_size=None,
-        prev_grid_size=None,
-        has_bottleneck=None,
-        max_num_neighbors=None,
-        deformable=False,
-        add_one=False,
-        **kwargs,
-    ):
-        super(KPDualBlock, self).__init__()
-
-        assert len(block_names) == len(down_conv_nn)
-        self.blocks = torch.nn.ModuleList()
-        for i, class_name in enumerate(block_names):
-            # Constructing extra keyword arguments
-            block_kwargs = {}
-            for key, arg in kwargs.items():
-                block_kwargs[key] = arg[i] if is_list(arg) else arg
-
-            # Building the block
-            kpcls = getattr(sys.modules[__name__], class_name)
-            block = kpcls(
-                down_conv_nn=down_conv_nn[i],
-                grid_size=grid_size[i],
-                prev_grid_size=prev_grid_size[i],
-                has_bottleneck=has_bottleneck[i],
-                max_num_neighbors=max_num_neighbors[i],
-                deformable=deformable[i] if is_list(deformable) else deformable,
-                add_one=add_one[i] if is_list(add_one) else add_one,
-                **block_kwargs,
-            )
-            self.blocks.append(block)
-
-    def forward(self, data, precomputed=None, **kwargs):
-        for block in self.blocks:
-            data = block(data, precomputed=precomputed)
-        return data
-
-    @property
-    def sampler(self):
-        return [b.sampler for b in self.blocks]
-
-    @property
-    def neighbour_finder(self):
-        return [b.neighbour_finder for b in self.blocks]
-
-    def extra_repr(self):
-        return "Nb parameters: %i" % self.nb_params

@@ -4,7 +4,7 @@ import torchvision
 import torch.nn.functional as F
 import __init__ as booger
 from backbones import resnet, resnext, mobilenet, unet, pointnet
-from decoders.flownet3d import FlowNet3D 
+from decoders.flownet3d import FlowNet3D
 from decoders.meteornet import MeteorNet
 from decoders.deeppcn import DPCN
 from decoders.pointnet2seq import PointMotionBaseModel
@@ -34,7 +34,7 @@ def eval_torch_func(key):
         return nn.Tanh()
     elif key == 'softmax':
         return nn.Softmax()
-    else: 
+    else:
         return NotImplementedError
 
 class ModelBuilder:
@@ -52,9 +52,9 @@ class ModelBuilder:
 
     @staticmethod
     def build_encoder(params, arch=None, fc_dim=None, weights=None):
-        if params is not None: 
+        if params is not None:
             arch  = params.arch_encoder
-            fc_dim= params.fc_dim 
+            fc_dim= params.fc_dim
             weights= params.weights_encoder
         pretrained = False if len(weights) == 0 else True
         arch = arch.lower()
@@ -109,7 +109,7 @@ class ModelBuilder:
     @staticmethod
     def build_decoder(params, options=None, arch=None, fc_dim=None, num_class=None, in_channels=None, stack_factor=None, depth=None, up_mode=None, weights=None, nframe=None, batch_norm=True, padding=True, use_softmax=False):
         # directly corresponds to cfg.MODEL
-        if params is not None: 
+        if params is not None:
             arch      = params.arch_decoder
             fc_dim    = params.fc_dim
             num_class = params.num_classes
@@ -128,8 +128,6 @@ class ModelBuilder:
             net_decoder = FlowNet3D()
         elif arch == 'meteornet':
             net_decoder = MeteorNet(nframe, radius_list=params.radius, num_class=num_class, knn=params.knn)
-        elif arch == 'dpcn':
-            net_decoder = DPCN()
         elif arch == 'pointnet2':
             print(f'net_decoder has {num_class} classes')
             net_decoder = PointMotionBaseModel(options, 'pointnet2_charlesmsg', num_classes=num_class)
@@ -152,14 +150,17 @@ class ModelBuilder:
     @staticmethod
     def build_header(layer_specs):
         head = nn.ModuleList()
+        names= []
+        print('---head specs: \n ', layer_specs)
         for key, out_channels in layer_specs.items():
-            layers = []# 
+            names.append(key)
+            layers = []#
             for i in range(1, len(out_channels)-1):
                 layers += [nn.Conv1d(out_channels[i - 1], out_channels[i], 1, bias=True), nn.BatchNorm1d(out_channels[i], eps=0.001), nn.ReLU()]
             layers +=[eval_torch_func(out_channels[-1])]
-            head.append(nn.Sequential(*layers)) 
-
-        return head
+            head.append(nn.Sequential(*layers))
+        head.apply(ModelBuilder.weights_init)
+        return head, names
 
 
 def conv3x3_bn_relu(in_planes, out_planes, stride=1):

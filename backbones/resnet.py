@@ -1,9 +1,15 @@
 import torch.nn as nn
 import math
 from .utils import load_url
-from common.sync_batchnorm.batchnorm import SynchronizedBatchNorm2d
-BatchNorm2d = SynchronizedBatchNorm2d
 
+import __init__
+import global_info
+
+setting = global_info.setting()
+if setting.USE_MULTI_GPU:
+    BatchNorm2d = nn.SyncBatchNorm
+else:
+    BatchNorm2d = nn.BatchNorm2d
 
 __all__ = ['ResNet', 'resnet18', 'resnet50', 'resnet101'] # resnet101 is coming soon!
 

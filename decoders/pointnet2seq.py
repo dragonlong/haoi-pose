@@ -2,14 +2,14 @@
 build a simple network mimicing pointnet2 to operate on point sequence video;
 - T = 5 for conv3d, 2 layers with conv3d;
 - sampling 1024, 256, 64, 16, upsampling ;
-- features 
+- features
 """
-import torch 
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 import numpy as np
-import time 
+import time
 import hydra
 from omegaconf import DictConfig, ListConfig
 from kaolin.models.PointNet2 import group_gather_by_index
@@ -18,7 +18,7 @@ from kaolin.models.PointNet2 import three_interpolate
 
 # custom packages
 import __init__
-from modules.conv_layer import Identity
+from modules.layers import Identity
 from modules.blocks import GlobalDenseBaseModule, PointNetMSGDown3d, DenseFPModule, is_list, breakpoint
 
 SPECIAL_NAMES = ["radius", "max_num_neighbors", "block_names"]
@@ -28,9 +28,9 @@ class PointMotionBaseModel(nn.Module):
         # pointnet++-like architecture
         referring to https://github.com/nicolas-chaulet/torch-points3d/blob/master/torch_points3d
     """
-    def __init__(self, 
-        opt, 
-        model_type='pointnet2_charlesmsg',         
+    def __init__(self,
+        opt,
+        model_type='pointnet2_charlesmsg',
         num_classes=3,
         batchnorm=True,
         use_xyz=True,
@@ -92,7 +92,7 @@ class PointMotionBaseModel(nn.Module):
             ] if module is not None
         ]
         self.final_layers = nn.Sequential(*final_layer_modules)
-   
+
     def _get_from_kwargs(self, kwargs, name):
         module = kwargs[name]
         kwargs.pop(name)
@@ -100,7 +100,7 @@ class PointMotionBaseModel(nn.Module):
 
     # ssfor
     def forward(self, xyz, feat, times=None, verbose=False):
-        """ 
+        """
            xyz: [B, T, 3, N]
            feat: original input for feature: [B, T, 1, N]
         """
@@ -109,11 +109,11 @@ class PointMotionBaseModel(nn.Module):
         stack_down.append([xyz[:, 0, :, :].contiguous(), feat[:, :, 0, :].contiguous()]) # here we only care current frame point during upsampling
         for i in range(len(self.down_modules)):
             # output feat: [BS, C, T, N]
-            xyz, times, feat= self.down_modules[i](xyz, times, feat) 
+            xyz, times, feat= self.down_modules[i](xyz, times, feat)
             stack_down.append([xyz[:, 0, :, :].contiguous(), feat[:, :, 0, :].contiguous()]) # [BS, C, T, N] -> [BS, C, N]
 
         if not isinstance(self.inner_modules[0], Identity):
-            feat = self.inner_modules[0](xyz, feat)[1] # return pos, 
+            feat = self.inner_modules[0](xyz, feat)[1] # return pos,
             xyz_last= None
         else:
             xyz_last, feat = stack_down.pop()
@@ -125,7 +125,7 @@ class PointMotionBaseModel(nn.Module):
             xyz_last, feat = self.up_modules[i](xyz, skip, xyz_last, feat)
         pred = self.final_layers(feat)
 
-        return pred 
+        return pred
 
     def _create_inner_modules(self, args_innermost, modules_lib):
         inners = []
@@ -221,7 +221,7 @@ if __name__ == "__main__":
     opt = cfg.models['pointnet2_meteornet']
     opt.down_conv.kernel_type= 'attention'
 
-    #>>>>> test input 
+    #>>>>> test input
     gpu = 1
     torch.cuda.set_device(gpu)
     deploy_device   = torch.device('cuda:{}'.format(gpu))
@@ -231,7 +231,7 @@ if __name__ == "__main__":
     T     = 2
     xyz2  = torch.rand(B, T, 3, N, requires_grad=False, device=deploy_device).float() # [BS, T, C, N] --> later [BS, C, T, N]
     xyz1  = xyz2[:, 0, :, :]
-    feat2 = torch.rand(B, T, 1, N, requires_grad=False, device=deploy_device).float() 
+    feat2 = torch.rand(B, T, 1, N, requires_grad=False, device=deploy_device).float()
     times = torch.rand(B, T, 1, N, requires_grad=False, device=deploy_device).float()
     PM = PointMotionBaseModel(opt, 'pointnet2_meteornet').cuda(gpu)
     for i in range(100):
@@ -243,5 +243,5 @@ if __name__ == "__main__":
     #     down_module = PointNetMSGDown3d(**args).cuda(gpu)
     #     xyz, feat   = down_module(xyz1, xyz2, feat2)
     #     print('output after one block has size: ', xyz.size, feat.size())
-    
+
     print('Con!!!')

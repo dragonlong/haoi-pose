@@ -15,7 +15,7 @@
 
 import numpy as np
 import __init__
-from modules.conv_layer import *
+from modules.layers import *
 
 def breakpoint():
     import pdb;pdb.set_trace()
@@ -448,7 +448,7 @@ class KPFCNN(nn.Module):
 #             if np.any([tmp in block for tmp in ['pool', 'strided', 'upsample', 'global']]):
 #                 self.encoder_skips.append(block_i)
 #                 self.encoder_skip_dims.append(in_dim)
-#                 if self.curr_t[block_i] > 1: 
+#                 if self.curr_t[block_i] > 1:
 #                     self.temporal_convs.append(UnaryBlock(2*in_dim, in_dim, config.use_batch_norm, config.batch_norm_momentum, no_relu=False))
 
 #             # Detect upsampling block to stop
@@ -583,7 +583,7 @@ class KPFCNN(nn.Module):
     #             x_diff= x_seq[:, 0, :] - x_seq[:, 1, :]
     #             skip_x.append(self.temporal_convs[tid](torch.cat([x_sum, x_diff], dim=1)))
     #             tid+=1
-    #             if self.curr_t[block_i+1] < 2: 
+    #             if self.curr_t[block_i+1] < 2:
     #                 x = skip_x[-1]
     #         # print(block_i, block_op.layer_ind, block_op)
     #         print(f'block {block_i} has x is {x.size()}, neighbors {batch.neighbors[block_op.layer_ind].size()}, t_dim {self.curr_t[block_i]}')
@@ -650,41 +650,20 @@ class KPFCNN(nn.Module):
         for i, c in enumerate(self.valid_labels):
             target[labels == c] = i
 
-        if self.task == 'motion_segmentation': 
+        if self.task == 'motion_segmentation':
             predicted = torch.argmax(outputs.data, dim=1).cpu().numpy()
             target = target.cpu().numpy()
             indb = np.where(target==-1)[0]
             ind0 = np.where(target==0)[0]
             ind1 = np.where(target==1)[0]
-            # predicted, 
+            # predicted,
             total   = len(ind0) + len(ind1)
             correct0 = (predicted[ind0] == target[ind0]).sum()
             correct1 = (predicted[ind1] == target[ind1]).sum()
             correct  = correct0 + correct1
             print(f'motion class has ratio: {total/target.shape[0]}, correctness non-move: {correct0}/{len(ind0)}, moving: {correct1}/{len(ind1)}')
-        else: 
+        else:
             predicted = torch.argmax(outputs.data, dim=1)
             total = target.size(0)
             correct = (predicted == target).sum().item()
         return correct / (total+10e-9)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

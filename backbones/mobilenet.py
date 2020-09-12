@@ -6,9 +6,14 @@ https://github.com/tonylins/pytorch-mobilenet-v2
 import torch.nn as nn
 import math
 from .utils import load_url
-from common.sync_batchnorm.batchnorm import SynchronizedBatchNorm2d
+import __init__
+import global_info
 
-BatchNorm2d = SynchronizedBatchNorm2d
+setting = global_info.setting()
+if setting.USE_MULTI_GPU:
+    BatchNorm2d = nn.SyncBatchNorm
+else:
+    BatchNorm2d = nn.BatchNorm2d
 
 
 __all__ = ['mobilenetv2']

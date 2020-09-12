@@ -1,9 +1,9 @@
-import torch 
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 import numpy as np
-import time 
+import time
 import hydra
 from omegaconf import DictConfig, ListConfig
 from kaolin.models.PointNet2 import group_gather_by_index
@@ -11,7 +11,7 @@ from kaolin.models.PointNet2 import three_nn
 from kaolin.models.PointNet2 import three_interpolate
 
 import __init__
-from modules.conv_layer import Identity
+from modules.layers import Identity
 from modules.blocks import GlobalDenseBaseModule, PointNetMSGDown, DenseFPModule, is_list
 
 SPECIAL_NAMES = ["radius", "max_num_neighbors", "block_names"]
@@ -21,9 +21,9 @@ class PointBaseModel(nn.Module):
     """Create a Unet unwrapped generator
        referring to https://github.com/nicolas-chaulet/torch-points3d/blob/master/torch_points3d
     """
-    def __init__(self, 
-        opt, 
-        model_type,         
+    def __init__(self,
+        opt,
+        model_type,
         in_features=1,
         num_classes=3,
         batchnorm=True,
@@ -93,7 +93,7 @@ class PointBaseModel(nn.Module):
         ]
         self.final_layers = nn.Sequential(*final_layer_modules)
         # self._init_from_compact_format(opt, model_type, dataset, modules_lib)
-   
+
     def _get_from_kwargs(self, kwargs, name):
         module = kwargs[name]
         kwargs.pop(name)
@@ -180,28 +180,28 @@ class PointBaseModel(nn.Module):
             flow "UP" or "DOWN"
         """
         args = self._fetch_arguments_from_list(conv_opt, index)
-        # args["conv_cls"] = self._factory_module.get_module(flow)
         args["index"] = index
         return args
 
-    def forward(self, query_points, support_points, x):
+    def forward(self, xyz, x=None):
         """ This method does a forward on the PointNet++-like architecture
-           query_points:  
-           support_points: 
+          xyz:
            x: original input for feature, not include xyz
         """
         stack_down = []
-        xyz = query_points
-        feature = x[:, 0, :, :]
-        stack_down.append([xyz, feature]) 
+        feature = x
+        stack_down.append([xyz, feature])
         for i in range(len(self.down_modules)):
-            feature = torch.cat([feature, xyz], dim=1)
-            xyz, feature= self.down_modules[i](xyz, xyz, feature) # TODO, support points is same points
+            if feature is None:
+                feature = xyz
+            else:
+                feature = torch.cat([feature, xyz], dim=1)
+            xyz, feature= self.down_modules[i](xyz, xyz, feature) #
             stack_down.append([xyz, feature]) #[BS, C, N], TODO
 
         if not isinstance(self.inner_modules[0], Identity):
-            feature = self.inner_modules[0](xyz, feature)[1] # return pos, 
-        # 
+            feature = self.inner_modules[0](xyz, feature)[1] # return pos,
+        #
         feature_prev = feature
         xyz_prev = None
         for i in range(len(self.up_modules)):
@@ -209,7 +209,7 @@ class PointBaseModel(nn.Module):
             xyz_prev, feature_prev = self.up_modules[i](xyz, skip, xyz_prev, feature_prev)
         pred = self.final_layers(feature_prev)
 
-        return pred 
+        return pred
 
 if __name__ == "__main__":
     from hydra.experimental import compose, initialize
@@ -217,7 +217,7 @@ if __name__ == "__main__":
     cfg = compose("config.yaml")
     opt = cfg.models.pointnet2_charlesmsg
 
-    #>>>>> test input 
+    #>>>>> test input
     gpu = 0
     deploy_device   = torch.device('cuda:{}'.format(gpu))
 
@@ -225,7 +225,7 @@ if __name__ == "__main__":
     T     = 2
     xyz2  = torch.rand(1, T, 3, N, requires_grad=False, device=deploy_device).float() # [BS, T, C, N] --> later [BS, C, T, N]
     xyz1  = xyz2[:, 0, :, :]
-    feat2 = torch.rand(1, T, 1, N, requires_grad=False, device=deploy_device).float() 
+    feat2 = torch.rand(1, T, 1, N, requires_grad=False, device=deploy_device).float()
     PM = PointMotionBaseModel(opt, 'pointnet2_charlesmsg').cuda(gpu)
     for i in range(10):
         pred  = PM(xyz1, xyz2, feat2)
@@ -237,5 +237,5 @@ if __name__ == "__main__":
     #     print('output after one block has size: ', xyz.size, feat.size())
 
 
-    
+
     print('Con!!!')

@@ -1,5 +1,5 @@
 import torch 
-import time 
+import time
 import torch.nn as nn
 import numpy as np
 from kaolin.models.PointNet2 import furthest_point_sampling
@@ -24,19 +24,19 @@ def pdist2squared(x, y):
     dist[dist != dist] = 0
     dist = torch.clamp(dist, 0.0, np.inf)
     return dist
-    
+
 # Simply sample npoint xyz, return index
 class Sample(nn.Module):
     def __init__(self, npoint, fps=False):
         super(Sample, self).__init__()
         self.npoint = npoint
         self.fps=fps
-        
+
     def forward(self, xyz):
         """
-        
+
         """
-        if self.fps: 
+        if self.fps:
             xyz_ind = furthest_point_sampling(xyz.permute(0, 2, 1).contiguous().float(), self.npoint)
         else:
             xyz_ind = None
@@ -47,11 +47,11 @@ class Sample(nn.Module):
 class Group(nn.Module):
     def __init__(self, radius, nsample, knn=False):
         super(Group, self).__init__()
-        
+
         self.radius = radius
         self.nsample = nsample
         self.knn    = knn
-        
+
     def forward(self, xyz1, xyz2, flag=None, nframe=2):
         # for every xyz in xyz1, find nearest xyz in xyz2, or
         if self.knn:
@@ -60,7 +60,7 @@ class Group(nn.Module):
             ind = dist.topk(self.nsample, dim=1, largest=False)[1].int().permute(0, 2, 1).contiguous()
         else:
             ind = ball_query(self.radius, self.nsample, xyz2.permute(0, 2, 1).contiguous(),
-                             xyz1.permute(0, 2, 1).contiguous(), False) 
+                             xyz1.permute(0, 2, 1).contiguous(), False)
 
         return ind
 
@@ -69,7 +69,7 @@ class Group(nn.Module):
 class GroupRR(nn.Module):
     def __init__(self, radius_list, nsample, knn=False, use_xyz=True):
         super(GroupRR, self).__init__()
-        
+
         self.radius_list = radius_list
         self.nsample= nsample
         self.knn    = knn
@@ -79,7 +79,7 @@ class GroupRR(nn.Module):
             self.groups.append( Group(radius, nsample, knn=knn)) # number of samples per frame
 
     def forward(self, xyz1, xyz2, flag, nframe):
-        # for every xyz in xyz1, find nearest xyz in xyz2, or 
+        # for every xyz in xyz1, find nearest xyz in xyz2, or
         bs = len(flag.size(0))
 
         # for i in range(bs):
@@ -103,23 +103,23 @@ class meteor_direct_module(nn.Module):
         self.pooling = pooling
         self.use_xyz = use_xyz
 
-        self.sampling = Sample(npoint, fps=True) # sample npoint, but how to distribute time                
+        self.sampling = Sample(npoint, fps=True) # sample npoint, but how to distribute time
         if radius_list[0] != radius_list[1]:
             self.grouping = GroupRR(radius_list, nsample, knn=knn)
         else:
             self.grouping = Group(radius_list[0], nsample, knn=knn)
 
         layers = []
-        out_channels = [in_channels, *out_channels] # 
+        out_channels = [in_channels, *out_channels] #
         for i in range(1, len(out_channels)):
             layers += [nn.Conv2d(out_channels[i - 1], out_channels[i], 1, bias=True), nn.BatchNorm2d(out_channels[i], eps=0.001), nn.ReLU()]
         self.conv = nn.Sequential(*layers)
         self.unary= nn.Sequential(
-                    nn.Conv1d(out_channels[-1]*self.window_size, out_channels[-1], 1, bias=True), 
-                    nn.BatchNorm1d(out_channels[-1], eps=0.001), 
+                    nn.Conv1d(out_channels[-1]*self.window_size, out_channels[-1], 1, bias=True),
+                    nn.BatchNorm1d(out_channels[-1], eps=0.001),
                     nn.LeakyReLU()
                     )
-        
+
     def forward(self, xyz, times, features, verbose=False):
         """
         Input:
@@ -131,25 +131,25 @@ class meteor_direct_module(nn.Module):
             time: updated frame labels;
             new_feature: [Batch_size, 3, T, N1]
         """
-        # 1. sample, random sample number of xyz 
+        # 1. sample, random sample number of xyz
         xyz_ind = self.sampling(xyz)                 # [B, N]
-        points  = fps_gather_by_index(xyz, xyz_ind) 
+        points  = fps_gather_by_index(xyz, xyz_ind)
         t_flag  = fps_gather_by_index(times, xyz_ind) # gather by index
-    
+
         # 2. group by radius, and feature concats
         neighbors_ind    = self.grouping(points, xyz)
- 
+
         xyz_grouped      = group_gather_by_index(xyz, neighbors_ind)
         features_grouped = group_gather_by_index(features, neighbors_ind) # batch_size, channel2, npoint1, nsample
         times_grouped    = group_gather_by_index(times, neighbors_ind)
 
         xyz_diff     = xyz_grouped - points.unsqueeze(3) # distance as part of feature
-        if self.use_xyz: 
+        if self.use_xyz:
             feat_grouped = torch.cat([xyz_diff, times_grouped, features_grouped], dim=1) # batch_size, channel2+3, npoint1, nsample
-        else: 
+        else:
             feat_grouped = features_grouped
 
-        # 3. compute features 
+        # 3. compute features
         new_features = self.conv(feat_grouped)
 
         bs, c, n, m = new_features.size()
@@ -166,24 +166,24 @@ class meteor_direct_module_original(nn.Module):
         super(meteor_direct_module_original, self).__init__()
 
         self.nsample = nsample
-        self.nframe  = nframe 
+        self.nframe  = nframe
         self.npoint  = npoint # npoint in total
         self.module_type = module_type
         self.pooling = pooling
         self.use_xyz = use_xyz
 
-        self.sampling = Sample(npoint, fps=True) # sample npoint, but how to distribute time                
+        self.sampling = Sample(npoint, fps=True) # sample npoint, but how to distribute time
         if radius_list[0] != radius_list[1]:
             self.grouping = GroupRR(radius_list, nsample, knn=knn)
         else:
             self.grouping = Group(radius_list[0], nsample, knn=knn)
 
         layers = []
-        out_channels = [in_channels, *out_channels] # 
+        out_channels = [in_channels, *out_channels] #
         for i in range(1, len(out_channels)):
             layers += [nn.Conv2d(out_channels[i - 1], out_channels[i], 1, bias=True), nn.BatchNorm2d(out_channels[i], eps=0.001), nn.ReLU()]
         self.conv = nn.Sequential(*layers)
-        
+
     def forward(self, xyz, times, features, verbose=False):
         """
         Input:
@@ -195,33 +195,33 @@ class meteor_direct_module_original(nn.Module):
             time: updated frame labels;
             new_feature: [Batch_size, 3, T, N1]
         """
-        # 1. sample, random sample number of xyz 
+        # 1. sample, random sample number of xyz
         xyz_ind = self.sampling(xyz)                 # [B, 3, N] --> [B, N]
-        points  = fps_gather_by_index(xyz, xyz_ind) 
+        points  = fps_gather_by_index(xyz, xyz_ind)
         t_flag  = fps_gather_by_index(times, xyz_ind) # gather by index
-    
+
         # 2. group by radius, and feature concats
-        # get xyz1, xyz2 
-        # 
+        # get xyz1, xyz2
+        #
         xyzs = []
-        for i in range(self.nframe): 
+        for i in range(self.nframe):
             ind = torch.nonzero(times==i)
             breakpoint()
             xyzs.append(xyz[ind[:, 0], :, ind[:, 2]])
 
             neighbors_ind    = self.grouping(points, xyzs[i])
-     
+
             xyz_grouped      = group_gather_by_index(xyz, neighbors_ind)
             features_grouped = group_gather_by_index(features, neighbors_ind) # batch_size, channel2, npoint1, nsample
             times_grouped    = group_gather_by_index(times, neighbors_ind)
 
             xyz_diff     = xyz_grouped - points.unsqueeze(3) # distance as part of feature
-            if self.use_xyz: 
+            if self.use_xyz:
                 feat_grouped = torch.cat([xyz_diff, times_grouped, features_grouped], dim=1) # batch_size, channel2+3, npoint1, nsample
-            else: 
+            else:
                 feat_grouped = features_grouped
 
-            # 3. compute features 
+            # 3. compute features
             new_features = self.conv(feat_grouped)
             new_features = new_features.max(dim=3)[0]
 
@@ -230,17 +230,17 @@ class meteor_direct_module_original(nn.Module):
 class pointnet_fp_module(nn.Module):
     def __init__(self, in_channels1, in_channels2, out_channels):
         super(pointnet_fp_module, self).__init__()
-        
+
         layers = []
         out_channels = [in_channels1+in_channels2, *out_channels]
         for i in range(1, len(out_channels)):
             layers += [nn.Conv2d(out_channels[i - 1], out_channels[i], 1, bias=True), nn.BatchNorm2d(out_channels[i], eps=0.001), nn.ReLU()]
         self.conv = nn.Sequential(*layers)
-        
+
     def forward(self, xyz2, xyz1, feat2, feat1):
         """
         xyz1 : [B, 3, N], the sparse points to intepolate
-        feat2: previous layer to concat, may be None for first 
+        feat2: previous layer to concat, may be None for first
         """
         dist, ind = three_nn(xyz2.permute(0, 2, 1).contiguous(), xyz1.permute(0, 2, 1).contiguous())
         dist = dist * dist
@@ -252,7 +252,7 @@ class pointnet_fp_module(nn.Module):
         new_features = torch.sum(group_gather_by_index(feat1, ind) * weights.unsqueeze(1), dim = 3)
         new_features = torch.cat([new_features, feat2], dim=1)
         new_features = self.conv(new_features.unsqueeze(3)).squeeze(3)
-        
+
         return new_features
 
 class MeteorNet(nn.Module):
@@ -285,7 +285,7 @@ class MeteorNet(nn.Module):
     def forward(self, xyzs, feat, times=None):
         """
         xyzs: []
-        times: 
+        times:
         """
         l0_xyz = xyzs
         l0_time= times
@@ -304,7 +304,7 @@ class MeteorNet(nn.Module):
 
         pred = self.classifier(new_feat) # B, 3, N*T
         pred_curr = pred.view(pred.size(0), pred.size(1), self.nframe, -1).contiguous()[:, :, 0, :]
-        
+
         # only return preds in current frame
         return pred_curr
 
@@ -312,7 +312,7 @@ class MeteorNet(nn.Module):
         # m_pred = self.classifier_motion(new_feat) # B, 3, N*T
 
         # c_pred_curr = c_pred.view(pred.size(0), pred.size(1), self.nframe, -1).contiguous()[:, :, 0, :]
-        
+
         # # only return preds in current frame
         # return c_pred, m_pred
 
@@ -322,9 +322,9 @@ def criterion(pred_flow, flow, mask=None):
     flow: B, 3, N*T
     mask: B, 3, B*T
     """
-    if mask is not None: 
+    if mask is not None:
         loss = torch.mean(torch.sum((pred_flow - flow) * (pred_flow - flow) * mask, dim=1) / 2.0)
-    else: 
+    else:
         loss = torch.mean(torch.sum((pred_flow - flow) * (pred_flow - flow), dim=1) / 2.0) # why divided by 2
     return loss
 
@@ -333,11 +333,11 @@ if __name__ == '__main__':
     deploy_device   = torch.device('cuda:{}'.format(gpu))
     N    = 2048
     B    = 2
-    xyz1 = np.random.rand(B, 3, N) 
+    xyz1 = np.random.rand(B, 3, N)
     xyz2 = xyz1 + np.array([0.2, 0.2, 0]).reshape(1, 3, 1)
     xyz1 = torch.from_numpy(xyz1.copy()).cuda(gpu)
     xyz2 = torch.from_numpy(xyz2.copy()).cuda(gpu)
-    feat1 = torch.rand(B, 1, N, requires_grad=False, device=deploy_device).float() 
+    feat1 = torch.rand(B, 1, N, requires_grad=False, device=deploy_device).float()
     feat2 = feat1
     time1 = torch.zeros(B, 1, N, device=deploy_device).float()
     time2 = torch.ones(B, 1, N, device=deploy_device).float()

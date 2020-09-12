@@ -1,10 +1,8 @@
-TRAIN: 
+TRAIN:
   # model parameters
   shuffle_train: True
   use_direct_regression: False
   direct_loss_multiplier: 1.0
-  batch_size: 8
-  batch_size_per_gpu: 8
   miou_loss_multiplier: 1.0
   nocs_loss_multiplier: 10.0
   gocs_loss_multiplier: 1.0
@@ -15,14 +13,13 @@ TRAIN:
   parameter_loss_multiplier: 1.0
   residue_loss_multiplier: 1.0
   total_loss_multiplier: 1.0
+  orthogonality_loss_weight: 0.1
+  coord_regress_loss: 'L2'
   parametri_type: "orth"
-  list_of_primitives:
-      - 'sphere'
-      - 'plane'
-      - 'cylinder'
-      - 'cone'
 
   # data source
+  batch_size: 8
+  batch_size_per_gpu: 8
   train_data_file: "shape2motion/hdf5/0.01/train.txt"
   train_first_n: -1
   train_data_add_noise: true
@@ -36,18 +33,44 @@ TRAIN:
   # training parameters
   start_epoch: 0
   num_epoch: 1000
-  orthogonality_loss_weight: 0.1
+  epoch_iters: 5000
+  disp_iter: 20
+  report_batch: 1        # every x batches, report loss
+  report_epoch: 1        # every x epochs, report validation set
+  val_interval: 5000
+  snapshot_interval: 1000
+  writer_start_step: 100
+  warmup_epochs: 1
+  #
   bn_decay_step: 200000
   decay_step: 200000
   decay_rate: 0.7
+  init_learning_rate: 0.001
   running_lr: 0.0
-  lr_encoder: 0.001
-  lr_decoder: 0.001
+  lr_encoder: 0.01
+  lr_decoder: 0.01
+  running_lr_encoder: 0.01
+  running_lr_decoder: 0.01
+  #
+  loss: "xentropy"
+  loss_weight: 1.0
+  epsilon_w: 0.001
+  optim: "SGD"
+  #
+  lr_pow: 1.0
+  lr_decay: 0.998
+  lr_warmup: True
+  beta1: 0.9
   momentum: 0.9
   weight_decay: 1e-4
-  init_learning_rate: 0.001
-  val_interval: 5000
-  snapshot_interval: 1000
+  fix_bn: False
+  dropout: 0.1
+  bn_d: 0.01
+  #
+  save_summary: False    # Summary of weight histograms for tensorboard
+  save_scans: False
+  show_scans: False      # show scans during training
+  seed: 304
 
   # I/O
   in_model_dir: "results/model"
@@ -57,13 +80,6 @@ TRAIN:
   test_prediction_dir: "results/test_pred"
   demo_prediction_dir: "results/demo"
   log_dir: "results/log"
-  writer_start_step: 100
-
-  # loss
-  coord_regress_loss: 'L2'
-
-  # seed
-  seed: 100
 
 MODEL:
   arch_encoder: "identical"
@@ -71,3 +87,16 @@ MODEL:
   arch_head: "segmentation"
   weights_encoder: ""
   weights_decoder: ""
+
+HEAD:
+  part_cls_per_point: [128, 3, 'softmax']
+  nocs_per_point : [128, None, 'sigmoid']
+  gocs_per_point : [128, 3, 'sigmoid']
+  hand_heatmap_per_point :  [128, 128, 21, 'sigmoid']
+  hand_unitvec_per_point :  [128, 128, 63, 'tanh']
+  confidence_per_point : [128, 1, 'sigmoid']
+  heatmap_per_point :  [128, 128, 1, 'sigmoid']
+  unitvec_per_point :  [128, 128, 3, 'tanh']
+  orient_per_point : [128, 128, 3, 'tanh']
+  joint_cls_per_point : [128, 128, 3, 'softmax']
+  # hand joints params not showing here

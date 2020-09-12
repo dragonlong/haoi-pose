@@ -6,10 +6,7 @@ import math
 import torch.nn.functional as F
 
 import __init__
-
-from common.sync_batchnorm.batchnorm import SynchronizedBatchNorm2d
 from common.debugger import breakpoint
-
 import global_info
 
 setting = global_info.setting()

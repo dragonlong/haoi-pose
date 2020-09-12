@@ -1,6 +1,14 @@
-from dataset.base import SyntheticDataset as Dataset
 import torch
 import torch.nn as nn
+import hydra
+import numpy as np
+from sklearn.decomposition import PCA
+
+
+import __init__
+from dataset.base import SyntheticDataset as Dataset
+from global_info import global_info
+epsilon = 10e-8
 
 def breakpoint():
     import pdb;pdb.set_trace()
@@ -10,7 +18,6 @@ class Parser():
         self.workers       = cfg.num_workers # workers is free to decide
         self.batch_size    = cfg.TRAIN.batch_size
         self.shuffle_train =  cfg.TRAIN.shuffle_train
-
         self.train_dataset = Dataset(
             root_dir=cfg.root_data,
             ctgy_obj=cfg.item,
@@ -33,8 +40,6 @@ class Parser():
                                                      pin_memory=True,
                                                      drop_last=True)
         assert len(self.trainloader) > 0
-
-        # self.trainiter = iter(self.trainloader)
 
         # seen instances
         self.valid_dataset = Dataset(
@@ -60,32 +65,30 @@ class Parser():
                                                        pin_memory=True,
                                                        drop_last=True)
         assert len(self.validloader) > 0
-        # self.validiter = iter(self.validloader)
 
-        # # unseen instances
-        # self.test_dataset = Dataset(
-        #     root_dir=cfg.root_data,
-        #     ctgy_obj=cfg.item,
-        #     name_dset=cfg.name_dset,
-        #     batch_size=cfg.batch_size,
-        #     n_max_parts=cfg.n_max_parts,
-        #     add_noise=cfg.val_data_add_noise,
-        #     nocs_type=cfg.nocs_type,
-        #     parametri_type=cfg.parametri_type,
-        #     first_n=cfg.val_first_n,
-        #     is_debug=cfg.is_debug,
-        #     mode='test',
-        #     domain='unseen',
-        #     fixed_order=True,)
+        # unseen instances
+        self.test_dataset = Dataset(
+            root_dir=cfg.root_data,
+            ctgy_obj=cfg.item,
+            name_dset=cfg.name_dset,
+            batch_size=cfg.batch_size,
+            n_max_parts=cfg.n_max_parts,
+            add_noise=cfg.val_data_add_noise,
+            nocs_type=cfg.nocs_type,
+            parametri_type=cfg.parametri_type,
+            first_n=cfg.val_first_n,
+            is_debug=cfg.is_debug,
+            mode='test',
+            domain='unseen',
+            fixed_order=True,)
 
-        # self.testloader = torch.utils.data.DataLoader(self.test_dataset,
-        #                                             batch_size=self.batch_size,
-        #                                             shuffle=False,
-        #                                             num_workers=self.workers,
-        #                                             pin_memory=True,
-        #                                             drop_last=True)
-        # # assert len(self.testloader) > 0
-        # self.testiter = iter(self.testloader)
+        self.testloader = torch.utils.data.DataLoader(self.test_dataset,
+                                                    batch_size=self.batch_size,
+                                                    shuffle=False,
+                                                    num_workers=self.workers,
+                                                    pin_memory=True,
+                                                    drop_last=True)
+        assert len(self.testloader) > 0
 
     def get_train_batch(self):
         scans = self.trainiter.next()
@@ -116,3 +119,59 @@ class Parser():
 
     def get_test_size(self):
         return len(self.testloader)
+
+
+import os
+import random
+from hydra import utils
+from omegaconf import DictConfig, ListConfig, OmegaConf
+@hydra.main(config_path="../config/config.yaml")
+def main(cfg):
+    OmegaConf.set_struct(cfg, False)  # This allows getattr and hasattr methods to function correctly
+
+    #>>>>>>>>>>>>>>>>> setting <<<<<<<<<<<<<<<<<<< #
+    os.chdir(utils.get_original_cwd())
+    os.environ['MASTER_ADDR'] = '127.0.0.1'
+    os.environ['MASTER_PORT'] = str(cfg.port)
+    infos       = global_info()
+    data_infos  = infos.datasets[cfg.item]
+    base_path       = infos.base_path
+    group_dir       = infos.group_path
+    second_path     = infos.second_path
+
+    # category-wise training setup
+    cfg.n_max_parts = data_infos.num_parts
+    cfg.is_test = False
+
+    random.seed(30)
+    parser = Parser(cfg)
+    train_loader   = parser.get_train_set()
+    valid_loader   = parser.get_valid_set()
+    hand_joints_list = []
+
+    # points
+    for i, batch in enumerate(train_loader):
+        print('iterate', i)
+        if i > 1000:
+            break
+        hand_joints_cam_centered = batch['hand_joints_gt'].cpu().numpy().astype(np.float32)
+        hand_joints_list.append(hand_joints_cam_centered)
+    all_hands = np.concatenate(hand_joints_list, axis=0)
+
+    pca = PCA(n_components=30)
+    principalComponents = pca.fit_transform(all_hands)
+    save_dict = {}
+    save_dict['all_hands'] = all_hands
+    save_dict['E'] = pca.components_
+    save_dict['S'] = pca.singular_values_
+    save_dict['C'] = principalComponents
+    save_dict['M'] = pca.mean_
+
+    save_name = second_path + f'/data/pickle/hand_pca.npy'
+    np.save(save_name, save_dict)
+    print('saving to ', save_name)
+    print('PCA has shape: ', principalComponents.shape)
+
+
+if __name__ == '__main__':
+    main()

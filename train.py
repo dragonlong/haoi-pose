@@ -15,49 +15,52 @@ import torch.nn as nn
 
 # Our libs
 import __init__ as booger
-from common.debugger import breakpoint
-from global_info import global_info
 import dataset.parser_vanilla as parserModule
 from modules.network import Network
+from global_info import global_info
+from common.debugger import breakpoint
 
-# 
 def main_worker(gpu, cfg):
     # >>>>>>>>>>>>>>>>> 1. create data loader;
     parser = parserModule.Parser(cfg)
     train_loader   = parser.get_train_set()
-    valid_loader   = parser.get_valid_set()
-    
+    # valid_loader   = parser.get_valid_set()
+    # test_loader    = parser.get_test_set()
+
     cfg.TRAIN.epoch_iters = int(len(train_loader) / cfg.TRAIN.batch_size)
     cfg.TRAIN.max_iters   = cfg.TRAIN.epoch_iters * cfg.TRAIN.num_epoch
 
     if cfg.is_debug:
         dp = parser.train_dataset.__getitem__(100)
-        # dp = parser.get_valid_batch()
 
     # >>>>>>>>>>>>>>>>> 2. create model
     model = Network(gpu, cfg)
 
     # >>>>>>>>>>>>>>>>>>3. start train & evaluation
-    # for i in range(cfg.max_epoch):
-    #     model.train_epoch(cfg)
-    #     model.valid_epoch(cfg)
+    #safe
+    for epoch in range(cfg.TRAIN.num_epoch):
+        train_infos = model.train_epoch(gpu, train_loader, model.modules['point'], epoch, cfg)
+
+        # model.valid_epoch(valid_loader, cfg)
+        # model.test_epoch(test_loader, cfg)
+
+    # save to log, and save best model
 
 @hydra.main(config_path="config/config.yaml")
 def main(cfg):
     OmegaConf.set_struct(cfg, False)  # This allows getattr and hasattr methods to function correctly
 
     #>>>>>>>>>>>>>>>>> setting <<<<<<<<<<<<<<<<<<< #
-    # macros config
     os.chdir(utils.get_original_cwd())
     os.environ['MASTER_ADDR'] = '127.0.0.1'
     os.environ['MASTER_PORT'] = str(cfg.port)
-    infos       = global_info()
-    data_infos  = infos.datasets[cfg.item]
 
     # category-wise training setup
+    infos       = global_info()
+    data_infos  = infos.datasets[cfg.item]
     cfg.n_max_parts = data_infos.num_parts
     cfg.HEAD.nocs_per_point[-2] = cfg.n_max_parts * 3
-    cfg.root_data   = infos.base_path + '/dataset'
+    cfg.root_data   = infos.second_path + '/data'
     cfg.log_dir     = infos.base_path + cfg.log_dir
     cfg.TRAIN.running_lr         = cfg.TRAIN.init_learning_rate
     if not os.path.isdir(cfg.log_dir):
@@ -71,7 +74,7 @@ def main(cfg):
     if cfg.TRAIN.start_epoch > 0:
         assert os.path.exists(cfg.MODEL.weights_decoder), "checkpoint does not exitst!"
 
-    # evaluation 
+    # evaluation
     if cfg.is_testing:
         cfg.TRAIN.num_epoch = 1
         cfg.MODEL.weights_decoder = cfg.log_dir + '/decoder_best_point_val.pth'
@@ -83,7 +86,7 @@ def main(cfg):
         cfg.num_gpus = len(gpus)
     # >>>>>>>>>>>>>>>>>> ends here. <<<<<<<<<<<<<<<<<<<< #
 
-    # >>>>>>>>>>>> finalizing the config <<<<<<<<<<<<< # 
+    # >>>>>>>>>>>> finalizing the config <<<<<<<<<<<<< #
     with open(os.path.join(cfg.log_dir, 'config.yaml'), 'w') as f:
         f.write(cfg.pretty())
 
@@ -99,3 +102,4 @@ def main(cfg):
 
 if __name__ == '__main__':
     main()
+    print('')

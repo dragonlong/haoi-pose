@@ -167,7 +167,7 @@ class PoseDataset():
         meta     = {} # instance, arti_ind, grasp_ind
         group_dirs = os.listdir(base_path)
         group_dirs.sort()
-        
+
         # ********* add pts ************ #
         for group_dir in group_dirs:
             attrs     = group_dir.split('_')

@@ -84,6 +84,51 @@ models:
             nn: [128, 128]
             dropout: 0.5
 
+    pointnet2_meteornet:
+        class: pointnet2.PointNet2_D
+        conv_type: "DENSE"
+        use_category: ${data.use_category}
+        down_conv:
+            module_name: PointNetMSGDown
+            kernel_type: pointnet++
+            knn: True
+            share: True
+            use_time: False
+            padding: 0 # pad when needed
+            window_size: [2, 2, 2, 2] # temporal window size for different scales
+            layer_size: [1, 1, 1, 1] # layers for small pointnet of each spatial kernel in conv3d
+            npoint: [1024, 512, 128, 64]
+            radii: [[1.6], [3.2], [6.4], [12.8]]
+            nsamples: [[32], [32], [32], [32]]
+            down_conv_nn:
+                [
+                    [
+                        [0+3, 32, 32, 128],
+                    ],
+                    [
+                        [128+3, 64,64,256],
+                    ],
+                    [
+                        [256+3, 128, 128, 512],
+                    ],
+                    [
+                        [512+3, 256,256,1024],
+                    ],
+                ]
+        up_conv:
+            module_name: DenseFPModule
+            up_conv_nn:
+                [
+                    [1024 + 512, 256, 256],
+                    [256 + 256, 256, 256],
+                    [256 + 128, 256, 128],
+                    [128 + 1, 128, 128],
+                ]
+            skip: True
+        mlp_cls:
+            nn: [128]
+            dropout: 0.5
+
     pointnet2_charlesmsg:
         class: pointnet2.PointNet2_D
         conv_type: "DENSE"
