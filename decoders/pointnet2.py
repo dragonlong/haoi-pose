@@ -16,7 +16,8 @@ from modules.blocks import GlobalDenseBaseModule, PointNetMSGDown, DenseFPModule
 
 SPECIAL_NAMES = ["radius", "max_num_neighbors", "block_names"]
 
-
+def breakpoint():
+    import pdb;pdb.set_trace()
 class PointBaseModel(nn.Module):
     """Create a Unet unwrapped generator
        referring to https://github.com/nicolas-chaulet/torch-points3d/blob/master/torch_points3d
@@ -92,7 +93,6 @@ class PointBaseModel(nn.Module):
             ] if module is not None
         ]
         self.final_layers = nn.Sequential(*final_layer_modules)
-        # self._init_from_compact_format(opt, model_type, dataset, modules_lib)
 
     def _get_from_kwargs(self, kwargs, name):
         module = kwargs[name]
@@ -202,14 +202,18 @@ class PointBaseModel(nn.Module):
         if not isinstance(self.inner_modules[0], Identity):
             feature = self.inner_modules[0](xyz, feature)[1] # return pos,
         #
+        bottle_neck  = feature
         feature_prev = feature
-        xyz_prev = None
+        if feature_prev.size(-1) == 1:
+            xyz_prev = None
+        else:
+            xyz_prev, feature_prev = stack_down.pop()
         for i in range(len(self.up_modules)):
             xyz, skip = stack_down.pop()
             xyz_prev, feature_prev = self.up_modules[i](xyz, skip, xyz_prev, feature_prev)
         pred = self.final_layers(feature_prev)
 
-        return pred
+        return pred, bottle_neck
 
 if __name__ == "__main__":
     from hydra.experimental import compose, initialize

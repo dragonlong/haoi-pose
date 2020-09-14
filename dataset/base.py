@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset
 import hydra
+import scipy
 from hydra import utils
 from omegaconf import DictConfig, ListConfig, OmegaConf
 
@@ -221,22 +222,6 @@ class SyntheticDataset(Dataset):
 
         mask_array    = np.zeros([num_points, n_parts], dtype=np.float32)
 
-        if is_testing: # return the original unsmapled data
-            if self.name_dset == 'sapien':
-                target_order = self.ctgy_spec.spec_map[instance]
-                joint_rpy = joints['joint']['rpy'][target_order[0]]
-                rot_mat = euler_matrix(joint_rpy[0], joint_rpy[1], joint_rpy[2])[:3, :3]
-                p_arr   = np.dot(p_arr-0.5, rot_mat.T) + 0.5
-                g_arr   = np.dot(g_arr-0.5, rot_mat.T) + 0.5
-            result = {
-                'P': pts_arr*norm_factors[0], # todo
-                'cls_gt': cls_arr.astype(np.float32),
-                'mask_array': mask_array.astype(np.float32),
-                'nocs_gt': p_arr,
-                'nocs_gt_g': g_arr,
-            }
-            return result
-
         # use furthest point sampling
         perm       = np.random.permutation(n_total_points)
         sample_ind = np.arange(0, self.num_points).tolist()
@@ -250,10 +235,10 @@ class SyntheticDataset(Dataset):
 
         offset_heatmap_arr = offset_heatmap[perm][sample_ind]
         offset_unitvec_arr = offset_unitvec[perm][sample_ind]
-        joint_orient_arr   =  joint_orient[perm][sample_ind]
+        joint_orient_arr   = joint_orient[perm][sample_ind]
         joint_cls_arr  = joint_cls[perm][sample_ind]
         joint_cls_mask = np.zeros((joint_cls_arr.shape[0]), dtype=np.float32)
-        id_valid     = np.where(joint_cls_arr>0)[0]
+        id_valid       = np.where(joint_cls_arr>0)[0]
         joint_cls_mask[id_valid] = 1.00
 
         hand_joints_offset_heatmap = hand_joints_offset_heatmap[perm][sample_ind]
@@ -280,39 +265,39 @@ class SyntheticDataset(Dataset):
 
         hand_joints = hand_joints.reshape(-1)
 
-        pts_arr = torch.from_numpy(pts_arr.astype(np.float32).transpose(1, 0))
-        cls_arr = torch.from_numpy(cls_arr.astype(np.float32))
-        mask_array = torch.from_numpy(mask_array.astype(np.float32).transpose(1, 0))
-        p_arr = torch.from_numpy(p_arr.astype(np.float32).transpose(1, 0))
-        g_arr = torch.from_numpy(g_arr.astype(np.float32).transpose(1, 0))
-        hand_joints = torch.from_numpy(hand_joints.astype(np.float32))
+        if not self.is_testing:
+            pts_arr = torch.from_numpy(pts_arr.astype(np.float32).transpose(1, 0))
+            cls_arr = torch.from_numpy(cls_arr.astype(np.float32))
+            mask_array = torch.from_numpy(mask_array.astype(np.float32).transpose(1, 0))
+            p_arr = torch.from_numpy(p_arr.astype(np.float32).transpose(1, 0))
+            g_arr = torch.from_numpy(g_arr.astype(np.float32).transpose(1, 0))
+            hand_joints = torch.from_numpy(hand_joints.astype(np.float32))
 
-        hand_joints_offset_heatmap = torch.from_numpy(hand_joints_offset_heatmap.astype(np.float32).transpose(1, 0))
-        hand_joints_offset_unitvec = torch.from_numpy(hand_joints_offset_unitvec.astype(np.float32).transpose(1, 0))
-        hand_joint_cls = torch.from_numpy(hand_joint_cls.astype(np.float32))
+            hand_joints_offset_heatmap = torch.from_numpy(hand_joints_offset_heatmap.astype(np.float32).transpose(1, 0))
+            hand_joints_offset_unitvec = torch.from_numpy(hand_joints_offset_unitvec.astype(np.float32).transpose(1, 0))
+            hand_joint_cls = torch.from_numpy(hand_joint_cls.astype(np.float32))
 
-        offset_heatmap_arr = torch.from_numpy(offset_heatmap_arr.astype(np.float32))
-        offset_unitvec_arr = torch.from_numpy(offset_unitvec_arr.astype(np.float32).transpose(1, 0))
-        joint_orient_arr = torch.from_numpy(joint_orient_arr.astype(np.float32).transpose(1, 0))
-        joint_cls_arr = torch.from_numpy(joint_cls_arr.astype(np.float32))
-        joint_cls_mask = torch.from_numpy(joint_cls_mask.astype(np.float32))
-        joint_params = torch.from_numpy(joint_params)
-
+            offset_heatmap_arr = torch.from_numpy(offset_heatmap_arr.astype(np.float32))
+            offset_unitvec_arr = torch.from_numpy(offset_unitvec_arr.astype(np.float32).transpose(1, 0))
+            joint_orient_arr = torch.from_numpy(joint_orient_arr.astype(np.float32).transpose(1, 0))
+            joint_cls_arr = torch.from_numpy(joint_cls_arr.astype(np.float32))
+            joint_cls_mask = torch.from_numpy(joint_cls_mask.astype(np.float32))
+            joint_params = torch.from_numpy(joint_params)
 
         result = {
             'P': pts_arr,
-            'part_cls_per_point': cls_arr, #
+            'partcls_per_point': cls_arr, #
             'part_mask': mask_array,
             'nocs_per_point' : p_arr,
             'gocs_per_point' : g_arr,
-            'hand_joints_gt': hand_joints, # 21, 3
-            'hand_heatmap_per_point': hand_joints_offset_heatmap,
-            'hand_unitvec_per_point': hand_joints_offset_unitvec,
+            'regression_params': hand_joints, # 21, 3
+            'handheatmap_per_point': hand_joints_offset_heatmap,
+            'handunitvec_per_point': hand_joints_offset_unitvec,
             'hand_mask' : hand_joint_cls,
             'heatmap_per_point'   : offset_heatmap_arr,
             'unitvec_per_point'   : offset_unitvec_arr,
-            'joint_axis_per_point'  : joint_orient_arr,
-            'joint_index_per_point' : joint_cls_arr,
+            'orient_per_point'    : joint_orient_arr,
+            'jointcls_per_point' : joint_cls_arr,
             'joint_mask'  : joint_cls_mask,
             'joint_params' : joint_params,
         }
@@ -362,7 +347,7 @@ class SyntheticDataset(Dataset):
             joint_params = np.zeros((n_parts, 6))
 
         # >>>>>>>>>>>>>>>>>>>>>>>>>>>>> read h5 file <<<<<<<<<<<<<<<<<<<<<<<<<<<<<#
-        hand_joints = f['joints'][()]
+        hand_joints   = f['joints'][()]
         hand_contacts = f['contacts'][()]
         for idx, group in enumerate(parts_map):
             P = f['gt_points'][str(group[0])][()][:, :3]
@@ -379,21 +364,30 @@ class SyntheticDataset(Dataset):
             parts_parent_joint[idx] = group[0] # first element as part that serve as child
             parts_child_joint[idx] = [ind for ind, x in enumerate(joint_part) if x == group[-1]] # in a group, we may use the last element to find joint that part serves as parent
 
-        # >>>>>>>>>>>>>>>>>>>>>>>> obb in camera space, normalize the hand
-        # mean_hand  = np.mean(parts_pts[-1], axis=0).reshape(1, 3)
-        # if base_name in self.rot_mats:
+        # #>>>>>>>>>>>>>>>>>>>>>>>> obb in camera space, normalize the hand
+        mean_hand  = np.mean(parts_pts[-1], axis=0).reshape(1, 3)
+        # print('rot_mats are ', self.rot_mats)
+        # if base_name in self.rot_mats.keys():
         #     rot_mat = self.rot_mats[base_name]
         # else:
-        #     UU, SS, VV = np.linalg.svd(parts_pts[-1])
-
+        #     print('computing raw svd for ', base_name)
+        #     UU, SS, VV = scipy.linalg.svd(parts_pts[-1])
         #     rot_mat = VV.T
         #     self.rot_mats[base_name] = rot_mat
-
+        #     print('adding to rot_mats')
+        #
         # for j in range(n_parts):
-        #     parts_pts[j] = np.dot(parts_pts[j], rot_mat)
+        #     parts_pts[j] = np.sum(np.expand_dims(parts_pts[j], 2) * rot_mat[:3, :3], axis=1)
         #     parts_pts[j] = parts_pts[j] - mean_hand
+        # hand_joints   = np.sum(np.expand_dims(hand_joints, 2) * rot_mat[:3, :3], axis=1) - mean_hand
+        # hand_contacts = np.sum(np.expand_dims(hand_contacts, 2) * rot_mat[:3, :3], axis=1) - mean_hand
+        for j in range(n_parts):
+            # parts_pts[j] = np.dot(parts_pts[j], rot_mat)
+            parts_pts[j] = parts_pts[j] - mean_hand
         # hand_joints   = np.dot(hand_joints, rot_mat) - mean_hand
         # hand_contacts = np.dot(hand_contacts, rot_mat)- mean_hand
+        hand_joints   = hand_joints - mean_hand
+        hand_contacts = hand_contacts - mean_hand
 
         # >>>>>>>>>>>>>>>>>>> compute NOCS, joint_params, associated joints for each part, ignore joints for hand
         for j in range(n_parts):
@@ -569,7 +563,7 @@ def main(cfg):
     os.environ['MASTER_PORT'] = str(cfg.port)
     infos       = global_info()
     data_infos  = infos.datasets[cfg.item]
-
+    root_dset   = cfg.root_data
     # category-wise training setup
     cfg.n_max_parts = data_infos.num_parts
     cfg.is_test = False
@@ -587,6 +581,7 @@ def main(cfg):
         parametri_type=cfg.parametri_type,
         first_n=cfg.train_first_n,
         is_debug=cfg.is_debug,
+        is_testing=True,
         mode='train',
         fixed_order=False,)
 
@@ -601,55 +596,53 @@ def main(cfg):
         for keys, item in data_pts.items():
             print(keys, item.shape)
 
-        # input_pts = data_pts['P']
-        # nocs_gt   = {}
-        # nocs_gt['pn']   = data_pts['nocs_gt']
-        # if args.nocs_type == 'AC':
-        #     nocs_gt['gn']   = data_pts['nocs_gt_g']
+        input_pts = data_pts['P']
+        nocs_gt   = {}
+        nocs_gt['pn']   = data_pts['nocs_per_point']
+        nocs_gt['gn']   = data_pts['gocs_per_point']
 
-        # mask_gt   = data_pts['cls_gt']
-        # num_pts = input_pts.shape[0]
-        # num_parts = n_max_parts
-        # part_idx_list_gt   = []
-        # for j in range(num_parts):
-        #     part_idx_list_gt.append(np.where(mask_gt==j)[0])
-        # if not args.test:
-        #     heatmap_gt= data_pts['heatmap_gt']
-        #     unitvec_gt= data_pts['unitvec_gt']
-        #     orient_gt = data_pts['orient_gt']
-        #     joint_cls_gt = data_pts['joint_cls_gt']
-        #     joint_params_gt = data_pts['joint_params_gt']
-        #     # print('joint_params_gt is: ', joint_params_gt)
-        #     joint_idx_list_gt   = []
-        #     for j in range(num_parts):
-        #         joint_idx_list_gt.append(np.where(joint_cls_gt==j)[0])
+        mask_gt   = data_pts['partcls_per_point']
+        num_pts = input_pts.shape[0]
+        num_parts = cfg.n_max_parts
+        part_idx_list_gt   = []
+        for j in range(num_parts):
+            part_idx_list_gt.append(np.where(mask_gt==j)[0])
+        if not cfg.test:
+            heatmap_gt= data_pts['heatmap_per_point']
+            unitvec_gt= data_pts['unitvec_per_point']
+            orient_gt = data_pts['orient_per_point']
+            joint_cls_gt = data_pts['jointcls_per_point']
+            joint_params_gt = data_pts['joint_params']
+            joint_idx_list_gt   = []
+            for j in range(num_parts):
+                joint_idx_list_gt.append(np.where(joint_cls_gt==j)[0])
 
-        # #>>>>>>>>>>>>>>>>>>>>>------ For segmentation visualization ----
-        # # plot_imgs([rgb_img], ['rgb img'], title_name='RGB', sub_name=str(i), show_fig=args.show_fig, save_fig=args.save_fig, save_path=root_dset + '/NOCS/' + args.item)
-        # plot3d_pts([[input_pts]], [['Part {}'.format(0)]], s=50, title_name=['GT seg on input point cloud'], sub_name=str(i), show_fig=args.show_fig, axis_off=True, save_fig=args.save_fig, save_path=root_dset + '/NOCS/' + args.item)
-        # plot3d_pts([[input_pts[part_idx_list_gt[j], :] for j in range(num_parts)]], [['Part {}'.format(j) for j in range(num_parts)]], s=50, title_name=['GT seg on input point cloud'], sub_name=str(i), show_fig=args.show_fig, axis_off=True, save_fig=args.save_fig, save_path=root_dset + '/NOCS/' + args.item)
-        # plot3d_pts([[nocs_gt['gn'][part_idx_list_gt[j], :] for j in range(num_parts)]], [['Part {}'.format(j) for j in range(num_parts)]], s=50, title_name=['GT global NOCS'], sub_name=str(i), show_fig=args.show_fig, save_fig=args.save_fig, save_path=root_dset + '/NOCS/' + args.item)
-        # plot3d_pts([[nocs_gt['pn'][part_idx_list_gt[j], :] for j in range(num_parts)]], [['Part {}'.format(j) for j in range(num_parts)]], s=50, title_name=['GT part NOCS'], sub_name=str(i), show_fig=args.show_fig, save_fig=args.save_fig, save_path=root_dset + '/NOCS/' + args.item)
-        # for j in range(num_parts):
-        #     plot3d_pts([[nocs_gt['pn'][part_idx_list_gt[j], :] ]], [['Part {}'.format(j)]], s=15, dpi=200, title_name=['GT part NOCS'], color_channel=[[ nocs_gt['pn'][part_idx_list_gt[j], :] ]], sub_name='{}_part_{}'.format(i, j) , show_fig=args.show_fig, save_fig=args.save_fig, save_path=root_dset + '/NOCS/' + args.item)
-        #     plot3d_pts([[nocs_gt['gn'][part_idx_list_gt[j], :] ]], [['Part {}'.format(j)]], s=15, dpi=200, title_name=['GT global NOCS'], color_channel=[[ nocs_gt['gn'][part_idx_list_gt[j], :] ]], sub_name='{}_part_{}'.format(i, j), show_fig=args.show_fig, save_fig=args.save_fig, save_path=root_dset + '/NOCS/' + args.item)
+        #>>>>>>>>>>>>>>>>>>>>>------ For segmentation visualization ----
+        # plot_imgs([rgb_img], ['rgb img'], title_name='RGB', sub_name=str(i), show_fig=cfg.show_fig, save_fig=cfg.save_fig, save_path=root_dset + '/NOCS/' + cfg.item)
+        plot3d_pts([[input_pts]], [['Part {}'.format(0)]], s=50, title_name=['GT seg on input point cloud'], sub_name=str(i), show_fig=cfg.show_fig, axis_off=False, save_fig=cfg.save_fig, save_path=root_dset + '/NOCS/' + cfg.item, limits = [[-0.5, 0.5], [-0.5, 0.5], [0.5, 1.5]])
+        plot3d_pts([[input_pts[part_idx_list_gt[j], :] for j in range(num_parts)]], [['Part {}'.format(j) for j in range(num_parts)]], s=50, title_name=['GT seg on input point cloud'], sub_name=str(i), show_fig=cfg.show_fig, axis_off=False, save_fig=cfg.save_fig, save_path=root_dset + '/NOCS/' + cfg.item, limits = [[-0.5, 0.5], [-0.5, 0.5], [0.5, 1.5]])
+        plot3d_pts([[nocs_gt['gn'][part_idx_list_gt[j], :] for j in range(num_parts)]], [['Part {}'.format(j) for j in range(num_parts)]], s=50, title_name=['GT global NOCS'], sub_name=str(i), show_fig=cfg.show_fig, save_fig=cfg.save_fig, save_path=root_dset + '/NOCS/' + cfg.item)
+        plot3d_pts([[nocs_gt['pn'][part_idx_list_gt[j], :] for j in range(num_parts)]], [['Part {}'.format(j) for j in range(num_parts)]], s=50, title_name=['GT part NOCS'], sub_name=str(i), show_fig=cfg.show_fig, save_fig=cfg.save_fig, save_path=root_dset + '/NOCS/' + cfg.item)
+        for j in range(num_parts):
+            plot3d_pts([[nocs_gt['pn'][part_idx_list_gt[j], :] ]], [['Part {}'.format(j)]], s=15, dpi=200, title_name=['GT part NOCS'], color_channel=[[ nocs_gt['pn'][part_idx_list_gt[j], :] ]], sub_name='{}_part_{}'.format(i, j) , show_fig=cfg.show_fig, save_fig=cfg.save_fig, save_path=root_dset + '/NOCS/' + cfg.item)
+            plot3d_pts([[nocs_gt['gn'][part_idx_list_gt[j], :] ]], [['Part {}'.format(j)]], s=15, dpi=200, title_name=['GT global NOCS'], color_channel=[[ nocs_gt['gn'][part_idx_list_gt[j], :] ]], sub_name='{}_part_{}'.format(i, j), show_fig=cfg.show_fig, save_fig=cfg.save_fig, save_path=root_dset + '/NOCS/' + cfg.item)
 
-        # # show joints
-        # if not cfg.is_test:
-        #     plot3d_pts([[input_pts[joint_idx_list_gt[j], :] for j in range(num_parts)]], [['unassigned Pts'] + ['Pts of joint {}'.format(j) for j in range(1, num_parts)]], s=15, \
-        #           title_name=['GT association of pts to joints '], sub_name=str(i), show_fig=args.show_fig, save_fig=args.save_fig, save_path=root_dset + '/NOCS/' + args.item, axis_off=True)
-        #     plot3d_pts([[ input_pts ]], [['Part 0-{}'.format(num_parts-1)]], s=15, \
-        #           dpi=200, title_name=['Input Points distance heatmap'], color_channel=[[250*np.concatenate([heatmap_gt.reshape(-1, 1), np.zeros((heatmap_gt.shape[0], 2))], axis=1)]], show_fig=args.show_fig)
+        # show joints
+        if not cfg.is_test:
+            plot3d_pts([[input_pts[joint_idx_list_gt[j], :] for j in range(num_parts)]], [['unassigned Pts'] + ['Pts of joint {}'.format(j) for j in range(1, num_parts)]], s=15, \
+                  title_name=['GT association of pts to joints '], sub_name=str(i), show_fig=cfg.show_fig, save_fig=cfg.save_fig, save_path=root_dset + '/NOCS/' + cfg.item, axis_off=True)
+            plot3d_pts([[ input_pts ]], [['Part 0-{}'.format(num_parts-1)]], s=15, \
+                  dpi=200, title_name=['Input Points distance heatmap'], color_channel=[[250*np.concatenate([heatmap_gt.reshape(-1, 1), np.zeros((heatmap_gt.shape[0], 2))], axis=1)]], show_fig=cfg.show_fig)
 
-        #     thres_r       = 0.2
-        #     offset        = unitvec_gt * (1- heatmap_gt.reshape(-1, 1)) * thres_r
-        #     joint_pts     = nocs_gt['gn'] + offset
-        #     joints_list   = []
-        #     idx           = np.where(joint_cls_gt > 0)[0]
-        #     plot_arrows(nocs_gt['gn'][idx], [0.5*orient_gt[idx]], whole_pts=nocs_gt['gn'], title_name='{}_joint_pts_axis'.format('GT'), dpi=200, s=25, thres_r=0.1, show_fig=args.show_fig, sparse=True, save=args.save_fig, index=i, save_path=root_dset + '/NOCS/' + args.item)
-        #     plot_arrows(nocs_gt['gn'][idx], [offset[idx]], whole_pts=nocs_gt['gn'], title_name='{}_joint_offsets'.format('GT'), dpi=200, s=25, thres_r=0.1, show_fig=args.show_fig, sparse=True, save=args.save_fig, index=i, save_path=root_dset + '/NOCS/' + args.item)
-        #     # plot_arrows(input_pts[idx], [0.5*orient_gt[idx]], whole_pts=input_pts, title_name='{}_joint_pts_axis'.format('GT'), dpi=200, s=25, thres_r=0.2, show_fig=args.show_fig, sparse=True, save=args.save_fig, index=i, save_path=root_dset + '/NOCS/' + args.item)
-        #     # plot_arrows(input_pts[idx], [offset[idx]], whole_pts=input_pts, title_name='{}_joint_offsets'.format('GT'), dpi=200, s=25, thres_r=0.2, show_fig=args.show_fig, sparse=True, save=args.save_fig, index=i, save_path=root_dset + '/NOCS/' + args.item)
+            thres_r       = 0.2
+            offset        = unitvec_gt * (1- heatmap_gt.reshape(-1, 1)) * thres_r
+            joint_pts     = nocs_gt['gn'] + offset
+            joints_list   = []
+            idx           = np.where(joint_cls_gt > 0)[0]
+            plot_arrows(nocs_gt['gn'][idx], [0.5*orient_gt[idx]], whole_pts=nocs_gt['gn'], title_name='{}_joint_pts_axis'.format('GT'), dpi=200, s=25, thres_r=0.1, show_fig=cfg.show_fig, sparse=True, save=cfg.save_fig, index=i, save_path=root_dset + '/NOCS/' + cfg.item)
+            plot_arrows(nocs_gt['gn'][idx], [offset[idx]], whole_pts=nocs_gt['gn'], title_name='{}_joint_offsets'.format('GT'), dpi=200, s=25, thres_r=0.1, show_fig=cfg.show_fig, sparse=True, save=cfg.save_fig, index=i, save_path=root_dset + '/NOCS/' + cfg.item)
+            # plot_arrows(input_pts[idx], [0.5*orient_gt[idx]], whole_pts=input_pts, title_name='{}_joint_pts_axis'.format('GT'), dpi=200, s=25, thres_r=0.2, show_fig=cfg.show_fig, sparse=True, save=cfg.save_fig, index=i, save_path=root_dset + '/NOCS/' + cfg.item)
+            # plot_arrows(input_pts[idx], [offset[idx]], whole_pts=input_pts, title_name='{}_joint_offsets'.format('GT'), dpi=200, s=25, thres_r=0.2, show_fig=cfg.show_fig, sparse=True, save=cfg.save_fig, index=i, save_path=root_dset + '/NOCS/' + cfg.item)
 
 if __name__=='__main__':
     main()

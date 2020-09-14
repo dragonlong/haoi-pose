@@ -7,12 +7,12 @@ defaults:
     optional: True
   - models: '${defaults.1.model_type}.yaml'
 
-exp_num: '0'
+exp_num: '1'
 exp_name: 'default'
 task: 'category_pose'
 name_dset: 'shape2motion'
 item: 'eyeglasses'
-n_max_parts : 3
+n_max_parts : 4
 nocs_type: 'A'
 num_expr: 0.01
 name_model: pointnet2_charlesmsg # Name of the specific model to load
@@ -20,8 +20,11 @@ root_data: "/groups/CESCA-CV/ICML2021/data"
 log_dir: '/model/${item}/${name_model}_${exp_num}' #
 
 # control
+verbose: False
+use_pretrain: False
 is_debug: False
 is_testing: False
+pred_hand: True
 pred_joint: False
 pred_joint_ind: False
 pretty_print: False
@@ -29,6 +32,10 @@ distributed: False
 port: '8803'
 num_gpus: 1
 gpu: '0'
-num_workers: 16
+num_workers: 8
 nframe: 1
 f: aa
+
+# visualizatio
+show_fig: True
+save_fig: False

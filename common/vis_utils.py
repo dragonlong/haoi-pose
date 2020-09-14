@@ -361,37 +361,6 @@ def get_mpl_colormap(cmap_name):
     color_range = sm.to_rgba(np.linspace(0, 1, 256), bytes=True)[:, 2::-1]
     return color_range.reshape(256, 1, 3)
 
-
-def make_log_img(depth, mask, pred, gt, color_fn):
-    # input should be [depth, pred, gt]
-    # make range image (normalized to 0,1 for saving)
-    depth = (cv2.normalize(depth, None, alpha=0, beta=1,
-                           norm_type=cv2.NORM_MINMAX,
-                           dtype=cv2.CV_32F) * 255.0).astype(np.uint8)
-    out_img = cv2.applyColorMap(
-        depth, get_mpl_colormap('viridis')) * mask[..., None]
-
-    # make label prediction
-    pred_color = color_fn((pred * mask).astype(np.int32))
-    out_img = np.concatenate([out_img, pred_color], axis=0)
-    # make label gt
-    gt_color = color_fn(gt)
-    out_img = np.concatenate([out_img, gt_color], axis=0)
-    return (out_img).astype(np.uint8)
-
-def save_to_log(logdir, logger, info, epoch, img_summary=False, imgs=[]):
-    # save scalars
-    for tag, value in info.items():
-        logger.scalar_summary(tag, value, epoch)
-
-    if img_summary and len(imgs) > 0:
-        directory = os.path.join(logdir, "predictions")
-        if not os.path.isdir(directory):
-            os.makedirs(directory)
-        for i, img in enumerate(imgs):
-            name = os.path.join(directory, str(i) + ".png")
-            cv2.imwrite(name, img)
-
 def get_tableau_palette():
     palette = np.array([[ 78,121,167], # blue
                         [255, 87, 89], # red
@@ -501,7 +470,7 @@ def plot3d_pts(pts, pts_name, s=2, dpi=150, title_name=None, sub_name='default',
         if len(pts[m]) > 1:
             for n in range(len(pts[m])):
                 if n==len(pts[m]) - 1:
-                    s = 8**2
+                    s = 3**2
                 if color_channel is None:
                     ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2], marker=all_poss[n], s=s, cmap=colors[n], label=pts_name[m][n])
                 else:

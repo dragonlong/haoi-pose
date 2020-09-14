@@ -353,7 +353,8 @@ class PointNetMSGDown(nn.Module):
         for i in range(len(radii)):
             in_channels=eval(down_conv_nn[i][0])
             out_channels=down_conv_nn[i][1:]
-            neighbors_sample = SampleK(radii[i], nsample[i], knn=False)
+            neighbors_sample = SampleK(radii[i], nsample[i], knn=False) # TODO
+            # neighbors_sample = SampleK(radii[i], nsample[i], knn=True) # TODO
             self.neighbors_sample_list.append(neighbors_sample)
 
             layers = []

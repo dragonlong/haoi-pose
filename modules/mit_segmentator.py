@@ -33,7 +33,7 @@ def eval_torch_func(key):
     elif key == 'tanh':
         return nn.Tanh()
     elif key == 'softmax':
-        return nn.Softmax()
+        return nn.Softmax(1)
     else:
         return NotImplementedError
 
@@ -132,7 +132,7 @@ class ModelBuilder:
             print(f'net_decoder has {num_class} classes')
             net_decoder = PointMotionBaseModel(options, 'pointnet2_charlesmsg', num_classes=num_class)
         elif arch == 'pointnet2_single':
-            net_decoder = PointBaseModel(options, 'pointnet2_charlesmsg', in_features=1, num_classes=num_class)
+            net_decoder = PointBaseModel(options, 'point', in_features=1, num_classes=num_class)
         elif arch == 'pointnet':
             net_decoder = pointnet.PointNetDecoder(k=num_class)
         elif arch == 'mlp':
@@ -156,8 +156,15 @@ class ModelBuilder:
             names.append(key)
             layers = []#
             for i in range(1, len(out_channels)-1):
-                layers += [nn.Conv1d(out_channels[i - 1], out_channels[i], 1, bias=True), nn.BatchNorm1d(out_channels[i], eps=0.001), nn.ReLU()]
-            layers +=[eval_torch_func(out_channels[-1])]
+                if 'regression' in key:
+                    layers += [nn.Linear(out_channels[i - 1], out_channels[i]), nn.BatchNorm1d(out_channels[i], eps=0.001), nn.ReLU()]
+                else:
+                    layers += [nn.Conv1d(out_channels[i - 1], out_channels[i], 1, bias=True), nn.BatchNorm1d(out_channels[i], eps=0.001), nn.ReLU()]
+            # hand last layer
+            if 'regression' in key:
+                layers += [nn.Linear(out_channels[-2], out_channels[-1])]
+            else:
+                layers +=[eval_torch_func(out_channels[-1])]
             head.append(nn.Sequential(*layers))
         head.apply(ModelBuilder.weights_init)
         return head, names

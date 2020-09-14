@@ -2,24 +2,26 @@ TRAIN:
   # model parameters
   shuffle_train: True
   use_direct_regression: False
-  direct_loss_multiplier: 1.0
-  miou_loss_multiplier: 1.0
-  nocs_loss_multiplier: 10.0
-  gocs_loss_multiplier: 1.0
-  offset_loss_multiplier: 5.0
-  orient_loss_multiplier: 0.2 # todo
-  index_loss_multiplier: 1.0
-  type_loss_multiplier: 1.0
-  parameter_loss_multiplier: 1.0
-  residue_loss_multiplier: 1.0
+  partcls_loss_multiplier: 1.0
+  nocs_loss_multiplier : 10.0
+  gocs_loss_multiplier : 1.0
+  handheatmap_loss_multiplier : 1.0
+  handunitvec_loss_multiplier : 5.0
+  confidence_loss_multiplier : 1.0
+  heatmap_loss_multiplier : 1.0
+  unitvec_loss_multiplier : 5.0
+  orient__loss_multiplier : 0.2
+  jointcls_loss_multiplier : 1.0
   total_loss_multiplier: 1.0
-  orthogonality_loss_weight: 0.1
+  direct_loss_multiplier: 1.0
+  regression_loss_multiplier: 1.0
+  orthogonality_loss_multiplier: 0.1
   coord_regress_loss: 'L2'
   parametri_type: "orth"
 
   # data source
-  batch_size: 8
-  batch_size_per_gpu: 8
+  batch_size: 16
+  batch_size_per_gpu: 16
   train_data_file: "shape2motion/hdf5/0.01/train.txt"
   train_first_n: -1
   train_data_add_noise: true
@@ -89,14 +91,14 @@ MODEL:
   weights_decoder: ""
 
 HEAD:
-  part_cls_per_point: [128, 3, 'softmax']
+  partcls_per_point: [128, 4, 'softmax']
   nocs_per_point : [128, None, 'sigmoid']
-  gocs_per_point : [128, 3, 'sigmoid']
-  hand_heatmap_per_point :  [128, 128, 21, 'sigmoid']
-  hand_unitvec_per_point :  [128, 128, 63, 'tanh']
+  # gocs_per_point : [128, 3, 'sigmoid']
+  handheatmap_per_point :  [128, 128, 21, 'sigmoid']
+  handunitvec_per_point :  [128, 128, 63, 'tanh']
   confidence_per_point : [128, 1, 'sigmoid']
-  heatmap_per_point :  [128, 128, 1, 'sigmoid']
-  unitvec_per_point :  [128, 128, 3, 'tanh']
-  orient_per_point : [128, 128, 3, 'tanh']
-  joint_cls_per_point : [128, 128, 3, 'softmax']
-  # hand joints params not showing here
+  # heatmap_per_point :  [128, 128, 1, 'sigmoid']
+  # unitvec_per_point :  [128, 128, 3, 'tanh']
+  # orient_per_point : [128, 128, 3, 'tanh']
+  # jointcls_per_point : [128, 128, 3, 'softmax']
+  regression_params: [1024, 1024, 512, 63]

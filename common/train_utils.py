@@ -5,6 +5,7 @@ import re
 import functools
 import fnmatch
 import numpy as np
+import cv2
 
 import torch.optim.lr_scheduler as toptim
 import tensorflow as tf
@@ -15,6 +16,36 @@ try:
 except ImportError:
   from io import BytesIO         # Python 3.x
 
+
+def save_to_log(logdir, logger, info, epoch, img_summary=False, imgs=[]):
+    # save scalars
+    for tag, value in info.items():
+        logger.scalar_summary(tag, value, epoch)
+
+    if img_summary and len(imgs) > 0:
+        directory = os.path.join(logdir, "predictions")
+        if not os.path.isdir(directory):
+            os.makedirs(directory)
+        for i, img in enumerate(imgs):
+            name = os.path.join(directory, str(i) + ".png")
+            cv2.imwrite(name, img)
+
+def make_log_img(depth, mask, pred, gt, color_fn):
+    # input should be [depth, pred, gt]
+    # make range image (normalized to 0,1 for saving)
+    depth = (cv2.normalize(depth, None, alpha=0, beta=1,
+                           norm_type=cv2.NORM_MINMAX,
+                           dtype=cv2.CV_32F) * 255.0).astype(np.uint8)
+    out_img = cv2.applyColorMap(
+        depth, get_mpl_colormap('viridis')) * mask[..., None]
+
+    # make label prediction
+    pred_color = color_fn((pred * mask).astype(np.int32))
+    out_img = np.concatenate([out_img, pred_color], axis=0)
+    # make label gt
+    gt_color = color_fn(gt)
+    out_img = np.concatenate([out_img, gt_color], axis=0)
+    return (out_img).astype(np.uint8)
 
 class Logger(object):
 
@@ -126,28 +157,6 @@ class warmupLR(toptim._LRScheduler):
       return super(warmupLR, self).step(epoch)
     else:
       return self.initial_scheduler.step(epoch)
-
-def setup_logger(distributed_rank=0, filename="log.txt"):
-    logger = logging.getLogger("Logger")
-    logger.setLevel(logging.DEBUG)
-    # don't log results for the non-master process
-    if distributed_rank > 0:
-        return logger
-    ch = logging.StreamHandler(stream=sys.stdout)
-    ch.setLevel(logging.DEBUG)
-    fmt = "[%(asctime)s %(levelname)s %(filename)s line %(lineno)d %(process)d] %(message)s"
-    ch.setFormatter(logging.Formatter(fmt))
-    logger.addHandler(ch)
-
-    return logger
-
-
-def find_recursive(root_dir, ext='.jpg'):
-    files = []
-    for root, dirnames, filenames in os.walk(root_dir):
-        for filename in fnmatch.filter(filenames, '*' + ext):
-            files.append(os.path.join(root, filename))
-    return files
 
 
 class AverageMeter(object):
@@ -274,6 +283,28 @@ def intersectionAndUnion(imPred, imLab, numClass):
     area_union = area_pred + area_lab - area_intersection
 
     return (area_intersection, area_union)
+
+def setup_logger(distributed_rank=0, filename="log.txt"):
+    logger = logging.getLogger("Logger")
+    logger.setLevel(logging.DEBUG)
+    # don't log results for the non-master process
+    if distributed_rank > 0:
+        return logger
+    ch = logging.StreamHandler(stream=sys.stdout)
+    ch.setLevel(logging.DEBUG)
+    fmt = "[%(asctime)s %(levelname)s %(filename)s line %(lineno)d %(process)d] %(message)s"
+    ch.setFormatter(logging.Formatter(fmt))
+    logger.addHandler(ch)
+
+    return logger
+
+
+def find_recursive(root_dir, ext='.jpg'):
+    files = []
+    for root, dirnames, filenames in os.walk(root_dir):
+        for filename in fnmatch.filter(filenames, '*' + ext):
+            files.append(os.path.join(root, filename))
+    return files
 
 
 class NotSupportedCliException(Exception):

@@ -7,7 +7,8 @@ from scipy.optimize import linear_sum_assignment
 from kaolin.nnsearch import nnsearch
 import kaolin.cuda.sided_distance as sd
 from scipy.spatial import cKDTree as Tree
-
+from typing import Any
+from collections import OrderedDict
 DIVISION_EPS = 1e-10
 SQRT_EPS = 1e-10
 LS_L2_REGULARIZER = 1e-8
@@ -70,18 +71,25 @@ def compute_vect_loss(vect, vect_gt, confidence=None, num_parts=2, mask_array=No
         vect_gt: [B, K, N];
         confidence: [B, N]
         """
-        if confidence is not None:
-            diff_l2 = torch.norm(vect - vect_gt, dim=1) * confidence # BxN
-            diff_abs= torch.sum(torch.abs(vect - vect_gt), dim=1) * confidence # BxN
-        else:
-            diff_l2 = torch.norm(vect - vect_gt, dim=1) # BxN
-            diff_abs= torch.sum(torch.abs(vect - vect_gt), dim=1) # BxN
-
+        diff_l2 = torch.norm(vect - vect_gt, dim=1) # BxN
+        diff_abs= torch.sum(torch.abs(vect - vect_gt), dim=1) # BxN
+        diff_avg= torch.mean(torch.abs(vect - vect_gt), dim=1) # B*N
+        if confidence is None:
+            confidence = 1
         if TYPE_LOSS=='L2':
-            if confidence is not None:
-                return torch.mean(diff_l2 * confidence, dim=1)
-            else:
-                return torch.mean(diff_l2, dim=1)
+            return torch.mean(diff_l2 * confidence , dim=1)
+        elif TYPE_LOSS=='L1':
+            return torch.mean(diff_avg * confidence, dim=1)
+
+def compute_multi_offsets_loss(vect, vect_gt, confidence=None):
+    """
+    vect: B, 63, N
+    vect_gt: B, 63, N
+    """
+    diff_p  = (vect - vect_gt).view(vect.size(0), -1, 3, vect.size(-1)).contiguous()
+    diff_l2 = torch.norm(diff_p, dim=2)
+
+    return torch.mean(diff_l2, dim=[1, 2])
 
 class SidedDistanceFunction(torch.autograd.Function):
     @staticmethod
@@ -268,14 +276,42 @@ class FocalLoss2d(nn.Module):
     def forward(self, inputs, targets):
         return self.nll_loss((1 - F.softmax(inputs)) ** self.gamma * F.log_softmax(inputs), targets)
 
-class FocalLoss(nn.Module):
-    def __init__(self, gamma=2., weight=None, ignore_index=-1):
+class FocalLoss(torch.nn.modules.loss._Loss):
+    def __init__(
+        self, gamma: float = 2, alphas: Any = None, size_average: bool = True, normalized: bool = True,
+    ):
         super(FocalLoss, self).__init__()
-        self.gamma = gamma
-        self.nll_loss = nn.NLLLoss(weight, ignore_index)
+        self._gamma = gamma
+        self._alphas = alphas
+        self.size_average = size_average
+        self.normalized = normalized
 
-    def forward(self, inputs, targets):
-        return self.nll_loss((1 - F.softmax(inputs)) ** self.gamma * F.log_softmax(inputs), targets)
+    def forward(self, input, target):
+        logpt = F.log_softmax(input, dim=-1)
+        logpt = torch.gather(logpt, -1, target.unsqueeze(-1))
+        logpt = logpt.view(-1)
+        pt = Variable(logpt.data.exp())
+
+        if self._alphas is not None:
+            at = self._alphas.gather(0, target)
+            logpt = logpt * Variable(at)
+
+        if self.normalized:
+            sum_ = 1 / torch.sum((1 - pt) ** self._gamma)
+        else:
+            sum_ = 1
+
+        loss = -1 * sum_ * (1 - pt) ** self._gamma * logpt
+        return loss.sum()
+
+# class FocalLoss(nn.Module):
+#     def __init__(self, gamma=2., weight=None, ignore_index=-1):
+#         super(FocalLoss, self).__init__()
+#         self.gamma = gamma
+#         self.nll_loss = nn.NLLLoss(weight, ignore_index)
+#
+#     def forward(self, inputs, targets):
+#         return self.nll_loss((1 - F.softmax(inputs)) ** self.gamma * F.log_softmax(inputs), targets)
 
 
 if __name__ == "__main__":

@@ -6,13 +6,11 @@ import torch.utils.data.distributed
 
 import __init__ as booger
 from modules.mit_segmentator import ModelBuilder
-from common.train_utils import AverageMeter, parse_devices, warmupLR
-from common.vis_utils import save_to_log, make_log_img
-from modules.losses import FocalLoss, compute_miou_loss, compute_nocs_loss, compute_vect_loss
+from common.train_utils import AverageMeter, parse_devices, warmupLR, Logger, save_to_log, make_log_img
+from modules.losses import FocalLoss, compute_miou_loss, compute_nocs_loss, compute_vect_loss, compute_multi_offsets_loss
 from modules.ioueval import *
-from common.logger import Logger
 
-def breakpoint():
+def breakpoint(id=0):
     import pdb;pdb.set_trace()
 
 class EncoderDecoder(nn.Module):
@@ -25,13 +23,18 @@ class EncoderDecoder(nn.Module):
 
     def forward(self, xyz1, mask=None, index=0):
         if self.backbone is None:
-            net = self.decoder(xyz1)
+            net, bottle_neck = self.decoder(xyz1)
         else:
-            net = self.decoder(self.backbone(xyz1))
+            net, bottle_neck = self.decoder(self.backbone(xyz1))
         pred_dict = {}
         # safe
         for i, sub_head in enumerate(self.head):
-            pred_dict[self.head_names[i]] = self.head[i](net)
+            if 'regression' in self.head_names[i]:
+                if bottle_neck.size(-1) !=1:
+                    bottle_neck = bottle_neck.max(-1)[0]
+                pred_dict[self.head_names[i]] = self.head[i](bottle_neck.view(-1, 1024))
+            else:
+                pred_dict[self.head_names[i]] = self.head[i](net)
 
         return pred_dict
 
@@ -41,8 +44,10 @@ class Network():
         self.config  = cfg
         self.use_gpu = True
         self.is_mixed  = False
+        self.infos   = {} # for logging
         self.pred_joint= cfg.pred_joint
         self.pred_joint_ind = cfg.pred_joint_ind
+        self.pred_hand = cfg.pred_hand
         if cfg.num_gpus > 0:
             torch.cuda.set_device(gpu)
             if cfg.distributed:
@@ -60,6 +65,12 @@ class Network():
         self.optimizers_dict = {}
         self.schedulers_dict = {}
         self.crit = []
+        self.total_loss_dict = {}
+        self.total_loss_dict['total_loss'] = 0
+        for head_name in cfg.HEAD.keys():
+            if 'confidence' in head_name or 'mask' in head_name:
+                continue
+            self.total_loss_dict[head_name.split('_')[0] + '_loss'] = 0
 
         for key in ['point']:
             net_encoder = ModelBuilder.build_encoder(params=cfg.MODEL)
@@ -95,19 +106,24 @@ class Network():
         if not cfg.TRAIN.lr_warmup:
             self.schedulers_dict =  None
 
+    def reset(self):
+        pass
+
     def train_epoch(self, gpu_id, loader, model, epoch, cfg, modules=None):
         """
         if we have pretrained features, we could use modules
         """
         batch_time = AverageMeter()
         data_time  = AverageMeter()
-        losses     = AverageMeter()
+        losses_meter = {}
+        for key in self.total_loss_dict.keys():
+            losses_meter[key] = AverageMeter()
 
         model.train(not cfg.TRAIN.fix_bn)
         torch.cuda.empty_cache() # release memory to avoid OOM error
 
         tic = time.time()
-
+        tb_logger = Logger(cfg.log_dir + "/train")
         for i, batch in enumerate(loader):
             if cfg.is_debug and i > 25:
                 print('good with train_epoch!!')
@@ -152,58 +168,102 @@ class Network():
                             cfg.TRAIN.running_lr_decoder = g["lr"]
 
             # >>>>>>>>>>>>>>>> for logging use only
-            loss_total = loss_total.mean()
-            losses.update(loss_total.item(), batch_size)
+            # breakpoint()
+            for key, loss_item in self.total_loss_dict.items():
+                losses_meter[key].update(loss_item.item(), 1)
             batch_time.update(time.time() - tic)
 
-            print('Lr: {lr_encoder:.3e} {lr_decoder:.3e} | '
-                  'Epoch: [{0}][{1}/{2}] | '.format(epoch, i, len(loader), lr_encoder=cfg.TRAIN.running_lr_encoder, \
+            print('Training: [{0}][{1}/{2}] | ''Lr: {lr_encoder:.3e} {lr_decoder:.3e} | '
+                    'Loss: {loss:.3f} m:{miou_loss:.3f} h:{heatmap_loss:.3f} u:{unitvec_loss:.3f} r:{regression_loss:.3f}'.format(epoch, i, len(loader), \
+                      loss=loss_total, \
+                      miou_loss=self.total_loss_dict['partcls_loss'], \
+                      regression_loss=self.total_loss_dict['regression_loss'],\
+                      heatmap_loss=self.total_loss_dict['handheatmap_loss'],\
+                      unitvec_loss=self.total_loss_dict['handunitvec_loss'],\
+                      lr_encoder=cfg.TRAIN.running_lr_encoder, \
                       lr_decoder=cfg.TRAIN.running_lr_decoder))
-        infos = {}
 
+        print(f'Epoch {epoch} has : ')
+        for key, loss_item in losses_meter.items():
+            self.infos[key] = loss_item.avg
+            if cfg.verbose:
+                print('---training ', key, self.infos[key])
+        save_to_log(logdir=cfg.log_dir + '/train', logger=tb_logger, info=self.infos, epoch=epoch, img_summary=cfg.TRAIN.save_scans)
+        print('')
 
-        return infos
+        return 1-self.total_loss_dict['partcls_loss'], loss_total
+
+    def valid_epoch(self, gpu_id, loader, model, epoch, cfg, modules=None, prefix='valid'):
+        """
+        if we have pretrained features, we could use modules
+        """
+        batch_time = AverageMeter()
+        data_time  = AverageMeter()
+        losses_meter = {}
+        for key in self.total_loss_dict.keys():
+            losses_meter[key] = AverageMeter()
+
+        tb_logger = Logger(cfg.log_dir + '/' + prefix)
+        model.eval()
+        model.zero_grad()
+        torch.cuda.empty_cache() # release memory to avoid OOM error
+
+        tic = time.time()
+        with torch.no_grad():
+            for i, batch in enumerate(loader):
+                if cfg.is_debug and i > 25:
+                    print('good with valid_epoch!!')
+                    break
+                self.fill_gpu_batch_data(gpu_id, batch)
+
+                pred_dict = model(batch['P'])
+                loss_dict = self.compute_loss(pred_dict, batch)
+
+                # combine different losses
+                loss_total= self.collect_losses(loss_dict)
+                loss_total = loss_total.mean()
+
+                for key, loss_item in self.total_loss_dict.items():
+                    losses_meter[key].update(loss_item.item(), 1)
+                batch_time.update(time.time() - tic)
+
+                print('---Validation: [{0}][{1}/{2}] | '
+                      'Loss: {loss:.3f} m:{miou_loss:.3f} h:{heatmap_loss:.3f} u:{unitvec_loss:.3f} r:{regression_loss:.3f}'.format(epoch, i, len(loader), \
+                      loss=loss_total, \
+                      miou_loss=self.total_loss_dict['partcls_loss'], \
+                      regression_loss=self.total_loss_dict['regression_loss'],\
+                      heatmap_loss=self.total_loss_dict['handheatmap_loss'],\
+                      unitvec_loss=self.total_loss_dict['handunitvec_loss']))
+
+        for key, loss_item in losses_meter.items():
+            self.infos[key] = loss_item.avg
+            if cfg.verbose:
+                print(f'----{prefix} ', key, self.infos[key])
+        save_to_log(logdir=cfg.log_dir + '/' +prefix, logger=tb_logger, info=self.infos, epoch=epoch, img_summary=cfg.TRAIN.save_scans)
+        if cfg.verbose:
+            print('saving log to ', cfg.log_dir + '/' +prefix)
+
+        print('')
+        return 1 - self.total_loss_dict['partcls_loss'], losses_meter['total_loss'].avg
 
     # as we have multiple losses funcs, here we try to combine each one
     def collect_losses(self, loss_dict):
-        """
-        confidence map is B*N*1
-        """
         self.total_loss = 0
+        for key, content in loss_dict.items():
+            # if self.config.verbose:
+            #     print('collecting loss for ', key)
+            self.total_loss_dict[key.split('_')[0] + '_loss'] = torch.mean(loss_dict[key])
 
-        nocs_loss_multiplier    = self.config.TRAIN.nocs_loss_multiplier
-        heatmap_loss_multiplier = self.config.TRAIN.offset_loss_multiplier
-        unitvec_loss_multiplier = self.config.TRAIN.offset_loss_multiplier
-        orient_loss_multiplier  = self.config.TRAIN.orient_loss_multiplier
-        gocs_loss_multiplier    = self.config.TRAIN.gocs_loss_multiplier
-        index_loss_multiplier   = self.config.TRAIN.index_loss_multiplier
-        miou_loss_multiplier    = self.config.TRAIN.miou_loss_multiplier
-
-        self.total_nocs_loss = torch.mean(loss_dict['nocs_per_point'])
-        self.total_miou_loss = torch.mean(loss_dict['part_cls_per_point'])
-
-        # loss from heatmap estimation & offset estimation
-        self.total_heatmap_loss = torch.mean(loss_dict['heatmap_per_point'])
-        self.total_unitvec_loss = torch.mean(loss_dict['unitvec_per_point'])
-        self.total_orient_loss  = torch.mean(loss_dict['orient_per_point'])
-        self.total_index_loss   = torch.mean(loss_dict['joint_cls_per_point'])
-
-        self.total_loss += nocs_loss_multiplier * self.total_nocs_loss
-        self.total_loss += miou_loss_multiplier * self.total_miou_loss
-
-        if self.is_mixed:
-            self.total_gocs_loss = torch.mean(loss_dict['gocs_per_point'])
-            self.total_loss += gocs_loss_multiplier * self.total_gocs_loss
-
-        if self.pred_joint:   # todo
-            if self.is_mixed: # only use it in part + global NOCS
-                self.total_loss += heatmap_loss_multiplier * self.total_heatmap_loss
-                self.total_loss += unitvec_loss_multiplier * self.total_unitvec_loss
-            self.total_loss += orient_loss_multiplier * self.total_orient_loss # on joint axis
-            if self.pred_joint_ind: # come with joint points association
-                self.total_loss += index_loss_multiplier * self.total_index_loss
+            # decide not added to total loss
+            if 'hand' in key and not self.pred_hand:
+                continue
+            if 'joint' in key and not self.pred_joint:
+                continue
+            multiplier_factor = self.config.TRAIN[key.split('_')[0] + '_loss_multiplier']
+            self.total_loss += multiplier_factor * self.total_loss_dict[key.split('_')[0] + '_loss']
 
         self.total_loss *= self.config.TRAIN.total_loss_multiplier
+        self.total_loss_dict['total_loss'] = self.total_loss
 
         return self.total_loss
 
@@ -212,28 +272,27 @@ class Network():
         for key, item in batch.items():
             batch[key] = batch[key].cuda(gpu_id, non_blocking=True)
 
+    # scomp
     def compute_loss(self, pred_dict, gt_dict):
         '''
             Input:
                 pred_dict should contain:
-                    - W: BxKxN, segmentation parts;
+                    - part_cls_per_point: BxKxN, segmentation parts;
                     - nocs_per_point: Bx3xN, nocs per point
 
         '''
         # dimension tensors
-        W          = pred_dict['part_cls_per_point']
-        batch_size = W.size(0)   # B*N*K(k parts)
-        n_max_parts= W.size(1)
-        n_points   = W.size(2)
-
-        confidence = pred_dict['confidence_per_point']
+        n_max_parts= pred_dict['partcls_per_point'].size(1)
         loss_dict= {}
 
         for key, value in pred_dict.items():
-            print(key, value.shape)
+            # print(key, value.shape)
             if 'confidence' in key or 'mask' in key:
                 continue
-            elif key == 'W' or 'cls' in key:
+            elif 'regression' in key:
+                diff_p = (pred_dict[key] - gt_dict[key]).view(value.size(0), -1, 3).contiguous()
+                loss_dict[key] = torch.mean(torch.norm(diff_p, dim=2), dim=1)
+            elif 'cls' in key:
                 loss_dict[key] = compute_miou_loss(pred_dict[key], gt_dict[key])
             elif 'nocs' in key:
                 loss_dict[key] = compute_nocs_loss(pred_dict[key], gt_dict[key], confidence=None, \
@@ -242,8 +301,10 @@ class Network():
                 loss_dict[key] = compute_nocs_loss(pred_dict[key], gt_dict[key], confidence=None, \
                                         num_parts=n_max_parts, MULTI_HEAD=False, SELF_SU=False)
             elif 'hand' in key:
-                breakpoint()
-                loss_dict[key] = compute_vect_loss(pred_dict[key], gt_dict[key], confidence=gt_dict['hand_mask'], TYPE_LOSS='L2')
+                if 'heatmap' in key:
+                    loss_dict[key] = compute_vect_loss(pred_dict[key], gt_dict[key], confidence=gt_dict['hand_mask'], TYPE_LOSS='L1')
+                else:
+                    loss_dict[key] = compute_multi_offsets_loss(pred_dict[key], gt_dict[key], confidence=gt_dict['hand_mask'])
             else:
                 loss_dict[key] = compute_vect_loss(pred_dict[key], gt_dict[key], confidence=gt_dict['joint_mask'], TYPE_LOSS='L2')
 
@@ -398,51 +459,3 @@ class Network():
         if optimizer_head:
             for param_group in optimizer_head.param_groups:
                 param_group['lr'] = cfg.TRAIN.running_lr_decoder
-
-    def train(self, cfg):
-        tb_logger = Logger(cfg.log_dir + "/tb")
-        info = {}
-        # accuracy and IoU stuff
-        best_train_iou = 0.0
-        best_val_iou   = 0.0
-
-        print('start training from ', cfg.TRAIN.start_epoch)
-        for epoch in range(cfg.TRAIN.start_epoch, cfg.TRAIN.num_epoch):
-            print('iterating over epoch {}'.format(epoch))
-            if not cfg.eval:
-                train_acc, train_iou, train_loss = self.train_epoch(self.rank, None, self.modules['point'], epoch, cfg)
-                info["train_total_loss"]  = train_loss[0]
-                info["train_loss"] = train_loss[1]
-                info["train_Mloss"] = train_loss[2]
-
-                info["train_acc"] = train_acc[0]
-                info["train_iou"] = train_iou[0]
-                info["train_Macc"] = train_acc[1]
-                info["train_Miou"] = train_iou[1]
-                if best_train_iou < train_iou[1] and self.rank==0 and not cfg.eval:
-                    for key, nets in self.nets_dict.items():
-                        self.checkpoint(nets, cfg, epoch+1, suffix= key + '_train')
-                    best_train_iou = train_iou[1]
-
-            val_acc, val_iou, val_loss, rand_imgs = self.validate_epoch(self.rank, None, self.modules['point'], epoch, cfg, self.parser.get_xentropy_class_string, self.parser.to_color, save_scans=cfg.TRAIN.save_scans)
-
-            # update info
-            info["valid_total_loss"]  = val_loss[0]
-            info["valid_loss"]  = val_loss[1]
-            info["valid_Mloss"] = val_loss[2]
-
-            info["valid_acc"]  = val_acc[0]
-            info["valid_iou"]  = val_iou[0]
-            info["valid_Macc"] = val_acc[1]
-            info["valid_Miou"] = val_iou[1]
-
-            #breakpoint()
-            if best_val_iou < val_iou[1] and self.rank==0 and not cfg.eval:
-                for key, nets in self.nets_dict.items():
-                    self.checkpoint(nets, cfg, epoch+1, suffix= key + '_val')
-                best_val_iou = val_iou[1]
-            info['encoder_lr'] = cfg.TRAIN.running_lr_encoder
-            info['decoder_lr'] = cfg.TRAIN.running_lr_decoder
-            save_to_log(logdir=cfg.log_dir, logger=tb_logger, info=info, epoch=epoch, img_summary=cfg.TRAIN.save_scans, imgs=rand_imgs)
-
-        print('Training Done!')

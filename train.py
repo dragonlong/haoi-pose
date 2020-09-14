@@ -24,27 +24,43 @@ def main_worker(gpu, cfg):
     # >>>>>>>>>>>>>>>>> 1. create data loader;
     parser = parserModule.Parser(cfg)
     train_loader   = parser.get_train_set()
-    # valid_loader   = parser.get_valid_set()
-    # test_loader    = parser.get_test_set()
+    valid_loader   = parser.get_valid_set()
+    test_loader    = parser.get_test_set()
 
-    cfg.TRAIN.epoch_iters = int(len(train_loader) / cfg.TRAIN.batch_size)
-    cfg.TRAIN.max_iters   = cfg.TRAIN.epoch_iters * cfg.TRAIN.num_epoch
+    cfg.TRAIN.epoch_iters = len(train_loader)
+    cfg.TRAIN.max_iters   = max(500, cfg.TRAIN.epoch_iters) * cfg.TRAIN.num_epoch
 
     if cfg.is_debug:
         dp = parser.train_dataset.__getitem__(100)
 
     # >>>>>>>>>>>>>>>>> 2. create model
     model = Network(gpu, cfg)
-
+    best_train_iou = 0
+    best_valid_iou = 0
     # >>>>>>>>>>>>>>>>>>3. start train & evaluation
-    #safe
     for epoch in range(cfg.TRAIN.num_epoch):
-        train_infos = model.train_epoch(gpu, train_loader, model.modules['point'], epoch, cfg)
+        if cfg.eval:
+            break
+        print('---epoch {}'.format(epoch))
+        train_miou, train_loss  = model.train_epoch(gpu, train_loader, model.modules['point'], epoch, cfg)
+        valid_miou, valid_loss  = model.valid_epoch(gpu, valid_loader, model.modules['point'], epoch, cfg, prefix='seen')
+        test_miou, test_loss    = model.valid_epoch(gpu, test_loader, model.modules['point'], epoch, cfg, prefix='unseen')
 
-        # model.valid_epoch(valid_loader, cfg)
-        # model.test_epoch(test_loader, cfg)
+        #>>>>>>>>>>>> save checkpoints <<<<<<<<<<<<<<<<<<#
+        if best_train_iou < train_miou:
+            for key, nets in model.nets_dict.items():
+                model.checkpoint(nets, cfg, epoch+1, suffix= key + '_train')
+            best_train_iou = train_miou
+        #
+        if best_valid_iou < valid_miou:
+            for key, nets in model.nets_dict.items():
+                model.checkpoint(nets, cfg, epoch+1, suffix= key + '_valid')
+            best_valid_iou = valid_miou
 
-    # save to log, and save best model
+    print('Training Done!')
+    # final inference
+
+    # save predictions
 
 @hydra.main(config_path="config/config.yaml")
 def main(cfg):
@@ -97,7 +113,7 @@ def main(cfg):
     if cfg.distributed:
         mp.spawn(main_worker, nprocs=cfg.num_gpus, cfg=(cfg))
     else:
-        gpu = 0
+        gpu = int(cfg.gpu)
         main_worker(gpu, cfg)
 
 if __name__ == '__main__':
