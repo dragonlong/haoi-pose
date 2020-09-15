@@ -84,6 +84,7 @@ TRAIN:
   log_dir: "results/log"
 
 MODEL:
+  num_classes: 4
   arch_encoder: "identical"
   arch_decoder: "pointnet2_single"
   arch_head: "segmentation"
@@ -102,3 +103,8 @@ HEAD:
   # orient_per_point : [128, 128, 3, 'tanh']
   # jointcls_per_point : [128, 128, 3, 'softmax']
   regression_params: [1024, 1024, 512, 63]
+
+point:
+  encoder_weights: ''
+  decoder_weights: ''
+  header_weights: ''

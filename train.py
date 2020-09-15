@@ -43,24 +43,22 @@ def main_worker(gpu, cfg):
             break
         print('---epoch {}'.format(epoch))
         train_miou, train_loss  = model.train_epoch(gpu, train_loader, model.modules['point'], epoch, cfg)
-        valid_miou, valid_loss  = model.valid_epoch(gpu, valid_loader, model.modules['point'], epoch, cfg, prefix='seen')
-        test_miou, test_loss    = model.valid_epoch(gpu, test_loader, model.modules['point'], epoch, cfg, prefix='unseen')
+        valid_miou, valid_loss  = model.valid_epoch(gpu, valid_loader, model.modules['point'], epoch, cfg, prefix='seen', save_pred=epoch%2==0)
+        test_miou, test_loss    = model.valid_epoch(gpu, test_loader, model.modules['point'], epoch, cfg, prefix='unseen', save_pred=epoch%2==0)
 
         #>>>>>>>>>>>> save checkpoints <<<<<<<<<<<<<<<<<<#
-        if best_train_iou < train_miou:
-            for key, nets in model.nets_dict.items():
-                model.checkpoint(nets, cfg, epoch+1, suffix= key + '_train')
-            best_train_iou = train_miou
+        # if best_train_iou < train_miou:
+        for key, nets in model.nets_dict.items():
+            model.checkpoint(nets, cfg, epoch+1, suffix= key + '_train')
+        best_train_iou = train_miou
         #
-        if best_valid_iou < valid_miou:
-            for key, nets in model.nets_dict.items():
-                model.checkpoint(nets, cfg, epoch+1, suffix= key + '_valid')
-            best_valid_iou = valid_miou
+        # if best_valid_iou < valid_miou:
+        for key, nets in model.nets_dict.items():
+            model.checkpoint(nets, cfg, epoch+1, suffix= key + '_valid')
+        best_valid_iou = valid_miou
 
     print('Training Done!')
-    # final inference
-
-    # save predictions
+    test_miou, test_loss    = model.valid_epoch(gpu, test_loader, model.modules['point'], epoch, cfg, prefix='unseen', save_pred=True)
 
 @hydra.main(config_path="config/config.yaml")
 def main(cfg):
@@ -75,6 +73,7 @@ def main(cfg):
     infos       = global_info()
     data_infos  = infos.datasets[cfg.item]
     cfg.n_max_parts = data_infos.num_parts
+    cfg.MODEL.num_classes = cfg.n_max_parts
     cfg.HEAD.nocs_per_point[-2] = cfg.n_max_parts * 3
     cfg.root_data   = infos.second_path + '/data'
     cfg.log_dir     = infos.base_path + cfg.log_dir

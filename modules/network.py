@@ -6,7 +6,7 @@ import torch.utils.data.distributed
 
 import __init__ as booger
 from modules.mit_segmentator import ModelBuilder
-from common.train_utils import AverageMeter, parse_devices, warmupLR, Logger, save_to_log, make_log_img
+from common.train_utils import AverageMeter, parse_devices, warmupLR, Logger, save_to_log, make_log_img, decide_checkpoints, save_batch_nn
 from modules.losses import FocalLoss, compute_miou_loss, compute_nocs_loss, compute_vect_loss, compute_multi_offsets_loss
 from modules.ioueval import *
 
@@ -48,6 +48,8 @@ class Network():
         self.pred_joint= cfg.pred_joint
         self.pred_joint_ind = cfg.pred_joint_ind
         self.pred_hand = cfg.pred_hand
+        self.tb_logger = {'train': Logger(cfg.log_dir + "/train"), 'seen': Logger(cfg.log_dir + '/seen'), 'unseen': Logger(cfg.log_dir + '/unseen')}
+        # >>>>>>>>>>>>>>> decide whether to use multi-gpu
         if cfg.num_gpus > 0:
             torch.cuda.set_device(gpu)
             if cfg.distributed:
@@ -59,6 +61,9 @@ class Network():
             print('using gpu id: {} with rank: {}'.format(gpu, self.rank))
         else:
             self.use_gpu = False
+
+        #>>>>>>>>>>>>>>>>> decide whether to use pretrained weights
+        decide_checkpoints(cfg, keys=['point'])
 
         self.modules   = {}
         self.nets_dict = {}
@@ -73,9 +78,9 @@ class Network():
             self.total_loss_dict[head_name.split('_')[0] + '_loss'] = 0
 
         for key in ['point']:
-            net_encoder = ModelBuilder.build_encoder(params=cfg.MODEL)
-            net_decoder = ModelBuilder.build_decoder(params=cfg.MODEL, options=cfg.models[cfg.name_model])
-            net_header, head_names  = ModelBuilder.build_header(layer_specs=cfg.HEAD)
+            net_encoder = ModelBuilder.build_encoder(params=cfg.MODEL, weights=cfg[key].encoder_weights)
+            net_decoder = ModelBuilder.build_decoder(params=cfg.MODEL, options=cfg.models[cfg.name_model], weights=cfg[key].decoder_weights)
+            net_header, head_names  = ModelBuilder.build_header(layer_specs=cfg.HEAD, weights=cfg[key].header_weights)
 
             self.modules[key] = EncoderDecoder(net_encoder, net_decoder, net_header, head_names=head_names) # 2 crit
 
@@ -123,7 +128,7 @@ class Network():
         torch.cuda.empty_cache() # release memory to avoid OOM error
 
         tic = time.time()
-        tb_logger = Logger(cfg.log_dir + "/train")
+
         for i, batch in enumerate(loader):
             if cfg.is_debug and i > 25:
                 print('good with train_epoch!!')
@@ -134,7 +139,7 @@ class Network():
             model.zero_grad()
 
             pred_dict = model(batch['P'])
-            loss_dict = self.compute_loss(pred_dict, batch)
+            loss_dict = self.compute_loss(pred_dict, batch, cfg )
 
             # combine different losses
             loss_total= self.collect_losses(loss_dict)
@@ -174,9 +179,10 @@ class Network():
             batch_time.update(time.time() - tic)
 
             print('Training: [{0}][{1}/{2}] | ''Lr: {lr_encoder:.3e} {lr_decoder:.3e} | '
-                    'Loss: {loss:.3f} m:{miou_loss:.3f} h:{heatmap_loss:.3f} u:{unitvec_loss:.3f} r:{regression_loss:.3f}'.format(epoch, i, len(loader), \
+                    'Loss: {loss:.3f} m:{miou_loss:.3f} n:{nocs_loss:.3f} h:{heatmap_loss:.3f} u:{unitvec_loss:.3f} r:{regression_loss:.3f}'.format(epoch, i, len(loader), \
                       loss=loss_total, \
                       miou_loss=self.total_loss_dict['partcls_loss'], \
+                      nocs_loss=self.total_loss_dict['nocs_loss'], \
                       regression_loss=self.total_loss_dict['regression_loss'],\
                       heatmap_loss=self.total_loss_dict['handheatmap_loss'],\
                       unitvec_loss=self.total_loss_dict['handunitvec_loss'],\
@@ -188,12 +194,12 @@ class Network():
             self.infos[key] = loss_item.avg
             if cfg.verbose:
                 print('---training ', key, self.infos[key])
-        save_to_log(logdir=cfg.log_dir + '/train', logger=tb_logger, info=self.infos, epoch=epoch, img_summary=cfg.TRAIN.save_scans)
+        save_to_log(logdir=cfg.log_dir + '/train', logger=self.tb_logger['train'], info=self.infos, epoch=epoch, img_summary=cfg.TRAIN.save_scans)
         print('')
 
         return 1-self.total_loss_dict['partcls_loss'], loss_total
 
-    def valid_epoch(self, gpu_id, loader, model, epoch, cfg, modules=None, prefix='valid'):
+    def valid_epoch(self, gpu_id, loader, model, epoch, cfg, modules=None, prefix='valid', save_pred=False):
         """
         if we have pretrained features, we could use modules
         """
@@ -202,8 +208,6 @@ class Network():
         losses_meter = {}
         for key in self.total_loss_dict.keys():
             losses_meter[key] = AverageMeter()
-
-        tb_logger = Logger(cfg.log_dir + '/' + prefix)
         model.eval()
         model.zero_grad()
         torch.cuda.empty_cache() # release memory to avoid OOM error
@@ -217,7 +221,7 @@ class Network():
                 self.fill_gpu_batch_data(gpu_id, batch)
 
                 pred_dict = model(batch['P'])
-                loss_dict = self.compute_loss(pred_dict, batch)
+                loss_dict = self.compute_loss(pred_dict, batch, cfg)
 
                 # combine different losses
                 loss_total= self.collect_losses(loss_dict)
@@ -227,19 +231,24 @@ class Network():
                     losses_meter[key].update(loss_item.item(), 1)
                 batch_time.update(time.time() - tic)
 
+                # >>>>>>>>>>>>> logging
                 print('---Validation: [{0}][{1}/{2}] | '
-                      'Loss: {loss:.3f} m:{miou_loss:.3f} h:{heatmap_loss:.3f} u:{unitvec_loss:.3f} r:{regression_loss:.3f}'.format(epoch, i, len(loader), \
+                      'Loss: {loss:.3f} m:{miou_loss:.3f} n:{nocs_loss:.3f} h:{heatmap_loss:.3f} u:{unitvec_loss:.3f} r:{regression_loss:.3f}'.format(epoch, i, len(loader), \
                       loss=loss_total, \
                       miou_loss=self.total_loss_dict['partcls_loss'], \
+                      nocs_loss=self.total_loss_dict['nocs_loss'], \
                       regression_loss=self.total_loss_dict['regression_loss'],\
                       heatmap_loss=self.total_loss_dict['handheatmap_loss'],\
                       unitvec_loss=self.total_loss_dict['handunitvec_loss']))
+                # >>>>>>>>>>>>> save
+                if save_pred:
+                    save_batch_nn(cfg.name_model, pred_dict, batch, loader.dataset.basename_list, save_dir=cfg.log_dir + f'/preds/{prefix}/')
 
         for key, loss_item in losses_meter.items():
             self.infos[key] = loss_item.avg
             if cfg.verbose:
                 print(f'----{prefix} ', key, self.infos[key])
-        save_to_log(logdir=cfg.log_dir + '/' +prefix, logger=tb_logger, info=self.infos, epoch=epoch, img_summary=cfg.TRAIN.save_scans)
+        save_to_log(logdir=cfg.log_dir + '/' +prefix, logger=self.tb_logger[prefix], info=self.infos, epoch=epoch, img_summary=cfg.TRAIN.save_scans)
         if cfg.verbose:
             print('saving log to ', cfg.log_dir + '/' +prefix)
 
@@ -273,7 +282,7 @@ class Network():
             batch[key] = batch[key].cuda(gpu_id, non_blocking=True)
 
     # scomp
-    def compute_loss(self, pred_dict, gt_dict):
+    def compute_loss(self, pred_dict, gt_dict, cfg):
         '''
             Input:
                 pred_dict should contain:
@@ -293,7 +302,7 @@ class Network():
                 diff_p = (pred_dict[key] - gt_dict[key]).view(value.size(0), -1, 3).contiguous()
                 loss_dict[key] = torch.mean(torch.norm(diff_p, dim=2), dim=1)
             elif 'cls' in key:
-                loss_dict[key] = compute_miou_loss(pred_dict[key], gt_dict[key])
+                loss_dict[key] = compute_miou_loss(pred_dict[key], gt_dict[key], loss_type=cfg.TRAIN.loss)
             elif 'nocs' in key:
                 loss_dict[key] = compute_nocs_loss(pred_dict[key], gt_dict[key], confidence=None, \
                                                 num_parts=n_max_parts, mask_array=gt_dict['part_mask'], MULTI_HEAD=True, SELF_SU=False) # todo

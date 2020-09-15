@@ -17,12 +17,15 @@ nocs_type: 'A'
 num_expr: 0.01
 name_model: pointnet2_charlesmsg # Name of the specific model to load
 root_data: "/groups/CESCA-CV/ICML2021/data"
-log_dir: '/model/${item}/${name_model}_${exp_num}' #
+# log_dir: '/model/${item}/${name_model}_${exp_num}' #
+log_dir: '/model/${item}/${exp_num}' #
 
 # control
 verbose: False
 use_pretrain: False
 is_debug: False
+eval: False
+pretrained_path: ''
 is_testing: False
 pred_hand: True
 pred_joint: False

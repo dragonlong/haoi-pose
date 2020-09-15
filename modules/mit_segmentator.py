@@ -9,6 +9,7 @@ from decoders.meteornet import MeteorNet
 from decoders.deeppcn import DPCN
 from decoders.pointnet2seq import PointMotionBaseModel
 from decoders.pointnet2 import PointBaseModel
+from decoders.pointnet_2 import PointNet2Segmenter
 
 from common.debugger import breakpoint
 from common.bidirect import c2p_map, p2c_map
@@ -128,6 +129,8 @@ class ModelBuilder:
             net_decoder = FlowNet3D()
         elif arch == 'meteornet':
             net_decoder = MeteorNet(nframe, radius_list=params.radius, num_class=num_class, knn=params.knn)
+        elif arch == 'kaolin':
+            net_decoder = PointNet2Segmenter(num_classes=params.num_classes, use_random_ball_query=True)
         elif arch == 'pointnet2':
             print(f'net_decoder has {num_class} classes')
             net_decoder = PointMotionBaseModel(options, 'pointnet2_charlesmsg', num_classes=num_class)
@@ -148,7 +151,7 @@ class ModelBuilder:
         return net_decoder
 
     @staticmethod
-    def build_header(layer_specs):
+    def build_header(layer_specs, weights=''):
         head = nn.ModuleList()
         names= []
         print('---head specs: \n ', layer_specs)
@@ -167,6 +170,10 @@ class ModelBuilder:
                 layers +=[eval_torch_func(out_channels[-1])]
             head.append(nn.Sequential(*layers))
         head.apply(ModelBuilder.weights_init)
+        if len(weights) > 0 and head:
+            print(f'Loading weights {weights} for head with {len(layer_specs.keys())} branches')
+            head.load_state_dict(
+                torch.load(weights, map_location=lambda storage, loc: storage), strict=False)
         return head, names
 
 

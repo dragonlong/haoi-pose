@@ -24,16 +24,19 @@ def hungarian_matching(cost, n_instance_gt):
         _, matching_indices[b, :n_instance_gt[b]] = linear_sum_assignment(cost[b, :n_instance_gt[b], :])
     return matching_indices
 
-def compute_miou_loss(W, W_gt, matching_indices=None):
+def compute_miou_loss(W, W_gt, matching_indices=None, loss_type='miou'):
     # W:     BxKxN, after softmax
     # W_gt - BxN, or B, K, N
-    C = W.size(1)
-    if len(W_gt.size())<3:
-        W_gt = F.one_hot(W_gt.long(), num_classes=C).permute(0, 2, 1).contiguous() # B, K, N
-    dot   = torch.sum(W_gt * W, dim=2) # BxK
-    denominator = torch.sum(W_gt, dim=2) + torch.sum(W, dim=2) - dot # BxK
-    mIoU = dot / (denominator + DIVISION_EPS) # BxK
-    return 1.0 - mIoU #
+    if loss_type=='xentropy':
+        return torch.nn.functional.nll_loss(torch.log(W), W_gt.long())
+    else:
+        C = W.size(1)
+        if len(W_gt.size())<3:
+            W_gt = F.one_hot(W_gt.long(), num_classes=C).permute(0, 2, 1).contiguous() # B, K, N
+        dot   = torch.sum(W_gt * W, dim=2) # BxK
+        denominator = torch.sum(W_gt, dim=2) + torch.sum(W, dim=2) - dot # BxK
+        mIoU = dot / (denominator + DIVISION_EPS) # BxK
+        return 1.0 - mIoU #
 
 def compute_nocs_loss(nocs, nocs_gt, confidence, \
                         num_parts=2, mask_array=None, \

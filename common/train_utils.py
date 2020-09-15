@@ -1,11 +1,14 @@
 import sys
 import os
+from os import makedirs, remove
+from os.path import exists, join
 import logging
 import re
 import functools
 import fnmatch
 import numpy as np
 import cv2
+import h5py
 
 import torch.optim.lr_scheduler as toptim
 import tensorflow as tf
@@ -16,6 +19,43 @@ try:
 except ImportError:
   from io import BytesIO         # Python 3.x
 
+def breakpoint():
+    import pdb;pdb.set_trace()
+
+def save_batch_nn(nn_name, pred_dict, input_batch, basename_list, save_dir):
+    if not exists(save_dir):
+        makedirs(save_dir)
+    batch_size = pred_dict['partcls_per_point'].size(0)
+    for b in range(batch_size):
+        f = h5py.File(os.path.join(save_dir, basename_list[int(input_batch['index'][b])] + '.h5'), 'w')
+        f.attrs['method_name'] = nn_name
+        f.attrs['basename'] = basename_list[int(input_batch['index'][b])]
+        for key, value in pred_dict.items():
+            f.create_dataset('{}_pred'.format(key), data=value[b].cpu().numpy())
+        for key, value in input_batch.items():
+            f.create_dataset('{}_gt'.format(key), data=value[b].cpu().numpy())
+
+    print('---saving to ', save_dir)
+
+def decide_checkpoints(cfg, keys=['point'], suffix='valid'):
+    for key in keys:
+        if (cfg.use_pretrain or cfg.eval):
+            if len(cfg.pretrained_path)>0:
+                cfg[key].encoder_weights = cfg.pretrained_path + f'/encoder_best_{key}_{suffix}.pth'
+                cfg[key].decoder_weights = cfg.pretrained_path + f'/encoder_best_{key}_{suffix}.pth'
+                cfg[key].header_weights  = cfg.pretrained_path + f'/head_best_{key}_{suffix}.pth'
+            else:
+                cfg[key].encoder_weights = cfg.log_dir + f'/encoder_best_{key}_{suffix}.pth'
+                cfg[key].decoder_weights = cfg.log_dir + f'/encoder_best_{key}_{suffix}.pth'
+                cfg[key].header_weights  = cfg.log_dir + f'/head_best_{key}_{suffix}.pth'
+        else:
+            cfg[key].encoder_weights = ''
+            cfg[key].decoder_weights = ''
+            cfg[key].header_weights  = ''
+        if cfg.verbose:
+            print(cfg[key].encoder_weights)
+            print(cfg[key].decoder_weights)
+            print(cfg[key].header_weights)
 
 def save_to_log(logdir, logger, info, epoch, img_summary=False, imgs=[]):
     # save scalars

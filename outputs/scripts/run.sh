@@ -98,3 +98,5 @@ source activate py36
 ./blender -b --python /home/dragon/ARCwork/6DPose2019/haoi3d/tools/blender_render.py
 ./blender -b --python /home/lxiaol9/6DPose2019/haoi3d/tools/blender_render.py
 
+
+# >>>>>>>>>>>>>>

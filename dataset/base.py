@@ -125,6 +125,7 @@ class SyntheticDataset(Dataset):
                                 norm_factors=norm_factor_instance, norm_corners=corner_pts_instance, joints=joints, nocs_type=self.nocs_type, \
                                 add_noise=self.add_noise, fixed_order=self.fixed_order, shuffle=not self.fixed_order, line_space=self.line_space,\
                                 is_testing=self.is_testing)
+            data['index'] = i
             # assert data is not None # assume data are all clean
 
         return data
