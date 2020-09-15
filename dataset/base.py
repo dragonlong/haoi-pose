@@ -25,13 +25,14 @@ infos           = global_info()
 base_path       = infos.base_path
 group_dir       = infos.group_path
 second_path     = infos.second_path
+grasps_meta     = infos.grasps_meta
 
 def breakpoint():
     import pdb;pdb.set_trace()
 
 class SyntheticDataset(Dataset):
     def __init__(self, root_dir, ctgy_obj, mode, n_max_parts, batch_size, name_dset='shape2motion', num_expr=0.01, domain=None, nocs_type='A', parametri_type='orthogonal', first_n=-1,  \
-                   add_noise=False, fixed_order=False, is_debug=False, is_testing=False, is_gen=False, baseline_joints=False):
+                   add_noise=False, fixed_order=False, is_debug=False, is_testing=False, is_gen=False, pred_mano=False, baseline_joints=False):
         self.root_dir     = root_dir
         self.second_dir   = root_dir
         self.name_dset    = name_dset
@@ -55,7 +56,12 @@ class SyntheticDataset(Dataset):
         self.line_space   = parametri_type
         self.hdf5_file_list = []
         self.rot_mats     = {}
+        self.mano_params  = np.load(f'{grasps_meta}/{ctgy_obj}_poses.npy', allow_pickle=True).item()
+        self.joints_dict  = np.load(f'{grasps_meta}/{ctgy_obj}_joints.npy', allow_pickle=True).item()
+        self.contacts_dict= np.load(f'{grasps_meta}/{ctgy_obj}_contacts.npy', allow_pickle=True).item()
 
+        # controls
+        self.pred_mano  = pred_mano
         # >>>>>>>>>>>>>>>>>>>> collect data names & paths
         if mode == 'train':
             idx_txt = self.second_dir + '/splits/{}/{}/train.txt'.format(ctgy_obj, num_expr)
@@ -148,6 +154,8 @@ class SyntheticDataset(Dataset):
                                     is_testing=is_testing, is_debug=is_debug)
 
         # >>>>>>>>>>>>>>>>>>>>> hand related
+        hand_poses = self.mano_params["_".join(["{:}".format(x) for x in base_name.split('_')[:-1]])].reshape(-1)/np.pi * 2
+        hand_poses[:3] = 0
         J_num = self.J_num
         hand_joints_offset_heatmap = np.zeros([n_total_points, 1*J_num], dtype=np.float32)
         hand_joints_offset_unitvec = np.zeros([n_total_points, 3*J_num], dtype=np.float32)
@@ -273,6 +281,7 @@ class SyntheticDataset(Dataset):
             p_arr = torch.from_numpy(p_arr.astype(np.float32).transpose(1, 0))
             g_arr = torch.from_numpy(g_arr.astype(np.float32).transpose(1, 0))
             hand_joints = torch.from_numpy(hand_joints.astype(np.float32))
+            hand_poses  = torch.from_numpy(hand_poses.astype(np.float32))
 
             hand_joints_offset_heatmap = torch.from_numpy(hand_joints_offset_heatmap.astype(np.float32).transpose(1, 0))
             hand_joints_offset_unitvec = torch.from_numpy(hand_joints_offset_unitvec.astype(np.float32).transpose(1, 0))
@@ -285,13 +294,19 @@ class SyntheticDataset(Dataset):
             joint_cls_mask = torch.from_numpy(joint_cls_mask.astype(np.float32))
             joint_params = torch.from_numpy(joint_params)
 
+        if self.pred_mano:
+            regression_params = hand_poses
+        else:
+            regression_params = hand_joints
+
+
         result = {
             'P': pts_arr,
             'partcls_per_point': cls_arr, #
             'part_mask': mask_array,
             'nocs_per_point' : p_arr,
             'gocs_per_point' : g_arr,
-            'regression_params': hand_joints, # 21, 3
+            'regression_params': regression_params, # 21, 3
             'handheatmap_per_point': hand_joints_offset_heatmap,
             'handunitvec_per_point': hand_joints_offset_unitvec,
             'hand_mask' : hand_joint_cls,

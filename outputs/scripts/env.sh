@@ -8,3 +8,7 @@ pip install python-fcl
 http://www.codeplastic.com/2019/03/12/how-to-install-python-modules-in-blender/
 python -m ensurepip
 bpy & ./pip3 install scipy imageio
+
+pip install git+https://github.com/hassony2/chumpy.git
+cd manopth
+pip install .

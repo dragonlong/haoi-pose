@@ -24,6 +24,15 @@ def hungarian_matching(cost, n_instance_gt):
         _, matching_indices[b, :n_instance_gt[b]] = linear_sum_assignment(cost[b, :n_instance_gt[b], :])
     return matching_indices
 
+def compute_reconstruction_loss(mano_pred, mano_gt, loss_type='L2'):
+    """
+    mano_pre: N, 45
+    mano_gt: N, 45
+    """
+    reconstruct_loss = None
+    return reconstruct_loss
+
+
 def compute_miou_loss(W, W_gt, matching_indices=None, loss_type='miou'):
     # W:     BxKxN, after softmax
     # W_gt - BxN, or B, K, N

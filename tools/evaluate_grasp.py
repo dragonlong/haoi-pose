@@ -9,10 +9,9 @@ import torch
 import pickle
 import numpy as np
 import json
-import fcl
-import igl
+from mano.webuser.smpl_handpca_wrapper_HAND_only import ready_arguments
 
-# from sklearn.decomposition import PCA
+from sklearn.decomposition import PCA
 from manopth import rodrigues_layer
 from manopth.manolayer import ManoLayer
 
@@ -70,8 +69,14 @@ def main():
     hand_mesh       = infos.hand_mesh
     viz_path        = infos.viz_path
 
+    # mano_layer_right = ManoLayer(
+    #         mano_root=mano_path , side='right', use_pca=False, ncomps=45, flat_hand_mean=True)
     mano_layer_right = ManoLayer(
-            mano_root=mano_path , side='right', use_pca=False, ncomps=45, flat_hand_mean=True)
+            mano_root=mano_path , side='right', use_pca=True, ncomps=45, flat_hand_mean=True)
+
+    mano_data = mano_path +'/MANO_RIGHT.pkl'
+    smpl_data = ready_arguments(mano_data)
+    components = smpl_data['hands_components']
 
     # load glass pose in json
     json_names = glob.glob( grasps_meta + f'/{args.item}/*json') # eyeglasses_0002_0_scale_200.json
@@ -79,6 +84,10 @@ def main():
     offset_contacts = {}
     joints_all   = {}
     contacts_all = {}
+    vertices_all = {}
+    poses_all    = {}
+    trans_all    = {}
+
     for json_name in json_names:
         name_attrs = json_name.split('.js')[0].split('/')[-1].split('_')
         category = name_attrs[0]
@@ -95,11 +104,14 @@ def main():
         with open(json_name) as json_file:
             hand_attrs = json.load(json_file)
 
-        objname = f'{whole_obj}/{category}/{instance}/{arti_ind}.obj'
-        obj= fast_load_obj(open(objname, 'rb'))[0] # why it is [0]
-        obj_verts = obj['vertices']
-        obj_faces = obj['faces']
+        # objname = f'{whole_obj}/{category}/{instance}/{arti_ind}.obj'
+        # obj= fast_load_obj(open(objname, 'rb'))[0] # why it is [0]
+        # obj_verts = obj['vertices']
+        # obj_faces = obj['faces']
+        obj_verts = None
+        obj_faces = None
         for j in range(len(hand_attrs['grasps'])):
+            print('loading ', j)
             save_name = save_dir + f'/{j}.obj'
             contacts = hand_attrs['grasps'][j]['contacts']
             jts = None
@@ -114,8 +126,14 @@ def main():
             contact_pts = np.array(contact_pts) * 1000/scale
 
             posesnew = np.array(hand_attrs['grasps'][j]['mano_pose']).reshape(1, -1)
+            pca_pcs  = np.dot(posesnew[0, 3:].reshape(1, 45),  components) # 1* 45
+
+            pca_input= np.concatenate([posesnew[:, :3], pca_pcs], axis=1)
+            #
             mano_trans = hand_attrs['grasps'][j]['mano_trans']
+
             hand_vertices, hand_joints = mano_layer_right.forward(th_pose_coeffs=torch.FloatTensor(posesnew), th_trans=torch.FloatTensor(mano_trans))
+            # hand_vertices, hand_joints = mano_layer_right(torch.FloatTensor(pca_input), th_trans=torch.FloatTensor(mano_trans))
             hand_joints = hand_joints.cpu().data.numpy()[0]/scale
 
             hand_vertices = hand_vertices.cpu().data.numpy()[0]/scale
@@ -123,52 +141,20 @@ def main():
             hand_faces = mano_layer_right.th_faces.cpu().data.numpy()
             print(f'hand faces {hand_faces.shape} is {hand_faces[:3, :]}')
 
-            # # # Create mesh geometry
-            # # mesh_hand = fcl.BVHModel()
-            # # mesh_hand.beginModel(len(hand_vertices), len(hand_faces))
-            # # mesh_hand.addSubModel(hand_vertices, hand_faces)
-            # # mesh_hand.endModel()
-            #
-            # # req = fcl.CollisionRequest(num_max_contacts=5, enable_contact=True)
-            # # res = fcl.CollisionResult()
-            #
-            # # n_contacts = fcl.collide(fcl.CollisionObject(mesh, fcl.Transform()),
-            # #                          fcl.CollisionObject(mesh_hand, fcl.Transform()),
-            # #                          req, res)
-            # # print('n_contacts: ', n_contacts)
-            # # print_collision_result('Box', 'Cone', res)
-            #
-            # # req = fcl.DistanceRequest(enable_nearest_points=True)
-            # # res = fcl.DistanceResult(min_distance_=0.1)
-            #
-            # # dist = fcl.distance(fcl.CollisionObject(mesh, fcl.Transform()),
-            # #                     fcl.CollisionObject(mesh_hand, fcl.Transform()),
-            # #                     req, res)
-            # # print_distance_result('Box', 'Cone', res)
-            #
-            # # get contact points distance
-            # # find the closest point on the mesh to each random point: https://trimsh.org/examples/nearest.html
-            # distances, triangle_id, closest_points  = igl.point_mesh_squared_distance(contact_pts, hand_vertices, hand_faces)
-            # print('Distance from point to surface of hand:\n{}\nclosest_points\n{}'.format(distances, closest_points))
-            # for m, link in enumerate(contact_link):
-            #     if link not in offset_contacts:
-            #         offset_contacts[link]=[]
-            #     offset_contacts[link].append(distances[m])
-            # distances, triangle_id, closest_points  = igl.point_mesh_squared_distance(contact_pts, obj_verts, obj_faces)
-            # print('Distance from point to surface of object:\n{}\nclosest_points\n{}'.format(distances, closest_points))
-            # # hand_mesh = trimesh.Trimesh(vertices=hand_vertices,
-            # #            faces=hand_faces)
-            #
-            # # mesh_txt = trimesh.exchange.obj.export_obj(mesh, include_normals=False, include_color=False, include_texture=False, return_texture=False, write_texture=False, resolver=None, digits=8)
-            # # with open(save_name,"w+") as fp:
-            # #     fp.write(mesh_txt)
             if args.viz:
                 plot_hand_w_object(obj_verts, obj_faces, hand_vertices, hand_faces, pts=contact_pts, jts=hand_joints, nmls=nmls, save_path=viz_dir + f'/{j}.png', viz_m=args.viz_m, viz_c=args.viz_c, viz_j=args.viz_j, viz_n=args.viz_n, save=True)
-            joints_all[f'{instance}_{arti_ind}_{j}']   = hand_joints
-            contacts_all[f'{instance}_{arti_ind}_{j}'] = contact_pts
+            # joints_all[f'{instance}_{arti_ind}_{j}']   = hand_joints
+            # contacts_all[f'{instance}_{arti_ind}_{j}'] = contact_pts
+            # vertices_all[f'{instance}_{arti_ind}_{j}'] = hand_vertices
+            # poses_all[f'{instance}_{arti_ind}_{j}']    = posesnew
+            # trans_all[f'{instance}_{arti_ind}_{j}']    = np.array(mano_trans)
 
-    np.save(f'{grasps_meta}/{args.item}_joints.npy', joints_all)
-    np.save(f'{grasps_meta}/{args.item}_contacts.npy', contacts_all)
+    # np.save(f'{grasps_meta}/{args.item}_joints.npy', joints_all)
+    # np.save(f'{grasps_meta}/{args.item}_contacts.npy', contacts_all)
+    # np.save(f'{grasps_meta}/{args.item}_vertices.npy', vertices_all)
+    #
+    # np.save(f'{grasps_meta}/{args.item}_poses.npy', poses_all)
+    # np.save(f'{grasps_meta}/{args.item}_trans.npy', trans_all)
 
     # print(offset_contacts)
     # mean_value = []

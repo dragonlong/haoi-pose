@@ -8,7 +8,7 @@
   python train.py verbose=True gpu=0 name_model='pointnet2_kaolin' exp_num='0.3' TRAIN.loss='miou' MODEL.arch_decoder='kaolin' 2>&1 | tee train_0.3.log
 
 0.4: # mano regression, 61 params, shape 10, articulation 45, global 6, regression is easy: but recontruction loss + mano_layer
-  python train.py verbose=True gpu=0 name_model='pointnet2_kaolin' exp_num='0.4' MODEL.arch_decoder='kaolin' 2>&1 | tee train_0.3.log
+  python train.py verbose=True gpu=1 name_model='pointnet2_kaolin' exp_num='0.4' MODEL.arch_decoder='kaolin' pred_mano=True 2>&1 | tee train_0.4.log
 
 1.0:
   python train.py verbose=True gpu=1 name_model='pointnet2_meteornet' exp_num=1

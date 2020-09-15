@@ -83,9 +83,10 @@ do
 done
 # python -m mano_grasp.generate_grasps --models whole_-0.5_-0.5_scale_100 --path_out /home/dragon/Dropbox/ICML2021/data/grasps
 
-# save hand mesh & vertices
+# save hand mesh & vertices, joints, contacts
 conda activate manopth
 python save_hand_mesh.py --viz
+python evaluate_grasp.py --item=eyeglasses
 
 # create URDF for hands
 python create_hand_urdf.py
@@ -99,4 +100,5 @@ source activate py36
 ./blender -b --python /home/lxiaol9/6DPose2019/haoi3d/tools/blender_render.py
 
 
-# >>>>>>>>>>>>>>
+# >>>>>>>>>>>>>> preprocessing data
+python preprocess_blender.py

@@ -30,6 +30,7 @@ class Parser():
             first_n=cfg.TRAIN.train_first_n,
             is_debug=cfg.is_debug,
             mode='train',
+            pred_mano=cfg.pred_mano,
             fixed_order=False,)
 
         self.train_sampler = None
@@ -55,6 +56,7 @@ class Parser():
             is_debug=cfg.is_debug,
             mode='test',
             domain='seen',
+            pred_mano=cfg.pred_mano,
             fixed_order=True,
             )
 
@@ -80,6 +82,7 @@ class Parser():
             is_debug=cfg.is_debug,
             mode='test',
             domain='unseen',
+            pred_mano=cfg.pred_mano,
             fixed_order=True,)
 
         self.testloader = torch.utils.data.DataLoader(self.test_dataset,

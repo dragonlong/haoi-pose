@@ -3,23 +3,35 @@ import torch.nn as nn
 import torch.distributed as dist
 import torch.multiprocessing as mp
 import torch.utils.data.distributed
+from manopth.manolayer import ManoLayer
 
 import __init__ as booger
+from global_info import global_info
 from modules.mit_segmentator import ModelBuilder
 from common.train_utils import AverageMeter, parse_devices, warmupLR, Logger, save_to_log, make_log_img, decide_checkpoints, save_batch_nn
 from modules.losses import FocalLoss, compute_miou_loss, compute_nocs_loss, compute_vect_loss, compute_multi_offsets_loss
 from modules.ioueval import *
 
+infos           = global_info()
+my_dir          = infos.base_path
+grasps_meta     = infos.grasps_meta
+mano_path       = infos.mano_path
+
 def breakpoint(id=0):
     import pdb;pdb.set_trace()
 
 class EncoderDecoder(nn.Module):
-    def __init__(self, net_enc, net_dec, head=None, head_names=None):
+    def __init__(self, net_enc, net_dec, head=None, head_names=None, cfg=None):
         super(EncoderDecoder, self).__init__()
         self.backbone = net_enc
         self.decoder  = net_dec
         self.head     = head
         self.head_names= head_names
+        self.pred_mano = cfg.pred_mano
+        self.mano_layer= None
+        if cfg.pred_mano:
+            ncomps = 45
+            self.mano_layer = ManoLayer(mano_root=mano_path, side='right', use_pca=False, ncomps=45, flat_hand_mean=True)
 
     def forward(self, xyz1, mask=None, index=0):
         if self.backbone is None:
@@ -35,6 +47,10 @@ class EncoderDecoder(nn.Module):
                 pred_dict[self.head_names[i]] = self.head[i](bottle_neck.view(-1, 1024))
             else:
                 pred_dict[self.head_names[i]] = self.head[i](net)
+        if self.pred_mano:
+            handvertices, handjoints = self.mano_layer.forward(th_pose_coeffs=pred_dict['regression_params'])
+            pred_dict['handvertices'] = handvertices
+            pred_dict['handjoints']   = handjoints
 
         return pred_dict
 
@@ -72,6 +88,8 @@ class Network():
         self.crit = []
         self.total_loss_dict = {}
         self.total_loss_dict['total_loss'] = 0
+        self.total_loss_dict['handvertices_loss'] = 0
+        self.total_loss_dict['handjoints_loss'] = 0
         for head_name in cfg.HEAD.keys():
             if 'confidence' in head_name or 'mask' in head_name:
                 continue
@@ -82,14 +100,12 @@ class Network():
             net_decoder = ModelBuilder.build_decoder(params=cfg.MODEL, options=cfg.models[cfg.name_model], weights=cfg[key].decoder_weights)
             net_header, head_names  = ModelBuilder.build_header(layer_specs=cfg.HEAD, weights=cfg[key].header_weights)
 
-            self.modules[key] = EncoderDecoder(net_encoder, net_decoder, net_header, head_names=head_names) # 2 crit
-
+            self.modules[key] = EncoderDecoder(net_encoder, net_decoder, net_header, head_names=head_names, cfg=cfg) # 2 crit
             weights_total= sum(p.numel() for p in self.modules[key].parameters())
             weights_grad = sum(p.numel() for p in self.modules[key].parameters() if p.requires_grad)
 
             print("Total number of parameters: ", weights_total)
             print("Total number of parameters requires_grad: ", weights_grad)
-
             if self.use_gpu:
                 self.modules[key].cuda(gpu)
             self.nets_dict[key] = (net_encoder, net_decoder, net_header)
@@ -139,7 +155,10 @@ class Network():
             model.zero_grad()
 
             pred_dict = model(batch['P'])
-            loss_dict = self.compute_loss(pred_dict, batch, cfg )
+            with torch.no_grad():
+                batch['handvertices'], batch['handjoints'] = model.mano_layer(th_pose_coeffs=batch['regression_params'])
+
+            loss_dict = self.compute_loss(pred_dict, batch, cfg)
 
             # combine different losses
             loss_total= self.collect_losses(loss_dict)
@@ -299,7 +318,7 @@ class Network():
             if 'confidence' in key or 'mask' in key:
                 continue
             elif 'regression' in key:
-                diff_p = (pred_dict[key] - gt_dict[key]).view(value.size(0), -1, 3).contiguous()
+                diff_p = (pred_dict[key][:, :45] - gt_dict[key][:, :45]).view(value.size(0), -1, 3).contiguous()
                 loss_dict[key] = torch.mean(torch.norm(diff_p, dim=2), dim=1)
             elif 'cls' in key:
                 loss_dict[key] = compute_miou_loss(pred_dict[key], gt_dict[key], loss_type=cfg.TRAIN.loss)
@@ -312,8 +331,11 @@ class Network():
             elif 'hand' in key:
                 if 'heatmap' in key:
                     loss_dict[key] = compute_vect_loss(pred_dict[key], gt_dict[key], confidence=gt_dict['hand_mask'], TYPE_LOSS='L1')
-                else:
+                elif 'unitvec' in key:
                     loss_dict[key] = compute_multi_offsets_loss(pred_dict[key], gt_dict[key], confidence=gt_dict['hand_mask'])
+                else:
+                    diff_p = (pred_dict[key] - gt_dict[key])/100
+                    loss_dict[key] = torch.mean(torch.norm(diff_p, dim=2), dim=1)
             else:
                 loss_dict[key] = compute_vect_loss(pred_dict[key], gt_dict[key], confidence=gt_dict['joint_mask'], TYPE_LOSS='L2')
 

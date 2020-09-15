@@ -29,6 +29,7 @@ pretrained_path: ''
 is_testing: False
 pred_hand: True
 pred_joint: False
+pred_mano: False
 pred_joint_ind: False
 pretty_print: False
 distributed: False

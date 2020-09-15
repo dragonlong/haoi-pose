@@ -5,12 +5,15 @@ TRAIN:
   partcls_loss_multiplier: 1.0
   nocs_loss_multiplier : 10.0
   gocs_loss_multiplier : 1.0
+  handvertices_loss_multiplier : 1.0
+  handjoints_loss_multiplier : 1.0
+  jointcls_loss_multiplier : 1.0
   handheatmap_loss_multiplier : 1.0
   handunitvec_loss_multiplier : 5.0
   confidence_loss_multiplier : 1.0
   heatmap_loss_multiplier : 1.0
   unitvec_loss_multiplier : 5.0
-  orient__loss_multiplier : 0.2
+  orient_loss_multiplier : 0.2
   jointcls_loss_multiplier : 1.0
   total_loss_multiplier: 1.0
   direct_loss_multiplier: 1.0

@@ -240,17 +240,19 @@ class global_info(object):
         elif platform.uname()[1] == 'dragon':
             base_path = '/home/dragon/Documents/CVPR2020'
             second_path = '/home/dragon/Documents/ICML2021'
+            mano_path = '/home/dragon/Downloads/ICML2021/YCB_Affordance/data/mano'
         else:
             base_path = '/work/cascades/lxiaol9/6DPOSE'
             group_path= '/groups/CESCA-CV'
             second_path = '/groups/CESCA-CV/ICML2021'
+            mano_path = '/home/lxiaol9/3DGenNet2019/manopth/mano/models'
 
         self.render_path = second_path + '/data/render'
         self.viz_path  = second_path + '/data/images'
         self.hand_mesh = second_path + '/data/hands'
         self.hand_urdf = second_path + '/data/urdfs'
         self.grasps_meta = second_path + '/data/grasps'
-        self.mano_path   = '/home/dragon/Downloads/ICML2021/YCB_Affordance/data/mano'
+        self.mano_path   = mano_path
         self.hand_path = self.hand_mesh
         self.urdf_path = self.hand_urdf
 
