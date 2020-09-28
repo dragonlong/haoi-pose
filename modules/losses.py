@@ -12,9 +12,12 @@ from collections import OrderedDict
 DIVISION_EPS = 1e-10
 SQRT_EPS = 1e-10
 LS_L2_REGULARIZER = 1e-8
+import __init__
+from common.d3_utils import compute_rotation_matrix_from_ortho6d, compute_geodesic_distance_from_two_matrices
 
 def breakpoint():
     import pdb;pdb.set_trace()
+
 def hungarian_matching(cost, n_instance_gt):
     # cost is BxNxM
     B, N, M = cost.shape
@@ -23,6 +26,18 @@ def hungarian_matching(cost, n_instance_gt):
         # limit to first n_instance_gt[b]
         _, matching_indices[b, :n_instance_gt[b]] = linear_sum_assignment(cost[b, :n_instance_gt[b], :])
     return matching_indices
+
+
+def loss_geodesic(predict_rmat, gt_rmat):
+    """
+    gt_rmat: b*3*3
+    predict_rmat: b*3*3
+    """
+
+    theta = compute_geodesic_distance_from_two_matrices(gt_rmat, predict_rmat)
+    error = theta.mean()/np.pi * 180 # to degrees
+    return error
+
 
 def compute_reconstruction_loss(mano_pred, mano_gt, loss_type='L2'):
     """
@@ -98,10 +113,10 @@ def compute_multi_offsets_loss(vect, vect_gt, confidence=None):
     vect: B, 63, N
     vect_gt: B, 63, N
     """
-    diff_p  = (vect - vect_gt).view(vect.size(0), -1, 3, vect.size(-1)).contiguous()
+    diff_p  = (vect - vect_gt).view(vect.size(0), 21, -1, vect.size(-1)).contiguous()
     diff_l2 = torch.norm(diff_p, dim=2)
 
-    return torch.mean(diff_l2, dim=[1, 2])
+    return torch.mean(torch.mean(diff_l2, dim=1) * confidence, dim=1)
 
 class SidedDistanceFunction(torch.autograd.Function):
     @staticmethod

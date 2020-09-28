@@ -523,7 +523,7 @@ class BlenderRenderer(object):
                 item_color = item
                 if mesh[item.name]==0:
                     item_color = item_nocs
-                
+
                 if len(item.data.vertex_colors)==0:
                     vcol_layer = item.data.vertex_colors.new()
                     for loop_index, loop in enumerate(item_color.data.loops):
@@ -544,7 +544,7 @@ class BlenderRenderer(object):
                 if mesh[item.name] == 1:
                     item.select = True
                     bpy.ops.object.delete()
-                    
+
                 if k > 99 or k==0:
                     continue
                 # R = np.array([[math.cos(theta), 0, math.sin(theta)], [0, 1, 0], [-math.sin(theta), 0, math.cos(theta)]])
@@ -886,87 +886,12 @@ class BlenderRenderer(object):
                     item.data.materials.append(mat)
                 item.active_material = mat
 
-            
+
         # bpy.ops.object.mode_set(mode='VERTEX_PAINT')
         self.result_fn = image_path
         bpy.context.scene.render.filepath = image_path
         # self.render_context.use_textures = False
         bpy.ops.render.render(write_still=True)  # save straight to file\
-
-    # def vertex_paint(self, image_path=os.path.join(RENDERING_PATH, 'tmp.png')):
-    #     '''
-    #     Render the object
-    #     '''
-    #     if not self.model_loaded:
-    #         print('Model not loaded.')
-    #         return
-    #
-    #     #current_obj = bpy.context.active_object
-    #     #mesh = current_obj.data
-    #
-    #     i = 0
-    #     for item in bpy.data.objects:
-    #         print(item)
-    #         if item.type == 'MESH':
-    #             if item.name == 'plane':
-    #                 mat = self.makeMaterial('transparent', (1, 1, 1), (0, 0, 0), 0)
-    #             else:
-    #                 item.select = True
-    #                 # mat = bpy.data.materials.new('material_1')
-    #                 # item.active_material = mat
-    #                 # mat.use_vertex_color_paint = True
-    #
-    #                 if len(item.data.vertex_colors)==0:
-    #                     vcol_layer = item.data.vertex_colors.new()
-    #                 else:
-    #                     vcol_layer = item.data.vertex_colors.active
-    #
-    #                 assert len(item.data.vertex_colors)!=0
-    #                 # breakpoint()
-    #                 vcol_layer = item.data.vertex_colors[-1]
-    #                 item.data.vertex_colors.active = vcol_layer
-    #                 item.data.update()
-    #
-    #                 mat = bpy.data.materials.new('material_color_{}'.format(i))
-    #                 i += 1
-    #
-    #                 mat.use_vertex_color_light = False
-    #                 mat.use_shadeless = True
-    #                 mat.use_face_texture = False
-    #
-    #                 #mat.diffuse_color = [1, 0, 0]
-    #                 #mat.diffuse_shader = 'LAMBERT'
-    #                 #mat.diffuse_intensity = 1.0
-    #                 #mat.diffuse_color = [0, 0, 0]
-    #                 #mat.specular_color = [0, 0, 0]
-    #                 #mat.specular_shader = 'COOKTORR'
-    #                 #mat.specular_intensity = 0.5
-    #                 #mat.alpha = 1
-    #                 #mat.ambient = 1
-    #                 #mat.use_transparency = True
-    #                 #mat.transparency_method = 'Z_TRANSPARENCY'
-    #                 mat.use_vertex_color_paint = True
-    #
-    #                 #item.data.materials.append(mat)
-    #                 #item.active_material = mat
-    #
-    #             if item.data.materials:
-    #                 for i in range(len(item.data.materials)):
-    #                     item.data.materials[i] = mat
-    #             else:
-    #                 item.data.materials.append(mat)
-    #             # get data
-    #             item.active_material = mat
-    #
-    #         else:
-    #             print(item, item.type)
-    #
-    #     #bpy.ops.object.mode_set(mode='VERTEX_PAINT')
-    #
-    #     self.result_fn = image_path
-    #     bpy.context.scene.render.filepath = image_path
-    #     bpy.ops.render.render(write_still=True)  # save straight to file\
-
 
     def save_meta_data(self, filename):
         P, RT, K = self.compute_projection_matrix()
@@ -1034,7 +959,6 @@ def render_data(renderer, data_root, name_obj, instance, arti_ind, grasp_ind, vi
     save_path      = '{}/{}/{}_{}_{}'.format(render_path, name_obj, instance, arti_ind, grasp_ind)
     dirname        = save_path
     hand_mesh_file = hand_mesh + '/{}/{}/{}/{}.obj'.format(name_obj, instance, arti_ind, grasp_ind)
-    # hand_mesh_nocs = hand_mesh + '/canonical.obj'
     hand_mesh_nocs = hand_mesh + '/nocs_hand.obj'
     part_obj_path  = part_obj  +  '/{}/{}/part_objs/'.format(name_obj, instance)
     part_names    = ['none_motion.obj', 'dof_rootd_Aa001_r.obj', 'dof_rootd_Aa002_r.obj']
@@ -1084,7 +1008,7 @@ def render_data(renderer, data_root, name_obj, instance, arti_ind, grasp_ind, vi
     #     viewpoints[i, 0] = azimuth
     #     viewpoints[i, 1] = elevation
     #     viewpoints[i, 2] = tilt
-        
+
     # render rgb images
     for i in range(view_num):
         azimuth = viewpoints[i, 0]
@@ -1235,14 +1159,12 @@ def main():
     parser.add_argument('--roll', default='-10,10', help='camera view angle')
     parser.add_argument('--pitch', default='-90,5', help='camera view angle')
     parser.add_argument('--yaw',  default='-180,180', help='camera view angle')
-    parser.add_argument('--min_angles',  default='30,30', help='minimum joint angles')
-    parser.add_argument('--max_angles',  default='90,90', help='maximum joint angles')
     parser.add_argument('--cnt', default=30, help='count of articulation change')
     parser.add_argument('--num', default=10, help='number of rendering per articulation')
     args = parser.parse_args()
     #>>>>>>>>>>>>>>>>>>>>>>>> config end here >>>>>>>>>>>>>>>>>>>>>>>>>#
 
-    is_debug = False
+    is_debug = True
     if is_debug:
         _WRITE   = False
         _RENDER  = True
@@ -1300,17 +1222,13 @@ def main():
                     state_attrs = hand_urdf_file.split('.ob')[0].split('/')[-2:]
                     arti_ind = int(state_attrs[0])
                     grasp_ind= int(state_attrs[1])
-                    # if grasp_ind > 9:
-                    #     continue
-                    if grasp_ind <10:
-                        continue
-                    if grasp_ind > 12: 
+                    if grasp_ind > 12:
                         continue
                     print(i, arti_ind, grasp_ind)
                     target_path = '{}/{}/{}_{}_{}'.format(render_path, args.item, instance, arti_ind, grasp_ind)
                     if os.path.exists(target_path):
                         continue
-                    render_data(renderer, data_root, args.item, instance, arti_ind=arti_ind, grasp_ind=grasp_ind, viewpoints=view_params[i, arti_ind, grasp_ind-10], cam_dis=cam_dis, joint_angles=angles_pre[i][arti_ind], args=args, \
+                    render_data(renderer, data_root, args.item, instance, arti_ind=arti_ind, grasp_ind=grasp_ind, viewpoints=view_params[i, arti_ind, grasp_ind], cam_dis=cam_dis, joint_angles=angles_pre[i][arti_ind], args=args, \
                                         _CREATE_FOLDER=_CREATE, _WRITE_FLAG=_WRITE, _RENDER_FLAG=_RENDER, \
                                         _RENDER_MODE='given', RENDER_NUM=num_render, _USE_GUI=_USE_GUI, _IS_DUBUG=is_debug)
     # os.sys.exit(1)

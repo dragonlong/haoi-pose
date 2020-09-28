@@ -30,195 +30,194 @@ class bcolors:
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
 
-# use vispy(opengl) to visualize large scale point cloud efficiently
-class tiny_canvas():
-    def __init__(self, semantics=True, instances=False):
-        self.semantics = semantics
-        self.instances = instances
-        self.reset()
+def plot3d_pts(pts, pts_name, s=1, dpi=350, title_name=None, sub_name='default', \
+                    color_channel=None, colorbar=False, limits=None,\
+                    bcm=None, puttext=None, view_angle=None,\
+                    save_fig=False, save_path=None, flip=True,\
+                    axis_off=False, show_fig=True, mode='pending'):
+    """
+    fig using
+    """
+    fig     = plt.figure(dpi=dpi)
+    cmap    = plt.cm.jet
+    top     = plt.cm.get_cmap('Oranges_r', 128)
+    bottom  = plt.cm.get_cmap('Blues', 128)
 
-    def reset(self):
-        """ Reset. """
-        # create canvas
-        # create viz window
-        # link to data
-        # update points & color labels
-        # close
-        # last key press (it should have a mutex, but visualization is not
-        # safety critical, so let's do things wrong)
-        self.action = "no"  # no, next, back, quit are the possibilities
+    colors = np.vstack((top(np.linspace(0, 1, 10)),
+                           bottom(np.linspace(0, 1, 10))))
+    # colors = ListedColormap(newcolors, name='OrangeBlue')
+    # colors  = cmap(np.linspace(0., 1., 5))
+    # colors = ['Blues', 'Blues',  'Blues', 'Blues', 'Blues']
+    all_poss=['o', 'o','o', '.','o', '*', '.','o', 'v','^','>','<','s','p','*','h','H','D','d','1','','']
+    num     = len(pts)
+    for m in range(num):
+        ax = plt.subplot(1, num, m+1, projection='3d')
+        if view_angle==None:
+            ax.view_init(elev=36, azim=-49)
+        else:
+            ax.view_init(elev=view_angle[0], azim=view_angle[1])
+        if len(pts[m]) > 1:
+            for n in range(len(pts[m])):
+                # if n==len(pts[m]) - 1:
+                #     s = 3**2
+                if color_channel is None:
+                    if n==0:
+                        ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2], marker=all_poss[n], s=2**2, cmap=colors[n], label=pts_name[m][n])
+                    else:
+                        ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2], marker=all_poss[n], s=s, cmap=colors[n], label=pts_name[m][n])
+                else:
+                    if colorbar:
+                        rgb_encoded = color_channel[m][n]
+                    else:
+                        rgb_encoded = (color_channel[m][n] - np.amin(color_channel[m][n], axis=0, keepdims=True))/np.array(np.amax(color_channel[m][n], axis=0, keepdims=True) - np.amin(color_channel[m][n], axis=0, keepdims=True))
+                    if len(pts[m])==3 and n==2:
+                        p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2],  marker=all_poss[4], s=s, c=rgb_encoded, label=pts_name[m][n])
+                    else:
+                        p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2],  marker=all_poss[n], s=s, c=rgb_encoded, label=pts_name[m][n])
+                    if colorbar:
+                        fig.colorbar(p)
+        else:
+            for n in range(len(pts[m])):
+                if color_channel is None:
+                    p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2], marker=all_poss[n], s=s, cmap=colors[n])
+                else:
+                    if colorbar:
+                        rgb_encoded = color_channel[m][n]
+                    else:
+                        rgb_encoded = (color_channel[m][n] - np.amin(color_channel[m][n], axis=0, keepdims=True))/np.array(np.amax(color_channel[m][n], axis=0, keepdims=True) - np.amin(color_channel[m][n], axis=0, keepdims=True))
+                    if len(pts[m])==3 and n==2:
+                        p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2],  marker=all_poss[4], s=s, c=rgb_encoded)
+                    else:
+                        p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2],  marker=all_poss[n], s=s, c=rgb_encoded)
+                    if colorbar:
+                        # fig.colorbar(p)
+                        fig.colorbar(p, ax=ax)
 
-        # new canvas prepared for visualizing data
-        self.canvas = SceneCanvas(keys='interactive', show=True)
-        # interface (n next, b back, q quit, very simple)
-        self.canvas.events.key_press.connect(self.key_press)
-        self.canvas.events.draw.connect(self.draw)
-        # grid
-        self.grid = self.canvas.central_widget.add_grid()
+        ax.set_xlabel('X Label')
+        ax.set_ylabel('Y Label')
+        ax.set_zlabel('Z Label')
+        if axis_off:
+            plt.axis('off')
 
-        # laserscan part
-        self.scan_view = vispy.scene.widgets.ViewBox(
-            border_color='white', parent=self.canvas.scene)
-        self.grid.add_widget(self.scan_view, 0, 0)
-        self.scan_vis = visuals.Markers()
-        self.scan_view.camera = 'turntable'
-        self.scan_view.add(self.scan_vis)
-        visuals.XYZAxis(parent=self.scan_view.scene)
-        # add semantics
-        if self.semantics:
-          print("Using semantics in visualizer")
-          self.sem_view = vispy.scene.widgets.ViewBox(
-              border_color='white', parent=self.canvas.scene)
-          self.grid.add_widget(self.sem_view, 0, 1)
-          self.sem_vis = visuals.Markers()
-          self.sem_view.camera = 'turntable'
-          self.sem_view.add(self.sem_vis)
-          visuals.XYZAxis(parent=self.sem_view.scene)
-          # self.sem_view.camera.link(self.scan_view.camera)
+        if title_name is not None:
+            if len(pts_name[m])==1:
+                plt.title(title_name[m]+ ' ' + pts_name[m][0] + '    ')
+            else:
+                plt.legend(loc=0)
+                plt.title(title_name[m]+ '    ')
 
-        if self.instances:
-          print("Using instances in visualizer")
-          self.inst_view = vispy.scene.widgets.ViewBox(
-              border_color='white', parent=self.canvas.scene)
-          self.grid.add_widget(self.inst_view, 0, 2)
-          self.inst_vis = visuals.Markers()
-          self.inst_view.camera = 'turntable'
-          self.inst_view.add(self.inst_vis)
-          visuals.XYZAxis(parent=self.inst_view.scene)
-          # self.inst_view.camera.link(self.scan_view.camera)
+        if bcm is not None:
+            for j in range(len(bcm)):
+                ax.plot3D([bcm[j][0][0], bcm[j][2][0], bcm[j][6][0], bcm[j][4][0], bcm[j][0][0]], \
+                    [bcm[j][0][1], bcm[j][2][1], bcm[j][6][1], bcm[j][4][1], bcm[j][0][1]], \
+                    [bcm[j][0][2], bcm[j][2][2], bcm[j][6][2], bcm[j][4][2], bcm[j][0][2]], 'blue')
 
-        # img canvas size
-        self.multiplier = 1
-        self.canvas_W = 1024
-        self.canvas_H = 64
-        if self.semantics:
-          self.multiplier += 1
-        if self.instances:
-          self.multiplier += 1
+                ax.plot3D([bcm[j][1][0], bcm[j][3][0], bcm[j][7][0], bcm[j][5][0], bcm[j][1][0]], \
+                    [bcm[j][1][1], bcm[j][3][1], bcm[j][7][1], bcm[j][5][1], bcm[j][1][1]], \
+                    [bcm[j][1][2], bcm[j][3][2], bcm[j][7][2], bcm[j][5][2], bcm[j][1][2]], 'gray')
 
-        # new canvas for img
-        self.img_canvas = SceneCanvas(keys='interactive', show=True,
-                                      size=(self.canvas_W, self.canvas_H * self.multiplier))
-        # grid
-        self.img_grid = self.img_canvas.central_widget.add_grid()
-        # interface (n next, b back, q quit, very simple)
-        self.img_canvas.events.key_press.connect(self.key_press)
-        self.img_canvas.events.draw.connect(self.draw)
+                for pair in [[0, 1], [2, 3], [4, 5], [6, 7]]:
+                    ax.plot3D([bcm[j][pair[0]][0], bcm[j][pair[1]][0]], \
+                        [bcm[j][pair[0]][1], bcm[j][pair[1]][1]], \
+                        [bcm[j][pair[0]][2], bcm[j][pair[1]][2]], 'red')
+        if puttext is not None:
+            ax.text2D(0.55, 0.80, puttext, transform=ax.transAxes, color='blue', fontsize=6)
+        if limits is None:
+            limits = [[-0.5, 0.5], [-0.5, 0.5], [-0.5, 0.5]]
+        # set_axes_equal(ax, limits=limits)
+        cam_equal_aspect_3d(ax, np.concatenate(pts[m], axis=0), flip_x=flip, flip_y=flip)
+    if show_fig:
+        if mode == 'continuous':
+            plt.draw()
+        else:
+            plt.show()
 
-        # add a view for the depth
-        self.img_view = vispy.scene.widgets.ViewBox(
-            border_color='white', parent=self.img_canvas.scene)
-        self.img_grid.add_widget(self.img_view, 0, 0)
-        self.img_vis = visuals.Image(cmap='viridis')
-        self.img_view.add(self.img_vis)
+    if save_fig:
+        if save_path is None:
+            if not os.path.exists('./results/test/'):
+                os.makedirs('./results/test/')
+            fig.savefig('./results/test/{}_{}.png'.format(sub_name, title_name[0]), pad_inches=0)
+        else:
+            if not os.path.exists(save_path):
+                os.makedirs(save_path)
+            fig.savefig('{}/{}_{}.png'.format(save_path, sub_name, title_name[0]), pad_inches=0)
+    if mode != 'continuous':
+        plt.close()
 
-        # add semantics
-        if self.semantics:
-          self.sem_img_view = vispy.scene.widgets.ViewBox(
-              border_color='white', parent=self.img_canvas.scene)
-          self.img_grid.add_widget(self.sem_img_view, 1, 0)
-          self.sem_img_vis = visuals.Image(cmap='viridis')
-          self.sem_img_view.add(self.sem_img_vis)
 
-        # add instances
-        if self.instances:
-          self.inst_img_view = vispy.scene.widgets.ViewBox(
-              border_color='white', parent=self.img_canvas.scene)
-          self.img_grid.add_widget(self.inst_img_view, 2, 0)
-          self.inst_img_vis = visuals.Image(cmap='viridis')
-          self.inst_img_view.add(self.inst_img_vis)
+def plot_hand_w_object(obj_verts=None, obj_faces=None, hand_verts=None, hand_faces=None, s=5, pts=None, jts=None, nmls=None, viz_m=False, viz_c=False, viz_j=False, viz_n=False, save_path=None, flip=True, save=False, mode='keyboard'):
+    """
+    Functions taken from the ObMan dataset repo (https://github.com/hassony2/obman)
+    """
+    colors = ['r']*len(hand_faces) + ['b']*len(obj_faces)
 
-    def viz(self, point_cloud, color_labels, face_color):
-        # first open data
-        self.scan.open_scan(self.scan_names[self.offset])
-        if self.semantics:
-          self.scan.open_label(self.label_names[self.offset])
-          self.scan.colorize()
+    frames = []
+    fig = plt.figure()
 
-        # then change names
-        title = "scan " + str(self.offset)
-        self.canvas.title = title
-        self.img_canvas.title = title
+    cmap    = plt.cm.jet
+    top     = plt.cm.get_cmap('Oranges_r', 128)
+    bottom  = plt.cm.get_cmap('Blues', 128)
+    colors_full = np.vstack((top(np.linspace(0, 1, 10)),
+                           bottom(np.linspace(0, 1, 10))))
+    all_poss=['o', 'o','o', '.','o', '*', '.','o', 'v','^','>','<','s','p','*','h','H','D','d','1','','']
 
-        # then do all the point cloud stuff
 
-        # plot scan
-        power = 16
-        # print()
-        range_data = np.copy(self.scan.unproj_range)
-        # print(range_data.max(), range_data.min())
-        range_data = range_data**(1 / power)
-        # print(range_data.max(), range_data.min())
-        viridis_range = ((range_data - range_data.min()) /
-                         (range_data.max() - range_data.min()) *
-                         255).astype(np.uint8)
-        viridis_map = self.get_mpl_colormap("viridis")
-        viridis_colors = viridis_map[viridis_range]
-        self.scan_vis.set_data(self.scan.points,
-                               face_color=viridis_colors[..., ::-1],
-                               edge_color=viridis_colors[..., ::-1],
-                               size=1)
+    fig.subplots_adjust(0.05, 0.05, 0.95, 0.95)  # get rid of margins
+    ax = fig.add_subplot(111, projection='3d')
 
-        # plot semantics
-        if self.semantics:
-          self.sem_vis.set_data(self.scan.points,
-                                face_color=self.scan.sem_label_color[..., ::-1],
-                                edge_color=self.scan.sem_label_color[..., ::-1],
-                                size=1)
+    verts = hand_verts
+    add_group_meshs(ax, np.concatenate((verts, obj_verts)), np.concatenate((hand_faces, obj_faces + verts.shape[0])), alpha=1, c=colors)
+    if pts is not None:
+        for m in range(len(pts)):
+            for n in range(len(pts[m])):
+                ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2], marker=all_poss[n], s=s**2, cmap=colors[n])
+    if pts is not None:
+        cam_equal_aspect_3d(ax, np.concatenate((verts, pts[0][0])), flip_x=flip, flip_y=flip)
+    else:
+        cam_equal_aspect_3d(ax, verts, flip_x=flip, flip_y=flip)
+    ax.set_xlabel('x'); ax.set_ylabel('y'); ax.set_zlabel('z')
 
-        # plot instances
-        if self.instances:
-          self.inst_vis.set_data(self.scan.points,
-                                 face_color=self.scan.inst_label_color[..., ::-1],
-                                 edge_color=self.scan.inst_label_color[..., ::-1],
-                                 size=1)
+    if mode=='keyboard':
+        pressed_keyboard = False
+        while not pressed_keyboard:
+            pressed_keyboard = plt.waitforbuttonpress()
+    elif mode =='continuous':
+        plt.draw()
+    else:
+        plt.show(block=False)
+        plt.pause(1)
 
-        # now do all the range image stuff
-        # plot range image
-        data = np.copy(self.scan.proj_range)
-        # print(data[data > 0].max(), data[data > 0].min())
-        data[data > 0] = data[data > 0]**(1 / power)
-        data[data < 0] = data[data > 0].min()
-        # print(data.max(), data.min())
-        data = (data - data[data > 0].min()) / \
-            (data.max() - data[data > 0].min())
-        # print(data.max(), data.min())
-        self.img_vis.set_data(data)
-        self.img_vis.update()
+    if save:
+        fig.savefig(save_path, pad_inches=0)
+    if mode !='continuous':
+        plt.close(fig)
 
-        if self.semantics:
-          self.sem_img_vis.set_data(self.scan.proj_sem_color[..., ::-1])
-          self.sem_img_vis.update()
+    return
 
-        if self.instances:
-          self.inst_img_vis.set_data(self.scan.proj_inst_color[..., ::-1])
-          self.inst_img_vis.update()
+def add_mesh(ax, verts, faces, alpha=0.1, c='b'):
+    mesh = Poly3DCollection(verts[faces], alpha=alpha)
+    if c == 'b':
+        face_color = (141 / 255, 184 / 255, 226 / 255)
+    elif c == 'r':
+        face_color = (226 / 255, 184 / 255, 141 / 255)
+    edge_color = (50 / 255, 50 / 255, 50 / 255)
+    mesh.set_edgecolor(edge_color)
+    mesh.set_facecolor(face_color)
+    ax.add_collection3d(mesh)
 
-    def get_mpl_colormap(self, cmap_name):
-        cmap = plt.get_cmap(cmap_name)
+def add_group_meshs(ax, verts, faces, alpha=0.1, c='b'):
+    mesh = Poly3DCollection(verts[faces], alpha=alpha)
+    face_color = []
+    for i in range(len(c)):
+        if c[i] == 'b':
+            face_color.append((141 / 255, 184 / 255, 226 / 255))
+        elif c[i] == 'r':
+            face_color.append((226 / 255, 184 / 255, 141 / 255))
+    edge_color = (50 / 255, 50 / 255, 50 / 255)
+    mesh.set_edgecolor(edge_color)
+    mesh.set_facecolor(face_color)
+    ax.add_collection3d(mesh)
 
-        # Initialize the matplotlib color map
-        sm = plt.cm.ScalarMappable(cmap=cmap)
-
-        # Obtain linear color range
-        color_range = sm.to_rgba(np.linspace(0, 1, 256), bytes=True)[:, 2::-1]
-
-        return color_range.reshape(256, 3).astype(np.float32) / 255.0
-
-    def draw(self, event):
-        if self.canvas.events.key_press.blocked():
-          self.canvas.events.key_press.unblock()
-        if self.img_canvas.events.key_press.blocked():
-          self.img_canvas.events.key_press.unblock()
-
-    def destroy(self):
-        # destroy the visualization
-        self.canvas.close()
-        self.img_canvas.close()
-        vispy.app.quit()
-
-    def run(self):
-        vispy.app.run()
 
 def viz_voxels():
     # use openGL to visualize voxels
@@ -272,59 +271,6 @@ def plot_scene_w_grasps(list_obj_verts, list_obj_faces, list_obj_handverts, list
         pressed_keyboard = plt.waitforbuttonpress()
 
     plt.close(fig)
-
-
-def plot_hand_w_object(obj_verts, obj_faces, hand_verts, hand_faces, pts=None, jts=None, nmls=None, viz_m=False, viz_c=False, viz_j=False, viz_n=False, save_path=None, flip=True, save=False):
-    """
-    Functions taken from the ObMan dataset repo (https://github.com/hassony2/obman)
-    """
-    colors = ['r']*len(hand_faces) + ['b']*len(obj_faces)
-
-    frames = []
-    fig = plt.figure()
-    fig.subplots_adjust(0.05, 0.05, 0.95, 0.95)  # get rid of margins
-    ax = fig.add_subplot(111, projection='3d')
-    # ax.axis('off')
-    # plt.show('off')
-
-    verts = hand_verts
-    add_group_meshs(ax, np.concatenate((verts, obj_verts)), np.concatenate((hand_faces, obj_faces + 778)), alpha=1, c=colors)
-    cam_equal_aspect_3d(ax, obj_verts, flip_x=flip, flip_y=flip)
-    ax.set_xlabel('x'); ax.set_ylabel('y'); ax.set_zlabel('z')
-
-    pressed_keyboard = False
-    while not pressed_keyboard:
-        pressed_keyboard = plt.waitforbuttonpress()
-    if save:
-        fig.savefig(save_path, pad_inches=0)
-    plt.close(fig)
-
-    return
-
-def add_mesh(ax, verts, faces, alpha=0.1, c='b'):
-    mesh = Poly3DCollection(verts[faces], alpha=alpha)
-    if c == 'b':
-        face_color = (141 / 255, 184 / 255, 226 / 255)
-    elif c == 'r':
-        face_color = (226 / 255, 184 / 255, 141 / 255)
-    edge_color = (50 / 255, 50 / 255, 50 / 255)
-    mesh.set_edgecolor(edge_color)
-    mesh.set_facecolor(face_color)
-    ax.add_collection3d(mesh)
-
-def add_group_meshs(ax, verts, faces, alpha=0.1, c='b'):
-    mesh = Poly3DCollection(verts[faces], alpha=alpha)
-    face_color = []
-    for i in range(len(c)):
-        if c[i] == 'b':
-            face_color.append((141 / 255, 184 / 255, 226 / 255))
-        elif c[i] == 'r':
-            face_color.append((226 / 255, 184 / 255, 141 / 255))
-    edge_color = (50 / 255, 50 / 255, 50 / 255)
-    mesh.set_edgecolor(edge_color)
-    mesh.set_facecolor(face_color)
-    ax.add_collection3d(mesh)
-
 
 def cam_equal_aspect_3d(ax, verts, flip_x=False, flip_y=False, flip_z=False):
     """
@@ -440,111 +386,6 @@ def plot2d_img(imgs, title_name=None, dpi=200, cmap=None, save_fig=False, show_f
         if not os.path.exists(save_path):
             os.makedirs(save_path)
         fig.savefig('{}/{}.png'.format(save_path, sub_name, pad_inches=0))
-
-def plot3d_pts(pts, pts_name, s=2, dpi=150, title_name=None, sub_name='default', \
-                    color_channel=None, colorbar=False, limits=None,\
-                    bcm=None, puttext=None, view_angle=None,\
-                    save_fig=False, save_path=None, \
-                    axis_off=False, show_fig=True):
-    """
-    fig using
-    """
-    fig     = plt.figure(dpi=dpi)
-    cmap    = plt.cm.jet
-    top     = plt.cm.get_cmap('Oranges_r', 128)
-    bottom  = plt.cm.get_cmap('Blues', 128)
-
-    colors = np.vstack((top(np.linspace(0, 1, 10)),
-                           bottom(np.linspace(0, 1, 10))))
-    # colors = ListedColormap(newcolors, name='OrangeBlue')
-    # colors  = cmap(np.linspace(0., 1., 5))
-    # colors = ['Blues', 'Blues',  'Blues', 'Blues', 'Blues']
-    all_poss=['o', 'o','o', '.','o', '*', '.','o', 'v','^','>','<','s','p','*','h','H','D','d','1','','']
-    num     = len(pts)
-    for m in range(num):
-        ax = plt.subplot(1, num, m+1, projection='3d')
-        if view_angle==None:
-            ax.view_init(elev=36, azim=-49)
-        else:
-            ax.view_init(elev=view_angle[0], azim=view_angle[1])
-        if len(pts[m]) > 1:
-            for n in range(len(pts[m])):
-                if n==len(pts[m]) - 1:
-                    s = 3**2
-                if color_channel is None:
-                    ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2], marker=all_poss[n], s=s, cmap=colors[n], label=pts_name[m][n])
-                else:
-                    if colorbar:
-                        rgb_encoded = color_channel[m][n]
-                    else:
-                        rgb_encoded = (color_channel[m][n] - np.amin(color_channel[m][n], axis=0, keepdims=True))/np.array(np.amax(color_channel[m][n], axis=0, keepdims=True) - np.amin(color_channel[m][n], axis=0, keepdims=True))
-                    if len(pts[m])==3 and n==2:
-                        p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2],  marker=all_poss[4], s=s, c=rgb_encoded, label=pts_name[m][n])
-                    else:
-                        p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2],  marker=all_poss[n], s=s, c=rgb_encoded, label=pts_name[m][n])
-                    if colorbar:
-                        fig.colorbar(p)
-        else:
-            for n in range(len(pts[m])):
-                if color_channel is None:
-                    p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2], marker=all_poss[n], s=s, cmap=colors[n])
-                else:
-                    if colorbar:
-                        rgb_encoded = color_channel[m][n]
-                    else:
-                        rgb_encoded = (color_channel[m][n] - np.amin(color_channel[m][n], axis=0, keepdims=True))/np.array(np.amax(color_channel[m][n], axis=0, keepdims=True) - np.amin(color_channel[m][n], axis=0, keepdims=True))
-                    if len(pts[m])==3 and n==2:
-                        p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2],  marker=all_poss[4], s=s, c=rgb_encoded)
-                    else:
-                        p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2],  marker=all_poss[n], s=s, c=rgb_encoded)
-                    if colorbar:
-                        # fig.colorbar(p)
-                        fig.colorbar(p, ax=ax)
-
-        ax.set_xlabel('X Label')
-        ax.set_ylabel('Y Label')
-        ax.set_zlabel('Z Label')
-        if axis_off:
-            plt.axis('off')
-
-        if title_name is not None:
-            if len(pts_name[m])==1:
-                plt.title(title_name[m]+ ' ' + pts_name[m][0] + '    ')
-            else:
-                plt.legend(loc=0)
-                plt.title(title_name[m]+ '    ')
-
-        if bcm is not None:
-            for j in range(len(bcm)):
-                ax.plot3D([bcm[j][0][0], bcm[j][2][0], bcm[j][6][0], bcm[j][4][0], bcm[j][0][0]], \
-                    [bcm[j][0][1], bcm[j][2][1], bcm[j][6][1], bcm[j][4][1], bcm[j][0][1]], \
-                    [bcm[j][0][2], bcm[j][2][2], bcm[j][6][2], bcm[j][4][2], bcm[j][0][2]], 'blue')
-
-                ax.plot3D([bcm[j][1][0], bcm[j][3][0], bcm[j][7][0], bcm[j][5][0], bcm[j][1][0]], \
-                    [bcm[j][1][1], bcm[j][3][1], bcm[j][7][1], bcm[j][5][1], bcm[j][1][1]], \
-                    [bcm[j][1][2], bcm[j][3][2], bcm[j][7][2], bcm[j][5][2], bcm[j][1][2]], 'gray')
-
-                for pair in [[0, 1], [2, 3], [4, 5], [6, 7]]:
-                    ax.plot3D([bcm[j][pair[0]][0], bcm[j][pair[1]][0]], \
-                        [bcm[j][pair[0]][1], bcm[j][pair[1]][1]], \
-                        [bcm[j][pair[0]][2], bcm[j][pair[1]][2]], 'red')
-        if puttext is not None:
-            ax.text2D(0.55, 0.80, puttext, transform=ax.transAxes, color='blue', fontsize=6)
-        if limits is None:
-            limits = [[-1, 1], [-1, 1], [-1, 1]]
-        set_axes_equal(ax, limits=limits)
-    if show_fig:
-        plt.show()
-    if save_fig:
-        if save_path is None:
-            if not os.path.exists('./results/test/'):
-                os.makedirs('./results/test/')
-            fig.savefig('./results/test/{}_{}.png'.format(sub_name, title_name[0]), pad_inches=0)
-        else:
-            if not os.path.exists(save_path):
-                os.makedirs(save_path)
-            fig.savefig('{}/{}_{}.png'.format(save_path, sub_name, title_name[0]), pad_inches=0)
-    plt.close()
 
 def plot_imgs(imgs, imgs_name, title_name='default', sub_name='default', save_path=None, save_fig=False, axis_off=False, show_fig=True, dpi=150):
     fig     = plt.figure(dpi=dpi)

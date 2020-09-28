@@ -15,14 +15,17 @@ import torch.nn as nn
 
 # Our libs
 import __init__ as booger
-import dataset.parser_vanilla as parserModule
+import dataset.parser as parserModule
+from dataset.hand_shape2motion import ContactsVoteDataset
 from modules.network import Network
 from global_info import global_info
 from common.debugger import breakpoint
 
 def main_worker(gpu, cfg):
     # >>>>>>>>>>>>>>>>> 1. create data loader;
-    parser = parserModule.Parser(cfg)
+    parser = parserModule.Parser(cfg, ContactsVoteDataset)
+
+    #
     train_loader   = parser.get_train_set()
     valid_loader   = parser.get_valid_set()
     test_loader    = parser.get_test_set()
@@ -30,13 +33,14 @@ def main_worker(gpu, cfg):
     cfg.TRAIN.epoch_iters = len(train_loader)
     cfg.TRAIN.max_iters   = max(500, cfg.TRAIN.epoch_iters) * cfg.TRAIN.num_epoch
 
+    #
     if cfg.is_debug:
         dp = parser.train_dataset.__getitem__(100)
 
     # >>>>>>>>>>>>>>>>> 2. create model
     model = Network(gpu, cfg)
-    best_train_iou = 0
-    best_valid_iou = 0
+    best_train_iou = 0 #
+    best_valid_iou = 0 #
     # >>>>>>>>>>>>>>>>>>3. start train & evaluation
     for epoch in range(cfg.TRAIN.num_epoch):
         if cfg.eval:
@@ -50,12 +54,12 @@ def main_worker(gpu, cfg):
         # if best_train_iou < train_miou:
         for key, nets in model.nets_dict.items():
             model.checkpoint(nets, cfg, epoch+1, suffix= key + '_train')
-        best_train_iou = train_miou
+        # best_train_iou = train_miou
         #
         # if best_valid_iou < valid_miou:
         for key, nets in model.nets_dict.items():
             model.checkpoint(nets, cfg, epoch+1, suffix= key + '_valid')
-        best_valid_iou = valid_miou
+        # best_valid_iou = valid_miou
 
     print('Training Done!')
     test_miou, test_loss    = model.valid_epoch(gpu, test_loader, model.modules['point'], epoch, cfg, prefix='unseen', save_pred=True)
@@ -76,7 +80,7 @@ def main(cfg):
     cfg.MODEL.num_classes = cfg.n_max_parts
     cfg.HEAD.nocs_per_point[-2] = cfg.n_max_parts * 3
     cfg.root_data   = infos.second_path + '/data'
-    cfg.log_dir     = infos.base_path + cfg.log_dir
+    cfg.log_dir     = infos.second_path + cfg.log_dir
     cfg.TRAIN.running_lr         = cfg.TRAIN.init_learning_rate
     if not os.path.isdir(cfg.log_dir):
         os.makedirs(cfg.log_dir)

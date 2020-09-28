@@ -3,21 +3,21 @@ TRAIN:
   shuffle_train: True
   use_direct_regression: False
   partcls_loss_multiplier: 1.0
-  nocs_loss_multiplier : 10.0
-  gocs_loss_multiplier : 1.0
+  nocs_loss_multiplier : 0.1
+  gocs_loss_multiplier : 0.0
   handvertices_loss_multiplier : 1.0
   handjoints_loss_multiplier : 1.0
   jointcls_loss_multiplier : 1.0
-  handheatmap_loss_multiplier : 1.0
-  handunitvec_loss_multiplier : 5.0
-  confidence_loss_multiplier : 1.0
+  handheatmap_loss_multiplier : 0.0
+  handunitvec_loss_multiplier : 0.0
+  confidence_loss_multiplier : 0.0
   heatmap_loss_multiplier : 1.0
   unitvec_loss_multiplier : 5.0
   orient_loss_multiplier : 0.2
-  jointcls_loss_multiplier : 1.0
   total_loss_multiplier: 1.0
-  direct_loss_multiplier: 1.0
   regression_loss_multiplier: 1.0
+  regressionR_loss_multiplier: 0.01
+  regressionT_loss_multiplier: 0.0
   orthogonality_loss_multiplier: 0.1
   coord_regress_loss: 'L2'
   parametri_type: "orth"
@@ -53,7 +53,7 @@ TRAIN:
   init_learning_rate: 0.001
   running_lr: 0.0
   lr_encoder: 0.01
-  lr_decoder: 0.01
+  lr_decoder: 0.002
   running_lr_encoder: 0.01
   running_lr_decoder: 0.01
   #
@@ -98,14 +98,14 @@ HEAD:
   partcls_per_point: [128, 4, 'softmax']
   nocs_per_point : [128, None, 'sigmoid']
   # gocs_per_point : [128, 3, 'sigmoid']
-  handheatmap_per_point :  [128, 128, 21, 'sigmoid']
-  handunitvec_per_point :  [128, 128, 63, 'tanh']
-  confidence_per_point : [128, 1, 'sigmoid']
+  # handheatmap_per_point :  [128, 128, 21, 'sigmoid']
+  # handunitvec_per_point :  [128, 128, 63, 'tanh']
+  # confidence_per_point : [128, 1, 'sigmoid']
   # heatmap_per_point :  [128, 128, 1, 'sigmoid']
   # unitvec_per_point :  [128, 128, 3, 'tanh']
   # orient_per_point : [128, 128, 3, 'tanh']
   # jointcls_per_point : [128, 128, 3, 'softmax']
-  regression_params: [1024, 1024, 512, 63]
+  # regression_params: [1024, 1024, 512, 54] #[1024, 1024, 512, 63]
 
 point:
   encoder_weights: ''

@@ -16,6 +16,7 @@ import struct
 import trimesh
 from numba import njit
 from numpy.linalg import inv
+from pytransform3d.rotations import *
 
 import glob
 import platform
@@ -37,15 +38,53 @@ plt.ioff()
 
 import __init__
 from common.transformations import euler_matrix, quaternion_matrix, quaternion_from_matrix
-from common.vis_utils import plot_arrows, plot_arrows_list, plot_arrows_list_threshold, plot3d_pts, plot_lines
+from common.vis_utils import plot_arrows, plot_arrows_list, plot_arrows_list_threshold, plot3d_pts, plot_lines, plot_hand_w_object
 from global_info import global_info
 
 infos = global_info()
 base_path = infos.base_path
 epsilon = 10e-8
+second_path = infos.second_path
+render_path = infos.render_path
+viz_path  = infos.viz_path
+hand_mesh = infos.hand_mesh
+hand_urdf = infos.hand_urdf
+grasps_meta  = infos.grasps_meta
+mano_path    = infos.mano_path
+
+whole_obj = infos.whole_obj
+part_obj  = infos.part_obj
+obj_urdf  = infos.obj_urdf
 
 def breakpoint():
     import pdb;pdb.set_trace()
+
+def get_obj_mesh(basename, category='eyeglasses', verbose=False):
+    """
+    basename: 0001_7_0_2
+    """
+    verts = []
+    faces = []
+    attrs = basename.split('_')
+    instance = attrs[0]
+    arti_ind = attrs[1]
+    objname = f'{whole_obj}/{category}/{instance}/{arti_ind}.obj'
+    obj= fast_load_obj(open(objname, 'rb'))[0] # why it is [0]
+    obj_verts = obj['vertices']
+    obj_faces = obj['faces']
+    alpha = -np.pi/2
+    correct_R = matrix_from_euler_xyz([alpha, 0, 0])
+
+    # transfrom mesh into blender coords
+    obj_verts = np.dot(correct_R, obj_verts.T).T
+
+    verts.append(obj_verts)
+    faces.append(obj_faces)
+    if verbose:
+        plot_hand_w_object(obj_verts=verts[0], obj_faces=faces[0], hand_verts=verts[0], hand_faces=faces[0],save=False, mode='continuous')
+
+    return verts[0], faces[0]
+
 def parse_calibration(filename):
   """ read calibration file with given filename
 
@@ -134,7 +173,7 @@ def collect_file(root_dset, ctgy_objs, mode='train', selected_list=None):
                           ft.write('{}\n'.format(item))
                 print('done for {} {}'.format(instance, dir_arti))
 
-# split 
+# split
 def split_dataset(root_dset, ctgy_objs, args, test_ins, spec_ins=[], train_ins=None):
     num_expr = args.num_expr
     if args.mode == 'train' or args.mode=='test':
@@ -823,11 +862,11 @@ def read_obj(filename):
     result = Minimal(**d)
 
     return result
-    
+
 def fast_load_obj(file_obj, **kwargs):
     """
     Code slightly adapted from trimesh (https://github.com/mikedh/trimesh)
-    and taken from ObMan dataset (https://github.com/hassony2/obman) 
+    and taken from ObMan dataset (https://github.com/hassony2/obman)
     Thanks to Michael Dawson-Haggerty for this great library !
     loads an ascii wavefront obj file_obj into kwargs
     for the trimesh constructor.

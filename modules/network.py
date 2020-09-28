@@ -1,3 +1,12 @@
+"""
+Log:
+9.16:
+ GT: 45+ 3 + 3; [R+T] * [3 poses+T]--> poses + T1
+pred: 6--> 3*3 for loss, 3*3--> euler for prediction;
+3 trans = average;
+
+"""
+
 import torch
 import torch.nn as nn
 import torch.distributed as dist
@@ -9,8 +18,12 @@ import __init__ as booger
 from global_info import global_info
 from modules.mit_segmentator import ModelBuilder
 from common.train_utils import AverageMeter, parse_devices, warmupLR, Logger, save_to_log, make_log_img, decide_checkpoints, save_batch_nn
-from modules.losses import FocalLoss, compute_miou_loss, compute_nocs_loss, compute_vect_loss, compute_multi_offsets_loss
+from modules.losses import FocalLoss, compute_miou_loss, compute_nocs_loss, compute_vect_loss, compute_multi_offsets_loss, loss_geodesic
+from models.loss_helper import compute_vote_loss, compute_objectness_loss, compute_box_and_sem_cls_loss
+from models.loss_helper import get_loss
 from modules.ioueval import *
+from common.d3_utils import compute_rotation_matrix_from_euler, compute_euler_angles_from_rotation_matrices, compute_rotation_matrix_from_ortho6d
+
 
 infos           = global_info()
 my_dir          = infos.base_path
@@ -31,28 +44,41 @@ class EncoderDecoder(nn.Module):
         self.mano_layer= None
         if cfg.pred_mano:
             ncomps = 45
-            self.mano_layer = ManoLayer(mano_root=mano_path, side='right', use_pca=False, ncomps=45, flat_hand_mean=True)
+            self.mano_layer    = ManoLayer(mano_root=mano_path, root_rot_mode='ratation_6d', side='right', use_pca=False, ncomps=45, flat_hand_mean=True)
+            self.mano_layer_gt = ManoLayer(mano_root=mano_path, root_rot_mode='ratation_6d', side='right', use_pca=False, ncomps=45, flat_hand_mean=True)
 
-    def forward(self, xyz1, mask=None, index=0):
-        if self.backbone is None:
-            net, bottle_neck = self.decoder(xyz1)
-        else:
-            net, bottle_neck = self.decoder(self.backbone(xyz1))
-        pred_dict = {}
-        # safe
-        for i, sub_head in enumerate(self.head):
-            if 'regression' in self.head_names[i]:
-                if bottle_neck.size(-1) !=1:
-                    bottle_neck = bottle_neck.max(-1)[0]
-                pred_dict[self.head_names[i]] = self.head[i](bottle_neck.view(-1, 1024))
-            else:
-                pred_dict[self.head_names[i]] = self.head[i](net)
-        if self.pred_mano:
-            handvertices, handjoints = self.mano_layer.forward(th_pose_coeffs=pred_dict['regression_params'])
-            pred_dict['handvertices'] = handvertices
-            pred_dict['handjoints']   = handjoints
+    def forward(self, xyz1=None, inputs=None, mask=None, index=0):
+        if inputs is not None:
+            end_points = self.decoder(inputs)
 
-        return pred_dict
+        return end_points
+
+        # if self.backbone is None:
+        #     net, bottle_neck = self.decoder(xyz1)
+        # else:
+        #     net, bottle_neck = self.decoder(self.backbone(xyz1))
+        # pred_dict = {}
+        # # safe
+        # for i, sub_head in enumerate(self.head):
+        #     if 'regression' in self.head_names[i]:
+        #         if bottle_neck.size(-1) !=1:
+        #             bottle_neck = bottle_neck.max(-1)[0]
+        #         pred_dict[self.head_names[i]] = self.head[i](bottle_neck.view(-1, 1024))
+        #     else:
+        #         pred_dict[self.head_names[i]] = self.head[i](net)
+        #
+        # if self.pred_mano:
+        #     regression_params = torch.split(pred_dict['regression_params'], [6, 45, 3], dim=1)
+        #     pred_dict['regressionR'] = compute_rotation_matrix_from_ortho6d(regression_params[0])
+        #     pred_dict['regressionT'] = regression_params[2]
+        #     pred_dict['regression_params'] = regression_params[1] # focus on poses
+        #
+        #     pose_coeffs = torch.cat((regression_params[0], regression_params[1]), dim=1)
+        #     handvertices, handjoints = self.mano_layer.forward(th_pose_coeffs=pose_coeffs) #th_trans=pred_dict['regressionT']
+        #     pred_dict['handvertices'] = handvertices/200
+        #     pred_dict['handjoints']   = handjoints/200
+        #
+        # return pred_dict
 
 class Network():
     def __init__(self, gpu, cfg): # with seperate gpu for distributed training
@@ -64,7 +90,7 @@ class Network():
         self.pred_joint= cfg.pred_joint
         self.pred_joint_ind = cfg.pred_joint_ind
         self.pred_hand = cfg.pred_hand
-        self.tb_logger = {'train': Logger(cfg.log_dir + "/train"), 'seen': Logger(cfg.log_dir + '/seen'), 'unseen': Logger(cfg.log_dir + '/unseen')}
+        self.tb_logger = {'train': Logger(cfg.log_dir + "/tb/train"), 'seen': Logger(cfg.log_dir + '/tb/seen'), 'unseen': Logger(cfg.log_dir + '/tb/unseen')}
         # >>>>>>>>>>>>>>> decide whether to use multi-gpu
         if cfg.num_gpus > 0:
             torch.cuda.set_device(gpu)
@@ -90,6 +116,11 @@ class Network():
         self.total_loss_dict['total_loss'] = 0
         self.total_loss_dict['handvertices_loss'] = 0
         self.total_loss_dict['handjoints_loss'] = 0
+        self.total_loss_dict['regressionR_loss'] = 0
+        self.total_loss_dict['regressionT_loss'] = 0 # extra
+        self.total_loss_dict['objectness_loss'] = 0
+        self.total_loss_dict['vote_loss'] = 0
+        self.total_loss_dict['center_loss'] = 0
         for head_name in cfg.HEAD.keys():
             if 'confidence' in head_name or 'mask' in head_name:
                 continue
@@ -154,14 +185,30 @@ class Network():
             # prepare for training
             model.zero_grad()
 
-            pred_dict = model(batch['P'])
-            with torch.no_grad():
-                batch['handvertices'], batch['handjoints'] = model.mano_layer(th_pose_coeffs=batch['regression_params'])
+            inputs = {'point_clouds': batch['P']}
+            end_points = model(inputs=inputs)
 
-            loss_dict = self.compute_loss(pred_dict, batch, cfg)
+            # pred_dict = model(batch['P'])
 
-            # combine different losses
-            loss_total= self.collect_losses(loss_dict)
+            if cfg.pred_mano:
+                with torch.no_grad():
+                    handvertices, handjoints = model.mano_layer_gt(th_pose_coeffs=batch['regression_params'])
+                    batch['handvertices']     = handvertices/200
+                    batch['handjoints']       = handjoints/200
+
+            # loss_dict = self.compute_loss(pred_dict, batch, cfg)
+                    # Compute loss and gradients, update parameters.
+            for key in batch:
+                assert(key not in end_points)
+                end_points[key] = batch[key]
+
+            loss_total, end_points = get_loss(end_points)
+            # config loss_dict
+            self.total_loss_dict['objectness_loss'] = end_points['objectness_loss']
+            self.total_loss_dict['center_loss'] = end_points['center_loss']
+            self.total_loss_dict['vote_loss'] = end_points['vote_loss']
+            # # combine different losses
+            # loss_total= self.collect_losses(loss_dict)
 
             # >>>>>>>>>>>  backward
             loss_total.backward()
@@ -192,28 +239,40 @@ class Network():
                             cfg.TRAIN.running_lr_decoder = g["lr"]
 
             # >>>>>>>>>>>>>>>> for logging use only
-            # breakpoint()
             for key, loss_item in self.total_loss_dict.items():
+                if isinstance(loss_item, int):
+                    continue
                 losses_meter[key].update(loss_item.item(), 1)
             batch_time.update(time.time() - tic)
 
             print('Training: [{0}][{1}/{2}] | ''Lr: {lr_encoder:.3e} {lr_decoder:.3e} | '
-                    'Loss: {loss:.3f} m:{miou_loss:.3f} n:{nocs_loss:.3f} h:{heatmap_loss:.3f} u:{unitvec_loss:.3f} r:{regression_loss:.3f}'.format(epoch, i, len(loader), \
+                    'Loss: {loss:.3f} o:{objectness_loss:.3f} c:{center_loss:.3f} v:{vote_loss:.3f}'.format(epoch, i, len(loader), \
                       loss=loss_total, \
-                      miou_loss=self.total_loss_dict['partcls_loss'], \
-                      nocs_loss=self.total_loss_dict['nocs_loss'], \
-                      regression_loss=self.total_loss_dict['regression_loss'],\
-                      heatmap_loss=self.total_loss_dict['handheatmap_loss'],\
-                      unitvec_loss=self.total_loss_dict['handunitvec_loss'],\
+                      objectness_loss=self.total_loss_dict['objectness_loss'], \
+                      center_loss=self.total_loss_dict['center_loss'], \
+                      vote_loss=self.total_loss_dict['vote_loss'], \
                       lr_encoder=cfg.TRAIN.running_lr_encoder, \
                       lr_decoder=cfg.TRAIN.running_lr_decoder))
+            # print('Training: [{0}][{1}/{2}] | ''Lr: {lr_encoder:.3e} {lr_decoder:.3e} | '
+            #         'Loss: {loss:.3f} m:{miou_loss:.3f} n:{nocs_loss:.3f} h:{heatmap_loss:.3f} u:{unitvec_loss:.3f} r:{regression_loss:.3f}, R:{regressionR_loss:.3f}, hv: {handvertices_loss:.3f}, hj: {handjoints_loss:.3f}'.format(epoch, i, len(loader), \
+            #           loss=loss_total, \
+            #           miou_loss=self.total_loss_dict['partcls_loss'], \
+            #           nocs_loss=self.total_loss_dict['nocs_loss'], \
+            #           regression_loss=self.total_loss_dict['regression_loss'],\
+            #           regressionR_loss=self.total_loss_dict['regressionR_loss'],\
+            #           handvertices_loss=self.total_loss_dict['handvertices_loss'],\
+            #           handjoints_loss=self.total_loss_dict['handjoints_loss'],\
+            #           heatmap_loss=self.total_loss_dict['handheatmap_loss'],\
+            #           unitvec_loss=self.total_loss_dict['handunitvec_loss'],\
+            #           lr_encoder=cfg.TRAIN.running_lr_encoder, \
+            #           lr_decoder=cfg.TRAIN.running_lr_decoder))
 
         print(f'Epoch {epoch} has : ')
         for key, loss_item in losses_meter.items():
             self.infos[key] = loss_item.avg
             if cfg.verbose:
                 print('---training ', key, self.infos[key])
-        save_to_log(logdir=cfg.log_dir + '/train', logger=self.tb_logger['train'], info=self.infos, epoch=epoch, img_summary=cfg.TRAIN.save_scans)
+        save_to_log(logdir=cfg.log_dir + '/tb/train', logger=self.tb_logger['train'], info=self.infos, epoch=epoch, img_summary=cfg.TRAIN.save_scans)
         print('')
 
         return 1-self.total_loss_dict['partcls_loss'], loss_total
@@ -239,27 +298,67 @@ class Network():
                     break
                 self.fill_gpu_batch_data(gpu_id, batch)
 
-                pred_dict = model(batch['P'])
-                loss_dict = self.compute_loss(pred_dict, batch, cfg)
+                # pred_dict = model(batch['P'])
+                # if cfg.pred_mano:
+                #     handvertices, handjoints = model.mano_layer_gt(th_pose_coeffs=batch['regression_params'])
+                #     batch['handvertices']     = handvertices/200
+                #     batch['handjoints']       = handjoints/200
+                # loss_dict = self.compute_loss(pred_dict, batch, cfg)
+                #
+                # # combine different losses
+                # loss_total= self.collect_losses(loss_dict)
 
-                # combine different losses
-                loss_total= self.collect_losses(loss_dict)
+                inputs = {'point_clouds': batch['P']}
+                end_points = model(inputs=inputs)
+                if cfg.pred_mano:
+                    with torch.no_grad():
+                        handvertices, handjoints = model.mano_layer_gt(th_pose_coeffs=batch['regression_params'])
+                        batch['handvertices']     = handvertices/200
+                        batch['handjoints']       = handjoints/200
+
+                for key in batch:
+                    assert(key not in end_points)
+                    end_points[key] = batch[key]
+
+                loss_total, end_points = get_loss(end_points)
+                # config loss_dict
+                self.total_loss_dict['objectness_loss'] = end_points['objectness_loss']
+                self.total_loss_dict['center_loss'] = end_points['center_loss']
+                self.total_loss_dict['vote_loss'] = end_points['vote_loss']
+                # # combine different losses
+                # loss_total= self.collect_losses(loss_dict)
                 loss_total = loss_total.mean()
 
                 for key, loss_item in self.total_loss_dict.items():
+                    if isinstance(loss_item, int):
+                        continue
                     losses_meter[key].update(loss_item.item(), 1)
                 batch_time.update(time.time() - tic)
 
-                # >>>>>>>>>>>>> logging
-                print('---Validation: [{0}][{1}/{2}] | '
-                      'Loss: {loss:.3f} m:{miou_loss:.3f} n:{nocs_loss:.3f} h:{heatmap_loss:.3f} u:{unitvec_loss:.3f} r:{regression_loss:.3f}'.format(epoch, i, len(loader), \
-                      loss=loss_total, \
-                      miou_loss=self.total_loss_dict['partcls_loss'], \
-                      nocs_loss=self.total_loss_dict['nocs_loss'], \
-                      regression_loss=self.total_loss_dict['regression_loss'],\
-                      heatmap_loss=self.total_loss_dict['handheatmap_loss'],\
-                      unitvec_loss=self.total_loss_dict['handunitvec_loss']))
+                print('Validation: [{0}][{1}/{2}] | '
+                        'Loss: {loss:.3f} o:{objectness_loss:.3f} c:{center_loss:.3f} v:{vote_loss:.3f}'.format(epoch, i, len(loader), \
+                          loss=loss_total, \
+                          objectness_loss=self.total_loss_dict['objectness_loss'], \
+                          center_loss=self.total_loss_dict['center_loss'], \
+                          vote_loss=self.total_loss_dict['vote_loss']))
+                # # >>>>>>>>>>>>> logging
+                # print('---Validation: [{0}][{1}/{2}] | '
+                #     'Loss: {loss:.3f} m:{miou_loss:.3f} n:{nocs_loss:.3f} h:{heatmap_loss:.3f} u:{unitvec_loss:.3f} r:{regression_loss:.3f}, R:{regressionR_loss:.3f}, hv: {handvertices_loss:.3f}, hj: {handjoints_loss:.3f}'.format(epoch, i, len(loader), \
+                #       loss=loss_total, \
+                #       miou_loss=self.total_loss_dict['partcls_loss'], \
+                #       nocs_loss=self.total_loss_dict['nocs_loss'], \
+                #       regression_loss=self.total_loss_dict['regression_loss'],\
+                #       regressionR_loss=self.total_loss_dict['regressionR_loss'],\
+                #       handvertices_loss=self.total_loss_dict['handvertices_loss'],\
+                #       handjoints_loss=self.total_loss_dict['handjoints_loss'],\
+                #       heatmap_loss=self.total_loss_dict['handheatmap_loss'],\
+                #       unitvec_loss=self.total_loss_dict['handunitvec_loss'],\
+                #       ))
                 # >>>>>>>>>>>>> save
+                pred_dict = {}
+                for key, value in end_points.items():
+                    if len(value.size())>1:
+                        pred_dict[key] = value
                 if save_pred:
                     save_batch_nn(cfg.name_model, pred_dict, batch, loader.dataset.basename_list, save_dir=cfg.log_dir + f'/preds/{prefix}/')
 
@@ -267,7 +366,7 @@ class Network():
             self.infos[key] = loss_item.avg
             if cfg.verbose:
                 print(f'----{prefix} ', key, self.infos[key])
-        save_to_log(logdir=cfg.log_dir + '/' +prefix, logger=self.tb_logger[prefix], info=self.infos, epoch=epoch, img_summary=cfg.TRAIN.save_scans)
+        save_to_log(logdir=cfg.log_dir + '/tb/' +prefix, logger=self.tb_logger[prefix], info=self.infos, epoch=epoch, img_summary=cfg.TRAIN.save_scans)
         if cfg.verbose:
             print('saving log to ', cfg.log_dir + '/' +prefix)
 
@@ -310,7 +409,7 @@ class Network():
 
         '''
         # dimension tensors
-        n_max_parts= pred_dict['partcls_per_point'].size(1)
+        n_max_parts= cfg.n_max_parts
         loss_dict= {}
 
         for key, value in pred_dict.items():
@@ -318,8 +417,14 @@ class Network():
             if 'confidence' in key or 'mask' in key:
                 continue
             elif 'regression' in key:
-                diff_p = (pred_dict[key][:, :45] - gt_dict[key][:, :45]).view(value.size(0), -1, 3).contiguous()
-                loss_dict[key] = torch.mean(torch.norm(diff_p, dim=2), dim=1)
+                if key == 'regression_params':
+                    diff_p = (pred_dict[key] - gt_dict[key][:, 6:]).view(value.size(0), -1, 3).contiguous()
+                    loss_dict[key] = torch.mean(torch.norm(diff_p, dim=2), dim=1)
+                elif key=='regressionR':
+                    loss_dict[key] = loss_geodesic(pred_dict[key], gt_dict[key])
+                else:
+                    diff_p = (pred_dict[key] - gt_dict[key]).view(value.size(0), -1, 3).contiguous()
+                    loss_dict[key] = torch.mean(torch.norm(diff_p, dim=2), dim=1)
             elif 'cls' in key:
                 loss_dict[key] = compute_miou_loss(pred_dict[key], gt_dict[key], loss_type=cfg.TRAIN.loss)
             elif 'nocs' in key:
@@ -329,14 +434,14 @@ class Network():
                 loss_dict[key] = compute_nocs_loss(pred_dict[key], gt_dict[key], confidence=None, \
                                         num_parts=n_max_parts, MULTI_HEAD=False, SELF_SU=False)
             elif 'hand' in key:
-                if 'heatmap' in key:
-                    loss_dict[key] = compute_vect_loss(pred_dict[key], gt_dict[key], confidence=gt_dict['hand_mask'], TYPE_LOSS='L1')
-                elif 'unitvec' in key:
+                if key=='handheatmap_per_point' or key=='handunitvec_per_point':
                     loss_dict[key] = compute_multi_offsets_loss(pred_dict[key], gt_dict[key], confidence=gt_dict['hand_mask'])
                 else:
-                    diff_p = (pred_dict[key] - gt_dict[key])/100
+                    # print('mean norm for ', key, pred_dict[key].shape, gt_dict[key].shape)
+                    diff_p = (pred_dict[key] - gt_dict[key]) # N, 3
                     loss_dict[key] = torch.mean(torch.norm(diff_p, dim=2), dim=1)
             else:
+                print('compute vect loss for ', key)
                 loss_dict[key] = compute_vect_loss(pred_dict[key], gt_dict[key], confidence=gt_dict['joint_mask'], TYPE_LOSS='L2')
 
         return loss_dict

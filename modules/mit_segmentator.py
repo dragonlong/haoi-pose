@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torchvision
 import torch.nn.functional as F
+import numpy as np
 import __init__ as booger
 from backbones import resnet, resnext, mobilenet, unet, pointnet
 from decoders.flownet3d import FlowNet3D
@@ -10,6 +11,7 @@ from decoders.deeppcn import DPCN
 from decoders.pointnet2seq import PointMotionBaseModel
 from decoders.pointnet2 import PointBaseModel
 from decoders.pointnet_2 import PointNet2Segmenter
+from models.votenet import VoteNet #
 
 from common.debugger import breakpoint
 from common.bidirect import c2p_map, p2c_map
@@ -138,6 +140,16 @@ class ModelBuilder:
             net_decoder = PointBaseModel(options, 'point', in_features=1, num_classes=num_class)
         elif arch == 'pointnet':
             net_decoder = pointnet.PointNetDecoder(k=num_class)
+        elif arch == 'votenet':
+            net_decoder = VoteNet(num_class=num_class,
+                           num_heading_bin=1,
+                           num_size_cluster=1,
+                           mean_size_arr=np.ones((1, 3)),
+                           num_proposal=128,
+                           input_feature_dim=2,
+                           vote_factor=1,
+                           sampling='vote_fps')
+
         elif arch == 'mlp':
             net_decoder = SimpleMLP(k=num_class)
         else:

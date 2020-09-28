@@ -240,7 +240,9 @@ class global_info(object):
         elif platform.uname()[1] == 'dragon':
             base_path = '/home/dragon/Documents/CVPR2020'
             second_path = '/home/dragon/Documents/ICML2021'
-            mano_path = '/home/dragon/Downloads/ICML2021/YCB_Affordance/data/mano'
+            # second_path = '/home/dragon/ARCwork'
+            # mano_path = '/home/dragon/Downloads/ICML2021/YCB_Affordance/data/mano'
+            mano_path = '/home/dragon/Dropbox/ICML2021/code/manopth/mano/models'
         else:
             base_path = '/work/cascades/lxiaol9/6DPOSE'
             group_path= '/groups/CESCA-CV'

@@ -13,6 +13,7 @@ task: 'category_pose'
 name_dset: 'shape2motion'
 item: 'eyeglasses'
 n_max_parts : 4
+num_points: 2048
 nocs_type: 'A'
 num_expr: 0.01
 name_model: pointnet2_charlesmsg # Name of the specific model to load
@@ -20,16 +21,19 @@ root_data: "/groups/CESCA-CV/ICML2021/data"
 # log_dir: '/model/${item}/${name_model}_${exp_num}' #
 log_dir: '/model/${item}/${exp_num}' #
 
+# for
 # control
 verbose: False
 use_pretrain: False
 is_debug: False
+is_gen: False
 eval: False
 pretrained_path: ''
 is_testing: False
 pred_hand: True
 pred_joint: False
 pred_mano: False
+rot_align: False
 pred_joint_ind: False
 pretty_print: False
 distributed: False

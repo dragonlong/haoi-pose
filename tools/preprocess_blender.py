@@ -168,7 +168,7 @@ class PoseDataset():
         group_dirs = os.listdir(base_path)
         group_dirs.sort()
 
-        # ********* add pts ************ #
+        # ********* ins_arti_grasp or could be only folders containing  ************ #
         for group_dir in group_dirs:
             attrs     = group_dir.split('_')
             ins       = attrs[0]
@@ -285,7 +285,9 @@ class PoseDataset():
         cam_cx = K[0, 2]
         cam_cy = K[1, 2]
         cam_fx = K[0, 0]
-        cam_fy = K[1, 1]
+        cam_fy = K[0, 0]
+        # cam_fx = K[0, 0]
+        # cam_fy = K[1, 1]
         cam_scale = 1
         pt2 = depth / cam_scale
         pt0 = (ymap - cam_cx) * pt2 / cam_fx
@@ -363,9 +365,9 @@ class PoseDataset():
             os.makedirs(h5_save_path)
         h5_save_name       = h5_save_path  + '/{}.h5'.format(frame_order)
 
-        if os.path.exists(h5_save_name):
-            print('skipping ')
-            return None
+        # if os.path.exists(h5_save_name):
+        #     print('skipping ')
+        #     return None
 
         num_parts          = self.urdf_dict[obj_category][ins]['num_links'] + 1 # add hand path
 
@@ -438,7 +440,6 @@ class PoseDataset():
         contacts_cam =  (np.dot(RT[:3, :3], contacts.T) + RT[:, 3:4]).T
 
         # save into h5 for rgb_img, input_pts, mask, correpsonding urdf_points
-
         print('Writing to ', h5_save_name)
         hf = h5py.File(h5_save_name, 'w')
         hf.create_dataset('joints', data=joints_cam)
@@ -523,5 +524,5 @@ if __name__ == '__main__':
 
     print('Process {} took {} seconds, with average {} seconds per data'.format(num_per_cpu*cpuCount, time.time() - starttime, (time.time() - starttime)/(num_per_cpu*cpuCount) ))
 
-    # 3. split data into train & test
-    split_dataset(second_dset, [item], args, test_ins=infos.datasets[item].test_list, spec_ins=infos.datasets[item].spec_list, train_ins=infos.datasets[item].train_list)
+    # # 3. split data into train & test
+    # split_dataset(second_dset, [item], args, test_ins=infos.datasets[item].test_list, spec_ins=infos.datasets[item].spec_list, train_ins=infos.datasets[item].train_list)
