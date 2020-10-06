@@ -63,6 +63,7 @@ class BaseDataset(Dataset):
         # controls
         self.pred_mano  = cfg.pred_mano
         self.rot_align  = cfg.rot_align
+        self.hand_only  = cfg.hand_only
 
         # train/valid/test
         self.is_testing   = is_testing
@@ -396,53 +397,37 @@ class BaseDataset(Dataset):
         joint_cls      =  np.concatenate(joint_cls, axis=0)
 
         #>>>>>>>>>>>>>>>>>>>>> NOCS value
-        if nocs_p[0] is not None:
-            p_arr = np.concatenate(nocs_p, axis=0)
-        if nocs_g[0] is not None:
-            g_arr = np.concatenate(nocs_g, axis=0)
+        p_arr = np.concatenate(nocs_p, axis=0)
+        g_arr = np.concatenate(nocs_g, axis=0)
 
         if np.amax(cls_arr) >= n_parts:
             print('max label {} > n_parts {}'.format(np.amax(cls_arr), n_parts))
             return None
 
+        # put into a list
+        output_arr = [pts_arr, cls_arr, p_arr, g_arr, offset_heatmap, offset_unitvec, joint_orient, joint_cls, hand_joints_offset_heatmap, hand_joints_offset_unitvec, hand_joint_cls]
+        if self.hand_only:
+            n_total_points   = np.where(cls_arr==self.parts_map[-1])[0].shape[0]
+            # print(f'---{n_total_points} hand pts')
+
         if n_total_points < self.num_points:
             tile_n = int(self.num_points/n_total_points) + 1
             n_total_points = tile_n * n_total_points
-            cls_tiled = np.concatenate([cls_arr] * tile_n, axis=0)
-            cls_arr = cls_tiled
-
-            pts_tiled = np.concatenate([pts_arr] * tile_n, axis=0)
-            pts_arr = pts_tiled
-
-            offset_heatmap_tiled = np.concatenate([offset_heatmap] * tile_n, axis=0)
-            offset_heatmap   = offset_heatmap_tiled
-            offset_unitvec_tiled = np.concatenate([offset_unitvec] * tile_n, axis=0)
-            offset_unitvec   = offset_unitvec_tiled
-
-            joint_orient_tiled = np.concatenate([joint_orient] * tile_n, axis=0)
-            joint_orient     = joint_orient_tiled
-            joint_cls_tiled  = np.concatenate([joint_cls] * tile_n, axis=0)
-            joint_cls        = joint_cls_tiled
-
-            hand_joints_offset_heatmap_tiled = np.concatenate([hand_joints_offset_heatmap] * tile_n, axis=0)
-            hand_joints_offset_heatmap   = hand_joints_offset_heatmap_tiled
-            hand_joints_offset_unitvec_tiled = np.concatenate([hand_joints_offset_unitvec] * tile_n, axis=0)
-            hand_joints_offset_unitvec   = hand_joints_offset_unitvec_tiled
-            hand_joint_cls_tiled  = np.concatenate([joint_cls] * tile_n, axis=0)
-            hand_joint_cls        = hand_joint_cls_tiled
-            if nocs_p[0] is not None:
-                p_tiled = np.concatenate([p_arr] * tile_n, axis=0)
-                p_arr   = p_tiled
-
-            if nocs_g[0] is not None:
-                g_tiled = np.concatenate([g_arr] * tile_n, axis=0)
-                g_arr   = g_tiled
-
+            for j in range(len(output_arr)):
+                arr_tiled = np.concatenate([np.copy(output_arr[j])] * tile_n, axis=0)
+                output_arr[j] = arr_tiled
+        pts_arr, cls_arr, p_arr, g_arr, offset_heatmap, offset_unitvec, joint_orient, joint_cls, hand_joints_offset_heatmap, hand_joints_offset_unitvec, hand_joint_cls= output_arr
         mask_array    = np.zeros([self.num_points, n_parts], dtype=np.float32)
 
         # use furthest point sampling
-        perm       = np.random.permutation(n_total_points)
-        sample_ind = np.arange(0, self.num_points).tolist()
+        if self.hand_only:
+            hand_cls   = self.parts_map[-1]
+            perm       = np.random.permutation(n_total_points)
+            hand_inds  = np.where(cls_arr[perm]==hand_cls)[0]
+            sample_ind = hand_inds[:self.num_points].tolist()
+        else:
+            perm       = np.random.permutation(n_total_points)
+            sample_ind = np.arange(0, self.num_points).tolist()
         # sample_ind    = farthest_point_sample(self.num_points, pts_arr[perm][np.newaxis, :, :])
         # sample_ind = sample_ind.eval()[0, :]
 

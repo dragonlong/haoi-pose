@@ -1,0 +1,115 @@
+TRAIN:
+  # model parameters
+  shuffle_train: True
+  use_direct_regression: False
+  partcls_loss_multiplier: 0.0
+  nocs_loss_multiplier : 0.1
+  gocs_loss_multiplier : 0.0
+  handvertices_loss_multiplier : 1.0
+  handjoints_loss_multiplier : 1.0
+  jointcls_loss_multiplier : 1.0
+  handheatmap_loss_multiplier : 0.0
+  handunitvec_loss_multiplier : 0.0
+  confidence_loss_multiplier : 0.1
+  heatmap_loss_multiplier : 1.0
+  unitvec_loss_multiplier : 5.0
+  orient_loss_multiplier : 0.2
+  total_loss_multiplier: 1.0
+  regression_loss_multiplier: 1.0
+  regressionR_loss_multiplier: 0.01
+  regressionT_loss_multiplier: 1.0
+  # regressionR_loss_multiplier: 0.05
+  # regressionT_loss_multiplier: 5.0
+  orthogonality_loss_multiplier: 0.1
+  coord_regress_loss: 'L2'
+  parametri_type: "orth"
+
+  # data source
+  batch_size: 16
+  batch_size_per_gpu: 16
+  train_data_file: "shape2motion/hdf5/0.01/train.txt"
+  train_first_n: -1
+  train_data_add_noise: true
+  val_data_file: "shape2motion/hdf5/0.01/test.txt"
+  val_first_n: -1
+  val_data_add_noise: true
+  test_data_file: "shape2motion/hdf5/0.01/test.txt"
+  test_first_n: -1
+  test_data_noisy: true
+
+  # training parameters
+  start_epoch: 0
+  num_epoch: 300
+  epoch_iters: 5000
+  disp_iter: 20
+  report_batch: 1        # every x batches, report loss
+  report_epoch: 1        # every x epochs, report validation set
+  val_interval: 5000
+  snapshot_interval: 1000
+  writer_start_step: 100
+  warmup_epochs: 1
+  #
+  bn_decay_step: 200000
+  decay_step: 200000
+  decay_rate: 0.7
+  init_learning_rate: 0.001
+  running_lr: 0.01
+  lr_encoder: 0.01
+  lr_decoder: 0.01
+  running_lr_encoder: 0.01
+  running_lr_decoder: 0.01
+  #
+  loss: "xentropy"
+  loss_weight: 1.0
+  epsilon_w: 0.001
+  optim: "SGD"
+  #
+  lr_pow: 1.0
+  lr_decay: 0.998
+  lr_warmup: True
+  beta1: 0.9
+  momentum: 0.9
+  weight_decay: 1e-4
+  fix_bn: False
+  dropout: 0.1
+  bn_d: 0.01
+  #
+  save_summary: False    # Summary of weight histograms for tensorboard
+  save_scans: False
+  show_scans: False      # show scans during training
+  seed: 304
+
+  # I/O
+  in_model_dir: "results/model"
+  out_model_dir: "results/model"
+  val_prediction_dir: "results/val_pred"
+  val_prediction_n_keep: 2
+  test_prediction_dir: "results/test_pred"
+  demo_prediction_dir: "results/demo"
+  log_dir: "results/log"
+
+MODEL:
+  num_classes: 4
+  arch_encoder: "identical"
+  arch_decoder: "pointnet2_single"
+  arch_head: "segmentation"
+  weights_encoder: ""
+  weights_decoder: ""
+
+HEAD:
+  partcls_per_point: [128, 4, 'softmax']
+  # nocs_per_point : [128, None, 'sigmoid']
+  # gocs_per_point : [128, 3, 'sigmoid']
+  # handheatmap_per_point :  [128, 128, 21, 'sigmoid']
+  # handunitvec_per_point :  [128, 128, 63, 'tanh']
+  # confidence_per_point : [128, 1, 'sigmoid']
+  # heatmap_per_point :  [128, 128, 1, 'sigmoid']
+  # unitvec_per_point :  [128, 128, 3, 'tanh']
+  # orient_per_point : [128, 128, 3, 'tanh']
+  # jointcls_per_point : [128, 128, 3, 'softmax']
+  regression_params: [1024, 1024, 512, 54] #[1024, 1024, 512, 63]
+
+point:
+  encoder_weights: ''
+  decoder_weights: ''
+  header_weights: ''

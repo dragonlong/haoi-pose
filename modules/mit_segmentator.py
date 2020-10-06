@@ -100,7 +100,6 @@ class ModelBuilder:
         else:
             raise Exception('Architecture undefined!')
 
-        #
         if net_encoder:
             net_encoder.apply(ModelBuilder.weights_init)
             if len(weights) > 0:

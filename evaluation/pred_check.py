@@ -253,13 +253,16 @@ def get_contacts_camera(hf, basename, verbose=False):
 
     coords =  hf['center_pred'][()]
     mask   =  hf['objectness_label_pred'][()]
+    confidence = hf['center_confidence_pred'][()]
     scores = F.softmax(torch.FloatTensor(hf['objectness_scores_pred'][()]), dim=1).cpu().numpy()
-    valid_ind = scores[:, 1].argsort()[-10:][::-1]
-    # coords_pred = coords[np.where(mask>0.1)[0], :]
-    coords_pred = coords[valid_ind, :]
+
+    valid_inds = np.where(mask>0.9)[0]
+    # valid_ind = scores[:, 1].argsort()[-10:][::-1]
+    valid_ind   = confidence[valid_inds].argsort()[-5:][::-1]
+    coords_pred = coords[valid_inds, :]
 
     if verbose:
-        plot3d_pts([[coords_gt], [coords_gt, coords_pred]], [['GT'], ['GT', 'Pred']], s=2**2, mode='continuous', dpi=200, title_name=['contact pts', 'contact pts'])
+        plot3d_pts([[coords_gt], [coords_gt, coords_pred]], [['GT'], ['GT', 'Pred']], s=5**2, mode='continuous', dpi=200, title_name=['contact pts', 'contact pts'])
     return [coords_gt, coords_pred]
 
 def get_contacts_vote(hf, basename, input_pts, verbose=False):
@@ -292,7 +295,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--item', default='eyeglasses', help='object category for benchmarking')
     parser.add_argument('--domain', default='seen', help='which sub test set to choose')
-    parser.add_argument('--exp_num', default='0.8', required=True) # default is 0.3
+    parser.add_argument('--exp_num', default='0.8', required=False) # default is 0.3
     parser.add_argument('--nocs', default='part', help='which sub test set to choose')
 
     parser.add_argument('--hand', action='store_true', help='whether to visualize hand')
@@ -342,7 +345,8 @@ if __name__ == '__main__':
     hf_list    = []
     h5_file    =  test_h5_path + '/' + test_group[i]
     h5_files.append(h5_file)
-    h5_file    =  h5_file.replace('0.8', '0.9')
+    # h5_file    =  h5_file.replace('0.8', '0.9')
+    h5_file    =  h5_file.replace('0.8', '0.94')
     h5_files.append(h5_file)
     print('')
     print('----------Now checking {}: {}'.format(i, h5_file))

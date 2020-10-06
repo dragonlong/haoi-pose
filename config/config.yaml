@@ -18,7 +18,6 @@ nocs_type: 'A'
 num_expr: 0.01
 name_model: pointnet2_charlesmsg # Name of the specific model to load
 root_data: "/groups/CESCA-CV/ICML2021/data"
-# log_dir: '/model/${item}/${name_model}_${exp_num}' #
 log_dir: '/model/${item}/${exp_num}' #
 
 # for
@@ -34,6 +33,9 @@ pred_hand: True
 pred_joint: False
 pred_mano: False
 rot_align: False
+hand_only: False
+
+#
 pred_joint_ind: False
 pretty_print: False
 distributed: False

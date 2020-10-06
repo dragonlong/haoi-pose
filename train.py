@@ -16,6 +16,7 @@ import torch.nn as nn
 # Our libs
 import __init__ as booger
 import dataset.parser as parserModule
+from dataset.hand_mano_regression import ManoRegressionDataset
 from dataset.hand_shape2motion import ContactsVoteDataset
 from modules.network import Network
 from global_info import global_info
@@ -23,9 +24,8 @@ from common.debugger import breakpoint
 
 def main_worker(gpu, cfg):
     # >>>>>>>>>>>>>>>>> 1. create data loader;
-    parser = parserModule.Parser(cfg, ContactsVoteDataset)
-
-    #
+    # parser = parserModule.Parser(cfg, ContactsVoteDataset)
+    parser = parserModule.Parser(cfg, ManoRegressionDataset)
     train_loader   = parser.get_train_set()
     valid_loader   = parser.get_valid_set()
     test_loader    = parser.get_test_set()
@@ -78,7 +78,8 @@ def main(cfg):
     data_infos  = infos.datasets[cfg.item]
     cfg.n_max_parts = data_infos.num_parts
     cfg.MODEL.num_classes = cfg.n_max_parts
-    cfg.HEAD.nocs_per_point[-2] = cfg.n_max_parts * 3
+    if 'nocs_per_point' in cfg.HEAD:
+        cfg.HEAD.nocs_per_point[-2] = cfg.n_max_parts * 3
     cfg.root_data   = infos.second_path + '/data'
     cfg.log_dir     = infos.second_path + cfg.log_dir
     cfg.TRAIN.running_lr         = cfg.TRAIN.init_learning_rate
