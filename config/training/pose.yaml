@@ -10,7 +10,7 @@ TRAIN:
   jointcls_loss_multiplier : 1.0
   handheatmap_loss_multiplier : 0.0
   handunitvec_loss_multiplier : 0.0
-  confidence_loss_multiplier : 0.0
+  confidence_loss_multiplier : 0.1
   heatmap_loss_multiplier : 1.0
   unitvec_loss_multiplier : 5.0
   orient_loss_multiplier : 0.2
@@ -37,7 +37,7 @@ TRAIN:
 
   # training parameters
   start_epoch: 0
-  num_epoch: 1000
+  num_epoch: 300
   epoch_iters: 5000
   disp_iter: 20
   report_batch: 1        # every x batches, report loss
@@ -51,9 +51,9 @@ TRAIN:
   decay_step: 200000
   decay_rate: 0.7
   init_learning_rate: 0.001
-  running_lr: 0.0
+  running_lr: 0.01
   lr_encoder: 0.01
-  lr_decoder: 0.002
+  lr_decoder: 0.01
   running_lr_encoder: 0.01
   running_lr_decoder: 0.01
   #

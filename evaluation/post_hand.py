@@ -117,7 +117,6 @@ if __name__ == '__main__':
         frame_order    = name_info[3]
         mask_gt        =  hf['partcls_per_point_gt'][()]
         mask_pred      =  hf['partcls_per_point_pred'][()].transpose(1, 0)
-
         #>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> input, segmentation, nocs, poses
         # if args.viz:
         #     plot3d_pts([[input_pts]], [['']], s=2**2, title_name=['Input pts'], limits = [[-0.5, 0.5], [-0.5, 0.5], [-0.5, 0.5]], axis_off=True)

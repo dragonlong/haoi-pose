@@ -136,7 +136,6 @@ class BaseDataset(Dataset):
         self.all_factors, self.all_corners = self.fetch_factors_nocs(self.ctgy_obj, is_debug=self.is_debug, is_gen=self.is_gen)
         self.all_joints = self.fetch_joints_params(self.ctgy_obj, is_debug=self.is_debug)
 
-
     def __len__(self):
         """
         Return the length of data here
@@ -533,6 +532,7 @@ class BaseDataset(Dataset):
             'hand_mask' : hand_joint_cls,
             'extrinsic_params': RT_full,
             'hand_contacts': hand_contacts,
+            'hand_joints': hand_joints,
             'mean_hand': mean_hand,
             'original_poses': hand_tf,
         }

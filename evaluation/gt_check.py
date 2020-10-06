@@ -9,7 +9,7 @@ cd evaluation && python gt_check.py
 
 9.26:
     - add contacts & joints check;
-    - 
+    -
 
 """
 

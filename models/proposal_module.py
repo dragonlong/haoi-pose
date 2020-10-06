@@ -26,6 +26,7 @@ def decode_scores(net, end_points, num_class, num_heading_bin, num_size_cluster,
     base_xyz = end_points['aggregated_vote_xyz'] # (batch_size, num_proposal, 3)
     center = base_xyz + net_transposed[:,:,2:5] # (batch_size, num_proposal, 3)
     end_points['center'] = center
+    end_points['center_confidence'] = net_transposed[:,:,5]
 
     heading_scores = net_transposed[:,:,5:5+num_heading_bin]
     heading_residuals_normalized = net_transposed[:,:,5+num_heading_bin:5+num_heading_bin*2]

@@ -12,12 +12,12 @@ from matplotlib import pyplot as plt
 def breakpoint():
     import pdb; pdb.set_trace()
 
-DATA = yaml.safe_load(open('./config/labels/semantic-kitti-all.yaml', 'r'))
+DATA = yaml.safe_load(open('./config/semantic-kitti-all.yaml', 'r'))
 
 
 class PointVis:
   """Class that creates and handles a visualizer for a pointcloud"""
-  def __init__(self, target_pts=None, viz_dict=None, viz_point=True, viz_label=True, viz_joint=False, viz_box=False, color_map=None):
+  def __init__(self, target_pts=None, labels=None, viz_dict=None, viz_point=True, viz_label=True, viz_joint=False, viz_box=False, color_map=None):
     self.viz_point = viz_point
     self.viz_label = viz_label
     self.viz_joint = viz_joint
@@ -30,7 +30,7 @@ class PointVis:
 
     self.reset(sem_color_dict=self.color_map)
 
-    self.update_scan(target_pts, viz_dict)
+    self.update_scan(target_pts, labels, viz_dict)
 
   def reset(self, sem_color_dict=None):
     """ Reset. """
@@ -52,6 +52,7 @@ class PointVis:
       self.joint_vis = visuals.Arrow(connect='segments', arrow_size=18, color='blue', width=10, arrow_type='angle_60')
       self.arrow_length = 10
       self.scan_view.add(self.joint_vis)
+
     if self.viz_box:
       vertices, faces, outline = create_box(width=1, height=1, depth=1, width_segments=1, height_segments=1, depth_segments=1)
       vertices['color'][:, 3]=0.2
@@ -75,7 +76,7 @@ class PointVis:
       visuals.XYZAxis(parent=self.nocs_view.scene)
       self.nocs_view.camera.link(self.scan_view.camera)
 
-  def update_scan(self, points, viz_dict=None):
+  def update_scan(self, points, labels, viz_dict=None):
     # then change names
     self.canvas.title = "scan "
     if viz_dict is not None:
@@ -96,35 +97,27 @@ class PointVis:
         pts2     = np.concatenate(target_pts_list[0:2], axis=0) - offsets
         labels2  = np.concatenate(gt_labels_list[0:2], axis=0)
 
-        power = 16
-        # range_data = np.copy(np.linalg.norm(target_pts, axis=1))
-        # range_data = range_data**(1 / power)
-        # viridis_range = ((range_data - range_data.min()) /
-        #                  (range_data.max() - range_data.min()) *
-        #                  255).astype(np.uint8)
-        # viridis_map = self.get_mpl_colormap("viridis")
-        # viridis_colors = viridis_map[viridis_range]
+    else:
+        pts1 = points
+        pts2 = points
+        labels1 = labels
+        labels2 = labels
+    label_colors = self.sem_color_lut[labels1]
+    label_colors = label_colors.reshape((-1, 3))
+    self.scan_vis.set_data(pts1,
+                      face_color=label_colors[..., ::-1],
+                      edge_color=label_colors[..., ::-1],
+                      size=5)
 
-        label_colors = self.sem_color_lut[labels1]
+    # plot nocs
+    if self.viz_label:
+        label_colors = self.sem_color_lut[labels2]
         label_colors = label_colors.reshape((-1, 3))
-        self.scan_vis.set_data(pts1,
+        self.label_vis.set_data(pts2,
                           face_color=label_colors[..., ::-1],
                           edge_color=label_colors[..., ::-1],
                           size=5)
-        # self.scan_vis.set_data(target_pts,
-        #                        face_color=viridis_colors[..., ::-1],
-        #                        edge_color=viridis_colors[..., ::-1],
-        #                        size=5)
 
-        # plot nocs
-        if self.viz_label:
-            label_colors = self.sem_color_lut[labels2]
-            label_colors = label_colors.reshape((-1, 3))
-            self.label_vis.set_data(pts2,
-                              face_color=label_colors[..., ::-1],
-                              edge_color=label_colors[..., ::-1],
-                              size=5)
-            # time.sleep(15)
     if self.viz_joint:
       self.update_joints()
 
@@ -232,10 +225,20 @@ class PointVis:
     return lut[label]
 
 if __name__ == '__main__':
-  for i in range(1):
-    target_pts = np.random.rand(320,3) * 50
-    labels = np.random.rand(320) * 10 # labels are encoded as color
+    N = 100000
+    target_pts = (np.random.rand(N,3) - 0.5) * 50
+    labels = np.random.rand(N) * 20          # labels are encoded as color
     labels = labels.astype(np.int8)
-    # we further have boxes, joints
-    vis = PointVis(target_pts=target_pts, viz_joint=True, viz_box=True, viz_nocs=True)
-    vis.run()
+    vis = PointVis(target_pts=target_pts, labels=labels, viz_joint=False, viz_box=False)
+    # vis.run()
+    input("Press Enter to continue...")
+
+    # #>>>>>>>>>>>>> in case we need to save the visualizations
+    # img=self.canvas.render()
+    # directory = f'/home/dragon/Dropbox/cvpr2021/viz/kpconv/pictures/{file_name}'
+    # if not os.path.exists(directory):
+    #     os.makedirs(directory)
+    # s_r = 2**k * 0.06 * 2.5
+    # io.write_png(f"{directory}/patch{i}_scale{k}_point{j}_r={s_r}.png",img) # patch, scale, points j
+    # print('saving to ', f"{directory}/patch{i}_scale{k}_point{j}_r={s_r}.png")
+    print('checking data')

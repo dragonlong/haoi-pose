@@ -22,8 +22,11 @@ from dataset.base import BaseDataset
 from dataset.parser import Parser
 epsilon = 10e-8
 MAX_NUM_OBJ = 64
+
 def breakpoint():
     import pdb;pdb.set_trace()
+
+
 class ContactsVoteDataset(BaseDataset):
     def __init__(self, cfg, mode='train', domain=None, first_n=-1, add_noise=False, fixed_order=False, num_expr=0.01):
         BaseDataset.__init__(self, cfg=cfg, mode=mode, domain=domain, first_n=first_n, add_noise=add_noise, fixed_order=fixed_order, num_expr=num_expr)
@@ -45,8 +48,8 @@ class ContactsVoteDataset(BaseDataset):
         # >>>>>>>>>>>>>>>>>>>> points & seg labels
         pts_arr = np.concatenate(parts_pts, axis=0)
         cls_arr = np.concatenate(parts_cls, axis=0)
-        p_arr = np.concatenate(nocs_p, axis=0)
-        g_arr = np.concatenate(nocs_g, axis=0)
+        p_arr   = np.concatenate(nocs_p, axis=0)
+        g_arr   = np.concatenate(nocs_g, axis=0)
         # put into a list
         output_arr = [pts_arr, cls_arr, p_arr, g_arr]
         if n_total_points < self.num_points:
@@ -81,12 +84,15 @@ class ContactsVoteDataset(BaseDataset):
         # find minimal,
         pt2ct_ind      = np.argmin(point_votes_distance, axis=1)
         point_votes    = point_votes[np.arange(self.num_points), pt2ct_ind, :]
-        point_votes    = np.tile(point_votes, (1, 3)) # make 3 votes identical
+
         point_votes_distance = point_votes_distance[np.arange(self.num_points), pt2ct_ind].reshape(-1)
 
         # set threshold, objectness mask
         point_votes_mask = np.zeros((self.num_points))
         point_votes_mask[np.where(point_votes_distance<thres_r)[0]] = 1.0
+
+        point_votes    = point_votes * point_votes_mask[:, np.newaxis]
+        point_votes    = np.tile(point_votes, (1, 3)) # make 3 votes identical
         mask_array_hand = np.zeros([self.num_points, 2], dtype=np.float32)
         hand_ind = np.where(cls_arr>2)[0]
         obj_ind  = np.where(cls_arr<3)[0]

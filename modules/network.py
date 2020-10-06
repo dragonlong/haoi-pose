@@ -121,6 +121,9 @@ class Network():
         self.total_loss_dict['objectness_loss'] = 0
         self.total_loss_dict['vote_loss'] = 0
         self.total_loss_dict['center_loss'] = 0
+        self.total_loss_dict['center_loss1'] = 0
+        self.total_loss_dict['center_loss2'] = 0
+        self.total_loss_dict['confidence_loss'] = 0
         for head_name in cfg.HEAD.keys():
             if 'confidence' in head_name or 'mask' in head_name:
                 continue
@@ -202,10 +205,13 @@ class Network():
                 assert(key not in end_points)
                 end_points[key] = batch[key]
 
-            loss_total, end_points = get_loss(end_points)
+            loss_total, end_points = get_loss(end_points, cfg)
             # config loss_dict
             self.total_loss_dict['objectness_loss'] = end_points['objectness_loss']
             self.total_loss_dict['center_loss'] = end_points['center_loss']
+            self.total_loss_dict['center_loss1'] = end_points['center_loss1']
+            self.total_loss_dict['center_loss2'] = end_points['center_loss2']
+            self.total_loss_dict['confidence_loss'] = end_points['confidence_loss']
             self.total_loss_dict['vote_loss'] = end_points['vote_loss']
             # # combine different losses
             # loss_total= self.collect_losses(loss_dict)
@@ -246,11 +252,12 @@ class Network():
             batch_time.update(time.time() - tic)
 
             print('Training: [{0}][{1}/{2}] | ''Lr: {lr_encoder:.3e} {lr_decoder:.3e} | '
-                    'Loss: {loss:.3f} o:{objectness_loss:.3f} c:{center_loss:.3f} v:{vote_loss:.3f}'.format(epoch, i, len(loader), \
+                    'Loss: {loss:.3f} o:{objectness_loss:.3f} co:{confidence_loss:.3f} c:{center_loss:.3f} v:{vote_loss:.3f}'.format(epoch, i, len(loader), \
                       loss=loss_total, \
                       objectness_loss=self.total_loss_dict['objectness_loss'], \
                       center_loss=self.total_loss_dict['center_loss'], \
                       vote_loss=self.total_loss_dict['vote_loss'], \
+                      confidence_loss=self.total_loss_dict['confidence_loss'], \
                       lr_encoder=cfg.TRAIN.running_lr_encoder, \
                       lr_decoder=cfg.TRAIN.running_lr_decoder))
             # print('Training: [{0}][{1}/{2}] | ''Lr: {lr_encoder:.3e} {lr_decoder:.3e} | '
@@ -272,6 +279,7 @@ class Network():
             self.infos[key] = loss_item.avg
             if cfg.verbose:
                 print('---training ', key, self.infos[key])
+        self.infos['learning_rate'] = cfg.TRAIN.running_lr_decoder
         save_to_log(logdir=cfg.log_dir + '/tb/train', logger=self.tb_logger['train'], info=self.infos, epoch=epoch, img_summary=cfg.TRAIN.save_scans)
         print('')
 
@@ -289,7 +297,8 @@ class Network():
         model.eval()
         model.zero_grad()
         torch.cuda.empty_cache() # release memory to avoid OOM error
-
+        if epoch > 1:
+            cfg.TRAIN.confidence_loss_multiplier = 1.0
         tic = time.time()
         with torch.no_grad():
             for i, batch in enumerate(loader):
@@ -320,11 +329,12 @@ class Network():
                     assert(key not in end_points)
                     end_points[key] = batch[key]
 
-                loss_total, end_points = get_loss(end_points)
+                loss_total, end_points = get_loss(end_points, cfg)
                 # config loss_dict
                 self.total_loss_dict['objectness_loss'] = end_points['objectness_loss']
                 self.total_loss_dict['center_loss'] = end_points['center_loss']
                 self.total_loss_dict['vote_loss'] = end_points['vote_loss']
+                self.total_loss_dict['confidence_loss'] = end_points['confidence_loss']
                 # # combine different losses
                 # loss_total= self.collect_losses(loss_dict)
                 loss_total = loss_total.mean()
@@ -336,9 +346,10 @@ class Network():
                 batch_time.update(time.time() - tic)
 
                 print('Validation: [{0}][{1}/{2}] | '
-                        'Loss: {loss:.3f} o:{objectness_loss:.3f} c:{center_loss:.3f} v:{vote_loss:.3f}'.format(epoch, i, len(loader), \
+                    'Loss: {loss:.3f} o:{objectness_loss:.3f} co:{confidence_loss:.3f} c:{center_loss:.3f} v:{vote_loss:.3f}'.format(epoch, i, len(loader), \
                           loss=loss_total, \
                           objectness_loss=self.total_loss_dict['objectness_loss'], \
+                          confidence_loss=self.total_loss_dict['confidence_loss'], \
                           center_loss=self.total_loss_dict['center_loss'], \
                           vote_loss=self.total_loss_dict['vote_loss']))
                 # # >>>>>>>>>>>>> logging

@@ -13,10 +13,35 @@ ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 from nn_distance import nn_distance, huber_loss
 
-FAR_THRESHOLD  = 0.6
-NEAR_THRESHOLD = 0.3
+# 0.94
+FAR_THRESHOLD  = 0.2
+NEAR_THRESHOLD = 0.1
 GT_VOTE_FACTOR = 3 # number of GT votes per point
 OBJECTNESS_CLS_WEIGHTS = [0.2,0.8] # put larger weights on positive objectness
+
+# # 0.93
+# FAR_THRESHOLD  = 0.3
+# NEAR_THRESHOLD = 0.2
+# GT_VOTE_FACTOR = 3 # number of GT votes per point
+# OBJECTNESS_CLS_WEIGHTS = [0.2,0.8] # put larger weights on positive objectness
+#
+
+# # 0.92
+# FAR_THRESHOLD  = 0.4
+# NEAR_THRESHOLD = 0.2
+# GT_VOTE_FACTOR = 3 # number of GT votes per point
+# OBJECTNESS_CLS_WEIGHTS = [0.2,0.8] # put larger weights on positive objectness
+
+# # 0.9
+# FAR_THRESHOLD  = 0.3
+# NEAR_THRESHOLD = 0.1
+# GT_VOTE_FACTOR = 3 # number of GT votes per point
+# OBJECTNESS_CLS_WEIGHTS = [0.2,0.8] # put larger weights on positive objectness
+
+# FAR_THRESHOLD  = 0.6
+# NEAR_THRESHOLD = 0.3
+# GT_VOTE_FACTOR = 3 # number of GT votes per point
+# OBJECTNESS_CLS_WEIGHTS = [0.2,0.8] # put larger weights on positive objectness
 def breakpoint():
     import pdb;pdb.set_trace()
 def compute_vote_loss(end_points):
@@ -41,9 +66,9 @@ def compute_vote_loss(end_points):
     """
 
     # Load ground truth votes and assign them to seed points
-    batch_size = end_points['seed_xyz'].shape[0]
-    num_seed = end_points['seed_xyz'].shape[1] # B,num_seed,3
-    vote_xyz = end_points['vote_xyz'] # B,num_seed*vote_factor,3
+    batch_size= end_points['seed_xyz'].shape[0]
+    num_seed  = end_points['seed_xyz'].shape[1] # B,num_seed,3
+    vote_xyz  = end_points['vote_xyz'] # B,num_seed*vote_factor,3
     seed_inds = end_points['seed_inds'].long() # B,num_seed in [0,num_points-1]
 
     # Get groundtruth votes for the seed points
@@ -135,14 +160,22 @@ def compute_box_and_sem_cls_loss(end_points, config=None):
     pred_center = end_points['center']
     gt_center = end_points['center_label'][:,:,0:3]
     dist1, ind1, dist2, _ = nn_distance(pred_center, gt_center) # dist1: BxK, dist2: BxK2
-    box_label_mask = end_points['box_label_mask']
+    box_label_mask   = end_points['box_label_mask']
     objectness_label = end_points['objectness_label'].float()
-    centroid_reg_loss1 = \
-        torch.sum(dist1*objectness_label)/(torch.sum(objectness_label)+1e-6)
-    centroid_reg_loss2 = \
-        torch.sum(dist2*box_label_mask)/(torch.sum(box_label_mask)+1e-6)
+    centroid_reg_loss1 = torch.sum(dist1*objectness_label)/(torch.sum(objectness_label)+1e-6) # on every predicted center;
+
+    centroid_reg_loss2 = torch.sum(dist2*box_label_mask)/(torch.sum(box_label_mask)+1e-6) # on every gt center
+
     center_loss = centroid_reg_loss1 + centroid_reg_loss2
 
+    # compute the heat-map confidence loss
+    thres_r = NEAR_THRESHOLD
+    gt_confidence_score = 1 -  dist1.detach()/ thres_r
+    gt_confidence_score[gt_confidence_score<0] = 0
+
+    # for those considered as object, we further add center confidence
+    # distance_regression_loss = 0
+    distance_regression_loss = torch.sum( objectness_label * huber_loss(end_points['center_confidence'] - gt_confidence_score)) / (torch.sum(objectness_label)+1e-6) # B, K
     # # Compute heading loss
     # heading_class_label = torch.gather(end_points['heading_class_label'], 1, object_assignment) # select (B,K) from (B,K2)
     # criterion_heading_class = nn.CrossEntropyLoss(reduction='none')
@@ -182,7 +215,7 @@ def compute_box_and_sem_cls_loss(end_points, config=None):
     # sem_cls_loss = criterion_sem_cls(end_points['sem_cls_scores'].transpose(2,1), sem_cls_label) # (B,K)
     # sem_cls_loss = torch.sum(sem_cls_loss * objectness_label)/(torch.sum(objectness_label)+1e-6)
 
-    return center_loss#, heading_class_loss, heading_residual_normalized_loss, size_class_loss, size_residual_normalized_loss, sem_cls_loss
+    return center_loss, centroid_reg_loss1, centroid_reg_loss2, distance_regression_loss#, heading_class_loss, heading_residual_normalized_loss, size_class_loss, size_residual_normalized_loss, sem_cls_loss
 
 def get_loss(end_points, config=None):
     """ Loss functions
@@ -228,19 +261,25 @@ def get_loss(end_points, config=None):
 
     # Box loss and sem cls loss
     # , heading_cls_loss, heading_reg_loss, size_cls_loss, size_reg_loss, sem_cls_loss
-    center_loss = \
+    center_loss, centroid_reg_loss1, centroid_reg_loss2, confidence_loss = \
         compute_box_and_sem_cls_loss(end_points, config)
     end_points['center_loss'] = center_loss
+    end_points['center_loss1'] = centroid_reg_loss1
+    end_points['center_loss2'] = centroid_reg_loss2
+    end_points['confidence_loss'] = confidence_loss
     # end_points['heading_cls_loss'] = heading_cls_loss
     # end_points['heading_reg_loss'] = heading_reg_loss
     # end_points['size_cls_loss'] = size_cls_loss
     # end_points['size_reg_loss'] = size_reg_loss
     # end_points['sem_cls_loss'] = sem_cls_loss
-    box_loss = center_loss # + 0.1*heading_cls_loss + heading_reg_loss + 0.1*size_cls_loss + size_reg_loss
+    # box_loss = 0.5 * center_loss + confidence_loss # + 0.1*heading_cls_loss + heading_reg_loss + 0.1*size_cls_loss + size_reg_loss
     # end_points['box_loss'] = box_loss
 
+    box_loss = 0.5 * center_loss # + 0.5 * confidence_loss
+
     # Final loss function
-    loss = vote_loss + 0.5*objectness_loss# + box_loss + 0.1*sem_cls_loss
+    # first 0.1, later 0.5,
+    loss = vote_loss + 0.5*objectness_loss + config.TRAIN.confidence_loss_multiplier * box_loss # + 0.1*sem_cls_loss
     loss *= 10
     end_points['loss'] = loss
 
@@ -249,6 +288,6 @@ def get_loss(end_points, config=None):
     obj_pred_val = torch.argmax(end_points['objectness_scores'], 2) # B,K
     obj_acc = torch.sum((obj_pred_val==objectness_label.long()).float()*objectness_mask)/(torch.sum(objectness_mask)+1e-6)
     end_points['obj_acc'] = obj_acc
-    print('Acc is ', end_points['obj_acc'])
+    print('Acc is ', end_points['obj_acc'].cpu().numpy())
 
     return loss, end_points

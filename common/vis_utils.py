@@ -30,6 +30,70 @@ class bcolors:
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
 
+def get_hand_line_ids():
+    line_ids = []
+    for finger in range(5):
+        base = 4*finger + 1
+        line_ids.append([0, base])
+        for j in range(3):
+            line_ids.append([base+j, base+j+1])
+    line_ids = np.asarray(line_ids, dtype=int)
+
+    return line_ids
+
+def plot_skeleton(hand_joints, line_ids):
+    fig     = plt.figure(dpi=dpi)
+    cmap    = plt.cm.jet
+    top     = plt.cm.get_cmap('Oranges_r', 128)
+    bottom  = plt.cm.get_cmap('Blues', 128)
+
+    colors = np.vstack((top(np.linspace(0, 1, 10)),
+                           bottom(np.linspace(0, 1, 10))))
+    # colors = ListedColormap(newcolors, name='OrangeBlue')
+    # colors  = cmap(np.linspace(0., 1., 5))
+    # colors = ['Blues', 'Blues',  'Blues', 'Blues', 'Blues']
+    all_poss=['o', 'o','o']
+    num     = len(pts)
+    ax = plt.subplot(1, 1, 1, projection='3d')
+    if view_angle==None:
+        ax.view_init(elev=36, azim=-49)
+    else:
+        ax.view_init(elev=view_angle[0], azim=view_angle[1])
+    n=0
+    ax.scatter(hand_joints[:, 0],  hand_joints[:, 1], hand_joints[:, 2], marker=all_poss[n], s=ss[n], cmap=colors[n], label='hand joints')
+
+    line_ids = get_hand_line_ids()
+    
+    for line_idx, (idx0, idx1) in enumerate(line_ids):
+        bone = hand_joints[idx0] - hand_joints[idx1]
+        h = np.linalg.norm(bone)
+
+      # # joint locations
+      # for j in hand_joints:
+      #   m = o3dg.TriangleMesh.create_sphere(radius=joint_sphere_radius_mm*1e-3,
+      #                                       resolution=10)
+      #   T = np.eye(4)
+      #   T[:3, 3] = j
+      #   m.transform(T)
+      #   m.paint_uniform_color(hand_colors[hand_idx])
+      #   m.compute_vertex_normals()
+      #   geoms.append(m)
+      #
+      # # connecting lines
+      # for line_idx, (idx0, idx1) in enumerate(line_ids):
+      #   bone = hand_joints[idx0] - hand_joints[idx1]
+      #   h = np.linalg.norm(bone)
+      #   l = o3dg.TriangleMesh.create_cylinder(radius=bone_cylinder_radius_mm*1e-3,
+      #                                 height=h, resolution=10)
+      #   T = np.eye(4)
+      #   T[2, 3] = -h/2.0
+      #   l.transform(T)
+      #   T = mutils.rotmat_from_vecs(bone, [0, 0, 1])
+      #   T[:3, 3] = hand_joints[idx0]
+      #   l.transform(T)
+      #   l.paint_uniform_color(bone_color)
+      #   l.compute_vertex_normals()
+      #   geoms.append(l)
 def plot3d_pts(pts, pts_name, s=1, dpi=350, title_name=None, sub_name='default', \
                     color_channel=None, colorbar=False, limits=None,\
                     bcm=None, puttext=None, view_angle=None,\
@@ -58,13 +122,10 @@ def plot3d_pts(pts, pts_name, s=1, dpi=350, title_name=None, sub_name='default',
             ax.view_init(elev=view_angle[0], azim=view_angle[1])
         if len(pts[m]) > 1:
             for n in range(len(pts[m])):
-                # if n==len(pts[m]) - 1:
-                #     s = 3**2
+                ss = [s] * len(pts[m])
+                ss[0] = 2**2
                 if color_channel is None:
-                    if n==0:
-                        ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2], marker=all_poss[n], s=2**2, cmap=colors[n], label=pts_name[m][n])
-                    else:
-                        ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2], marker=all_poss[n], s=s, cmap=colors[n], label=pts_name[m][n])
+                    ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2], marker=all_poss[n], s=ss[n], cmap=colors[n], label=pts_name[m][n])
                 else:
                     if colorbar:
                         rgb_encoded = color_channel[m][n]
@@ -77,6 +138,8 @@ def plot3d_pts(pts, pts_name, s=1, dpi=350, title_name=None, sub_name='default',
                     if colorbar:
                         fig.colorbar(p)
         else:
+            ss = [s] * len(pts[m])
+            ss[0] = 2**2
             for n in range(len(pts[m])):
                 if color_channel is None:
                     p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2], marker=all_poss[n], s=s, cmap=colors[n])
@@ -125,7 +188,7 @@ def plot3d_pts(pts, pts_name, s=1, dpi=350, title_name=None, sub_name='default',
         if limits is None:
             limits = [[-0.5, 0.5], [-0.5, 0.5], [-0.5, 0.5]]
         # set_axes_equal(ax, limits=limits)
-        cam_equal_aspect_3d(ax, np.concatenate(pts[m], axis=0), flip_x=flip, flip_y=flip)
+        cam_equal_aspect_3d(ax, np.concatenate(pts[0], axis=0), flip_x=flip, flip_y=flip)
     if show_fig:
         if mode == 'continuous':
             plt.draw()
@@ -169,8 +232,10 @@ def plot_hand_w_object(obj_verts=None, obj_faces=None, hand_verts=None, hand_fac
     add_group_meshs(ax, np.concatenate((verts, obj_verts)), np.concatenate((hand_faces, obj_faces + verts.shape[0])), alpha=1, c=colors)
     if pts is not None:
         for m in range(len(pts)):
+            ss = [s] * len(pts[m])
+            ss[0] = 10**2
             for n in range(len(pts[m])):
-                ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2], marker=all_poss[n], s=s**2, cmap=colors[n])
+                ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2], marker=all_poss[n], s=ss[n]**2, cmap=colors[n])
     if pts is not None:
         cam_equal_aspect_3d(ax, np.concatenate((verts, pts[0][0])), flip_x=flip, flip_y=flip)
     else:
