@@ -1,9 +1,10 @@
+# @package _global_
 defaults:
   - training: pose # Task performed (segmentation, classification etc...)
     optional: True
   - model_type: pointnet2 # Type of model to use, e.g. pointnet2, rsconv etc...
     optional: True
-  - dataset: shape2motion
+  - datasets: obman
     optional: True
   - models: '${defaults.1.model_type}.yaml'
 
@@ -20,7 +21,6 @@ name_model: pointnet2_charlesmsg # Name of the specific model to load
 root_data: "/groups/CESCA-CV/ICML2021/data"
 log_dir: '/model/${item}/${exp_num}' #
 
-# for
 # control
 verbose: False
 use_pretrain: False

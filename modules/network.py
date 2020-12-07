@@ -16,7 +16,7 @@ from manopth.manolayer import ManoLayer
 
 import __init__ as booger
 from global_info import global_info
-from modules.mit_segmentator import ModelBuilder
+from modules.segmentator import ModelBuilder
 from common.train_utils import AverageMeter, parse_devices, warmupLR, Logger, save_to_log, make_log_img, decide_checkpoints, save_batch_nn
 from models.loss_helper import compute_vote_loss, compute_objectness_loss, compute_box_and_sem_cls_loss
 from models.loss_helper import get_loss

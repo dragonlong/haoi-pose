@@ -16,23 +16,34 @@ import torch.nn as nn
 # Our libs
 import __init__ as booger
 import dataset.parser as parserModule
+from dataset.obman_parser import ObmanParser
 from dataset.hand_mano_regression import ManoRegressionDataset
 from dataset.hand_shape2motion import ContactsVoteDataset
 from modules.network import Network
+# from modules.network_base import NetworkBase as Network
 from global_info import global_info
 from common.debugger import breakpoint
 
-def main_worker(gpu, cfg):
+def get_dataset(cfg):
     # >>>>>>>>>>>>>>>>> 1. create data loader;
-    # parser = parserModule.Parser(cfg, ContactsVoteDataset)
-    parser = parserModule.Parser(cfg, ManoRegressionDataset)
+    if cfg.name_dset == 'obman':
+        parser = ObmanParser(cfg)
+    elif cfg.name_dset == 'shape2motion':
+        if cfg.task == 'mano_regression':
+            parser = parserModule.Parser(cfg, ManoRegressionDataset)
+        elif cfg.task == 'contacts_vote':
+            parser = parserModule.Parser(cfg, ContactsVoteDataset)
+
     train_loader   = parser.get_train_set()
     valid_loader   = parser.get_valid_set()
     test_loader    = parser.get_test_set()
 
+    return train_loader, valid_loader, test_loader
+
+def main_worker(gpu, cfg):
+    train_loader, valid_loader, test_loader = get_dataset(cfg)
     cfg.TRAIN.epoch_iters = len(train_loader)
     cfg.TRAIN.max_iters   = max(500, cfg.TRAIN.epoch_iters) * cfg.TRAIN.num_epoch
-
     #
     if cfg.is_debug:
         dp = parser.train_dataset.__getitem__(100)

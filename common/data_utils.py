@@ -17,6 +17,7 @@ import trimesh
 from numba import njit
 from numpy.linalg import inv
 from pytransform3d.rotations import *
+import torch
 
 import glob
 import platform
@@ -36,10 +37,19 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 plt.ioff()
 
+from oiio import OpenImageIO as oiio
+
 import __init__
 from common.transformations import euler_matrix, quaternion_matrix, quaternion_from_matrix
 from common.vis_utils import plot_arrows, plot_arrows_list, plot_arrows_list_threshold, plot3d_pts, plot_lines, plot_hand_w_object
 from global_info import global_info
+import torchvision
+
+"""
+mesh: fast_load_obj, get_obj_mesh(R correct)
+urdf: get_urdf
+nocs: calculate_factor_nocs
+"""
 
 infos = global_info()
 base_path = infos.base_path
@@ -59,16 +69,126 @@ obj_urdf  = infos.obj_urdf
 def breakpoint():
     import pdb;pdb.set_trace()
 
-def get_obj_mesh(basename, category='eyeglasses', verbose=False):
+def get_color_params(brightness=0, contrast=0, saturation=0, hue=0):
+    if brightness > 0:
+        brightness_factor = random.uniform(
+            max(0, 1 - brightness), 1 + brightness)
+    else:
+        brightness_factor = None
+
+    if contrast > 0:
+        contrast_factor = random.uniform(max(0, 1 - contrast), 1 + contrast)
+    else:
+        contrast_factor = None
+
+    if saturation > 0:
+        saturation_factor = random.uniform(
+            max(0, 1 - saturation), 1 + saturation)
+    else:
+        saturation_factor = None
+
+    if hue > 0:
+        hue_factor = random.uniform(-hue, hue)
+    else:
+        hue_factor = None
+    return brightness_factor, contrast_factor, saturation_factor, hue_factor
+
+
+def color_jitter(img, brightness=0, contrast=0, saturation=0, hue=0):
+    brightness, contrast, saturation, hue = get_color_params(
+        brightness=brightness,
+        contrast=contrast,
+        saturation=saturation,
+        hue=hue)
+
+    # Create img transform function sequence
+    img_transforms = []
+    if brightness is not None:
+        img_transforms.append(lambda img: torchvision.transforms.functional.adjust_brightness(img, brightness))
+    if saturation is not None:
+        img_transforms.append(lambda img: torchvision.transforms.functional.adjust_saturation(img, saturation))
+    if hue is not None:
+        img_transforms.append(
+            lambda img: torchvision.transforms.functional.adjust_hue(img, hue))
+    if contrast is not None:
+        img_transforms.append(lambda img: torchvision.transforms.functional.adjust_contrast(img, contrast))
+    random.shuffle(img_transforms)
+
+    jittered_img = img
+    for func in img_transforms:
+        jittered_img = func(jittered_img)
+    return jittered_img
+
+
+def readEXR(filename):
+    """Read color + depth data from EXR image file.
+
+    Parameters
+    ----------
+    filename : str
+        File path.
+
+    Returns
+    -------
+    img : RGB or RGBA image in float32 format. Each color channel
+          lies within the interval [0, 1].
+          Color conversion from linear RGB to standard RGB is performed
+          internally. See https://en.wikipedia.org/wiki/SRGB#The_forward_transformation_(CIE_XYZ_to_sRGB)
+          for more information.
+
+    Z : Depth buffer in float32 format or None if the EXR file has no Z channel.
+    """
+
+    # exrfile = exr.InputFile(filename)
+    # header = exrfile.header()
+    # # breakpoint()
+    # dw = header['dataWindow']
+    # isize = (dw.max.y - dw.min.y + 1, dw.max.x - dw.min.x + 1)
+
+    # channelData = dict()
+
+    # # convert all channels in the image to numpy arrays
+    # for c in header['channels']:
+    #     C = exrfile.channel(c, Imath.PixelType(Imath.PixelType.FLOAT))
+    #     C = Image.frombytes("F", isize, C)
+    #     C = np.reshape(C, isize)
+
+    #     channelData[c] = C
+    # colorChannels = ['R', 'G', 'B', 'A'] if 'A' in header['channels'] else ['R', 'G', 'B']
+    # img = np.concatenate([channelData[c][...,np.newaxis] for c in colorChannels], axis=2)
+    # # print(img[np.where(img<np.min(img)+2)[0], np.where(img<np.min(img)+2)[1], np.where(img<np.min(img)+2)[2]])
+    # # # linear to standard RGB
+    # # img[..., :3] = np.where(img[..., :3] <= 0.0031308,
+    # #                         12.92 * img[..., :3],
+    # #                         1.055 * np.power(img[..., :3], 1 / 2.4) - 0.055)
+
+    # # sanitize image to be in range [0, 1]
+    # # img = np.where(img < 0.0, 0.0, np.where(img > 1.0, 1, img))
+
+    # Z = None if 'Z' not in header['channels'] else channelData['Z']
+
+    inbuf=oiio.ImageInput.open(filename)
+    img  = inbuf.read_image()
+    Z = None
+    inbuf.close()
+
+
+    return img, Z
+
+def get_obj_mesh(basename=None, full_path=None, category='eyeglasses', verbose=False):
     """
     basename: 0001_7_0_2
     """
     verts = []
     faces = []
-    attrs = basename.split('_')
-    instance = attrs[0]
-    arti_ind = attrs[1]
-    objname = f'{whole_obj}/{category}/{instance}/{arti_ind}.obj'
+
+    if full_path is not None:
+        objname = full_path
+    else:
+        attrs = basename.split('_')
+        instance = attrs[0]
+        arti_ind = attrs[1]
+        objname = f'{whole_obj}/{category}/{instance}/{arti_ind}.obj'
     obj= fast_load_obj(open(objname, 'rb'))[0] # why it is [0]
     obj_verts = obj['vertices']
     obj_faces = obj['faces']
@@ -81,7 +201,7 @@ def get_obj_mesh(basename, category='eyeglasses', verbose=False):
     verts.append(obj_verts)
     faces.append(obj_faces)
     if verbose:
-        plot_hand_w_object(obj_verts=verts[0], obj_faces=faces[0], hand_verts=verts[0], hand_faces=faces[0],save=False, mode='continuous')
+        plot_hand_w_object(obj_verts=verts[0]-np.mean(verts[0], axis=0, keepdims=True), obj_faces=faces[0], hand_verts=verts[0]-np.mean(verts[0], axis=0, keepdims=True), hand_faces=faces[0],save=False, mode='continuous')
 
     return verts[0], faces[0]
 
@@ -261,6 +381,131 @@ def split_dataset(root_dset, ctgy_objs, args, test_ins, spec_ins=[], train_ins=N
               for item in demo_list:
                   ft.write('{}\n'.format(item))
 
+def spherical_to_vector(spherical):
+    """
+    Copied from trimesh great library !
+    see https://github.com/mikedh/trimesh/blob/4c9ab1e9906acaece421f
+    b189437c8f4947a9c5a/trimesh/util.py
+    Convert a set of (n,2) spherical vectors to (n,3) vectors
+    Parameters
+    -----------
+    spherical : (n , 2) float
+       Angles, in radians
+    Returns
+    -----------
+    vectors : (n, 3) float
+      Unit vectors
+    """
+    spherical = np.asanyarray(spherical, dtype=np.float64)
+
+    theta, phi = spherical.T
+    st, ct = np.sin(theta), np.cos(theta)
+    sp, cp = np.sin(phi), np.cos(phi)
+    vectors = np.column_stack((ct * sp, st * sp, cp))
+    return vectors
+
+
+def sample_surface_sphere(count, center=np.array([0, 0, 0]), radius=1):
+    """
+    Copied from trimesh great library !
+    see https://github.com/mikedh/trimesh/blob/4c9ab1e9906acaece421f
+    b189437c8f4947a9c5a/trimesh/util.py
+    Correctly pick random points on the surface of a unit sphere
+    Uses this method:
+    http://mathworld.wolfram.com/SpherePointPicking.html
+    Parameters
+    ----------
+    count: int, number of points to return
+    Returns
+    ----------
+    points: (count,3) float, list of random points on a unit sphere
+    """
+
+    u, v = np.random.random((2, count))
+
+    theta = np.pi * 2 * u
+    phi = np.arccos((2 * v) - 1)
+
+    points = center + radius * spherical_to_vector(
+        np.column_stack((theta, phi)))
+    return points
+
+
+def sample_mesh(mesh, min_hits=2000, ray_nb=3000, interrupt=10):
+    verts = np.array(mesh.vertices)
+    centroid = verts.mean(0)
+    radius = max(np.linalg.norm(verts - centroid, axis=1))
+    # print('radius ', radius)
+    origins = sample_surface_sphere(ray_nb, centroid, radius=2 * radius)
+    hits = None
+    counts = 0
+    while hits is None or hits.shape[0] < min_hits:
+        counts += 1
+        destination = centroid + sample_surface_sphere(ray_nb, radius=radius)
+        directions = destination - (origins)
+        # print('Casting rays ! ')
+        locations, index_ray, index_tri = mesh.ray.intersects_location(
+            ray_origins=origins,
+            ray_directions=directions,
+            multiple_hits=False)
+        # print('Got {} hits'.format(locations.shape))
+        if hits is None:
+            hits = locations
+        else:
+            hits = np.concatenate([hits, locations])
+        if counts > interrupt:
+            raise Exception('Exceeded {} attempts'.format(interrupt))
+    return hits
+    # return hits, centroid, destination
+
+
+def tri_area(v):
+    return 0.5 * np.linalg.norm(
+        np.cross(v[:, 1] - v[:, 0], v[:, 2] - v[:, 0]), axis=1)
+
+
+def points_from_mesh(faces, vertices, vertex_nb=600, show_cloud=False):
+    """
+    Points are sampled on the surface of the mesh, with probability
+    proportional to face area
+    """
+    areas = tri_area(vertices[faces])
+
+    proba = areas / areas.sum()
+    rand_idxs = np.random.choice(
+        range(areas.shape[0]), size=vertex_nb, p=proba)
+
+    # Randomly pick points on triangles
+    u = np.random.rand(vertex_nb, 1)
+    v = np.random.rand(vertex_nb, 1)
+
+    # Force bernouilli couple to be picked on a half square
+    out = u + v > 1
+    u[out] = 1 - u[out]
+    v[out] = 1 - v[out]
+
+    rand_tris = vertices[faces[rand_idxs]]
+    points = rand_tris[:, 0] + u * (rand_tris[:, 1] - rand_tris[:, 0]) + v * (
+        rand_tris[:, 2] - rand_tris[:, 0])
+
+    if show_cloud:
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        ax.scatter(
+            points[:, 0],
+            points[:, 1],
+            points[:, 2],
+            s=2,
+            c='b')
+        ax.scatter(
+            vertices[:, 0],
+            vertices[:, 1],
+            vertices[:, 2],
+            s=2,
+            c='r')
+        ax._axis3don = False
+        plt.show()
+    return points
 
 def write_pointcloud(filename,xyz_points,rgb_points=None):
     assert xyz_points.shape[1] == 3,'Input XYZ points should be Nx3 float array'

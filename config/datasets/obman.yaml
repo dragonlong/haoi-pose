@@ -1,0 +1,33 @@
+# @package _global_
+DATASET:
+  train_datasets: "obman"
+          # choices=[
+          #     "fhbhands",
+          #     "fhbhands_obj",
+          #     "fhbhands_hand",
+          #     "dexterobj",
+          #     "dimsynthands",
+          #     "panoptic",
+          #     "ganhands",
+  mini_factor: 1.0 # "work on subset of datasets"
+  sides: "left"    # choices=["left", "right", "both"], help="Hand sides to train/test on",
+  mode: "all"      # choices=["all", "hand", "obj"] help="Mode for synthgrasp dataset",
+  fhbhands_split_type: "subjects" # choices=["objects", "subjects", "actions"],
+  fhbhands_split_choice: ["juice_bottle", "salt", "milk", "liquid_soap", None] # ["juice_bottle", "salt", "milk", "liquid_soap", None],
+  fhbhands_filter_object: ["juice_bottle", "salt", "milk", "liquid_soap", None]
+  fhbhands_topology: [None, "0", "1"]
+  synthgrasp_class_ids: "+"
+  override_scale: False
+  train_splits: ["train"]
+  limit_size: 100
+  val_datasets: "obman"
+  val_splits: ["valid"]
+  controlled_exp: False # "Fixed size of dataset hard-coded to controlled_size",
+  controlled_size: 60000
+  synthgrasps_segment: False
+  center_idx: 0
+  mano_lambda_joints2d: False
+  atlas_points_nb: 1024
+  workers: 8
+  train_batch: 8
+  test_batch: 4

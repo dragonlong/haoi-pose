@@ -14,7 +14,7 @@ sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 from nn_distance import nn_distance, huber_loss
 
 # 0.94
-FAR_THRESHOLD  = 0.2
+FAR_THRESHOLD  = 0.3
 NEAR_THRESHOLD = 0.1
 GT_VOTE_FACTOR = 3 # number of GT votes per point
 OBJECTNESS_CLS_WEIGHTS = [0.2,0.8] # put larger weights on positive objectness
@@ -275,7 +275,7 @@ def get_loss(end_points, config=None):
     # box_loss = 0.5 * center_loss + confidence_loss # + 0.1*heading_cls_loss + heading_reg_loss + 0.1*size_cls_loss + size_reg_loss
     # end_points['box_loss'] = box_loss
 
-    box_loss = 0.5 * center_loss # + 0.5 * confidence_loss
+    box_loss = 0.2 * center_loss + confidence_loss
 
     # Final loss function
     # first 0.1, later 0.5,

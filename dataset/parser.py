@@ -12,61 +12,63 @@ def breakpoint():
     import pdb;pdb.set_trace()
 
 class Parser():
-    def __init__(self, cfg, Dataset): # with cfg and Dataset
+    def __init__(self, cfg, Dataset=None, instantiate=True): # with cfg and Dataset
         self.workers       = cfg.num_workers # workers is free to decide
         self.batch_size    = cfg.TRAIN.batch_size
         self.shuffle_train = cfg.TRAIN.shuffle_train
-        self.train_dataset = Dataset(
-            cfg=cfg,
-            add_noise=cfg.TRAIN.train_data_add_noise,
-            first_n=cfg.TRAIN.train_first_n,
-            mode='train',
-            fixed_order=False,)
 
-        self.train_sampler = None
-        self.trainloader = torch.utils.data.DataLoader(self.train_dataset,
-                                                     batch_size=self.batch_size,
-                                                     shuffle=(self.shuffle_train and self.train_sampler is None),
-                                                     num_workers=self.workers,
-                                                     pin_memory=True,
-                                                     drop_last=True)
-        assert len(self.trainloader) > 0
+        if instantiate:
+            self.train_dataset = Dataset(
+                cfg=cfg,
+                add_noise=cfg.TRAIN.train_data_add_noise,
+                first_n=cfg.TRAIN.train_first_n,
+                mode='train',
+                fixed_order=False,)
 
-        # seen instances
-        self.valid_dataset = Dataset(
-            cfg,
-            add_noise=cfg.TRAIN.val_data_add_noise,
-            first_n=cfg.TRAIN.val_first_n,
-            mode='test',
-            domain='seen',
-            fixed_order=True,
-            )
+            self.train_sampler = None
+            self.trainloader = torch.utils.data.DataLoader(self.train_dataset,
+                                                         batch_size=self.batch_size,
+                                                         shuffle=(self.shuffle_train and self.train_sampler is None),
+                                                         num_workers=self.workers,
+                                                         pin_memory=True,
+                                                         drop_last=True)
+            assert len(self.trainloader) > 0
 
-        self.validloader = torch.utils.data.DataLoader(self.valid_dataset,
-                                                       batch_size=self.batch_size,
-                                                       shuffle=False,
-                                                       num_workers=self.workers,
-                                                       pin_memory=True,
-                                                       drop_last=True)
-        assert len(self.validloader) > 0
+            # seen instances
+            self.valid_dataset = Dataset(
+                cfg,
+                add_noise=cfg.TRAIN.val_data_add_noise,
+                first_n=cfg.TRAIN.val_first_n,
+                mode='test',
+                domain='seen',
+                fixed_order=True,
+                )
 
-        # unseen instances
-        self.test_dataset = Dataset(
-            cfg,
-            add_noise=cfg.TRAIN.val_data_add_noise,
-            first_n=cfg.TRAIN.val_first_n,
-            mode='test',
-            domain='unseen',
-            fixed_order=True,
-            )
+            self.validloader = torch.utils.data.DataLoader(self.valid_dataset,
+                                                           batch_size=self.batch_size,
+                                                           shuffle=False,
+                                                           num_workers=self.workers,
+                                                           pin_memory=True,
+                                                           drop_last=True)
+            assert len(self.validloader) > 0
 
-        self.testloader = torch.utils.data.DataLoader(self.test_dataset,
-                                                    batch_size=self.batch_size,
-                                                    shuffle=False,
-                                                    num_workers=self.workers,
-                                                    pin_memory=True,
-                                                    drop_last=True)
-        assert len(self.testloader) > 0
+            # unseen instances
+            self.test_dataset = Dataset(
+                cfg,
+                add_noise=cfg.TRAIN.val_data_add_noise,
+                first_n=cfg.TRAIN.val_first_n,
+                mode='test',
+                domain='unseen',
+                fixed_order=True,
+                )
+
+            self.testloader = torch.utils.data.DataLoader(self.test_dataset,
+                                                        batch_size=self.batch_size,
+                                                        shuffle=False,
+                                                        num_workers=self.workers,
+                                                        pin_memory=True,
+                                                        drop_last=True)
+            assert len(self.testloader) > 0
 
     def get_train_batch(self):
         scans = self.trainiter.next()

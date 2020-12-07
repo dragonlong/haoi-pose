@@ -1,3 +1,5 @@
+import numpy as np
+import os
 import os
 import yaml
 import numpy as np
@@ -6,8 +8,46 @@ import h5py
 
 from random import randint, sample
 import matplotlib
-import matplotlib.pyplot as plt  #
-from voxelvis import PointVis
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+from common.vis_utils import plot3d_pts
+
+def visualize_pointcloud(points, normals=None, title_name='0',
+                         out_file=None, show=False):
+    r''' Visualizes point cloud data.
+
+    Args:
+        points (tensor): point data
+        normals (tensor): normal data (if existing)
+        out_file (string): output file
+        show (bool): whether the plot should be shown
+    '''
+    # Use numpy
+    points = np.asarray(points)
+    # Create plot
+    fig = plt.figure()
+    ax = fig.gca(projection=Axes3D.name)
+    ax.scatter(points[:, 2], points[:, 0], points[:, 1])
+    if normals is not None:
+        ax.quiver(
+            points[:, 2], points[:, 0], points[:, 1],
+            normals[:, 2], normals[:, 0], normals[:, 1],
+            length=0.1, color='k'
+        )
+    ax.set_xlabel('Z')
+    ax.set_ylabel('X')
+    ax.set_zlabel('Y')
+    ax.set_xlim(-0.5, 0.5)
+    ax.set_ylim(-0.5, 0.5)
+    ax.set_zlim(-0.5, 0.5)
+    ax.view_init(elev=30, azim=45)
+    if title_name is not None:
+        plt.title(title_name)
+    if out_file is not None:
+        plt.savefig(out_file)
+    if show:
+        plt.show()
+    plt.close(fig)
 
 def plot_imgs(imgs, imgs_name, title_name='default', sub_name='default', save_path=None, save_fig=False, axis_off=False, grid_on=False, show_fig=True, dpi=150):
     fig     = plt.figure(dpi=dpi)
@@ -36,20 +76,15 @@ def plot_imgs(imgs, imgs_name, title_name='default', sub_name='default', save_pa
     plt.close()
 
 if __name__ == '__main__':
-    my_dir = '/home/dragon/Dropbox/cvpr2021/viz/kpconv/temporal_anchors/'
-    filenames = os.listdir(my_dir)
-    for i in range(len(filenames)):
-        filename = filenames[i]
-        viz_file = f'{my_dir}/{filename}'
-        print(f'Now checking {viz_file}')
-        gt_data_handle  = np.load(viz_file, allow_pickle=True)
-        gt_dict         = gt_data_handle.item()
-        #
-        for key, value in gt_dict.items():
-            try:
-                print(key, value.shape)
-            except:
-                print(key, value)
-        vis = PointVis(target_pts=None, viz_dict=gt_dict)
-        vis.run()
+    my_dir      = './media/full_viz'
+    filenames = [f'{my_dir}/{filename}' for filename in os.listdir(my_dir)]
+    # print(filenames)
+    for i, filename in enumerate(filenames):
+        data = np.load(filename, allow_pickle=True).item()
+        for key, value in data.items():
+            print(key, value.shape)
+        # 'points', 'points.occ', 'inputs', 'inputs.normals'
+        for j in range(data['points'].shape[0]):
 
+            visualize_pointcloud(data['inputs'][j], title_name='inputs', show=True)
+            visualize_pointcloud(data['points'][j], title_name='occ pts', show=True)

@@ -85,7 +85,7 @@ source activate py36
 ./blender -b --python /home/dragon/Dropbox/ICML2021/code/haoi-pose/tools/blender_render.py
 ./blender -b --python /home/dragon/ARCwork/6DPose2019/haoi-pose/tools/blender_render.py
 ./blender -b --python /home/lxiaol9/6DPose2019/haoi-pose/tools/blender_render.py
-
+./blender -b --python /home/lxiaol9/6DPose2019/haoi-pose/tools/blender-renderer-cube.py
 
 # >>>>>>>>>>>>>> preprocessing data
 python preprocess_blender.py
@@ -94,5 +94,20 @@ python preprocess_blender.py
 hao
 cd dataset
 python base.py
-#
-scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/eyeglasses/1/viz/* /home/dragon/Documents/ICML2021/model/eyeglasses/1/viz/
+start=`date +%s`
+python shapenet_samplepoints.py --start_idx=0 --group_by=800 2>&1 | tee shapenet_gt1.log &
+python shapenet_samplepoints.py --start_idx=800 --group_by=1600 2>&1 | tee shapenet_gt2.log &
+python shapenet_samplepoints.py --start_idx=1600 --group_by=2400 2>&1 | tee shapenet_gt3.log &
+python shapenet_samplepoints.py --start_idx=2400 --group_by=4000
+end=`date +%s`
+runtime=$((end-start))
+echo ${runtime}
+
+start_idx:args.start_idx + args.group_by
+
+cd /home/dragon/Documents/ICML2021/log
+EXP=2.1
+mkdir ${EXP}
+scp -rf lxiaol9@newriver1.arc.vt.edu:/home/lxiaol9/3DGenNet2019/haoi-pose/out/pointcloud/${EXP}/logs/* ${EXP}
+
+scp -r lxiaol9@newriver1.arc.vt.edu:/home/lxiaol9/3DGenNet2019/haoi-pose/out/pointcloud/2.01/vis /home/dragon/Documents/ICML2021/results/val_pred/2.01/

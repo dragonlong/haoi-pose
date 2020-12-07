@@ -1,3 +1,4 @@
+# @package _global_
 TRAIN:
   # model parameters
   shuffle_train: True

@@ -19,6 +19,18 @@ import cv2
 import vispy
 from vispy.scene import visuals, SceneCanvas
 
+""""
+3d: plot3d_pts(pts, pts_name, s=1,
+joints: visualize_joints_2d, plot_skeleton
+arrows: plot_arrows(points, offset=None, joint=None)
+hands: plot_hand_w_object
+mesh:  visualize_mesh
+imgs:  plot_imgs
+
+
+"""
+def breakpoint():
+    import pdb;pdb.set_trace()
 # Colors for printing
 class bcolors:
     HEADER = '\033[95m'
@@ -29,6 +41,138 @@ class bcolors:
     ENDC = '\033[0m'
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
+
+def visualize_mesh(input, ax=None, mode='mesh', backend='matplotlib'):
+    if mode == 'mesh':
+        mesh_dict = input
+    if mode == 'file':
+        file_name = input
+    elif mode == 'vf':
+        v, f = input
+    tri = Delaunay(mesh_dict['vertices'])
+    if backend=='matplotlib':
+        dmesh = Poly3DCollection(
+            mesh_dict['vertices'][tri.simplices[:, :3]], alpha=0.5)
+        dmesh.set_edgecolor('b')
+        dmesh.set_facecolor('r')
+        if ax is None:
+            fig = plt.figure(figsize=(12, 12))
+            ax = fig.add_subplot(121, projection='3d')
+        ax.add_collection3d(dmesh)
+    else:
+        pass
+
+
+def visualize_joints_2d(
+    ax, joints, joint_idxs=True, links=None, alpha=1, scatter=True, linewidth=2
+):
+    if links is None:
+        links = [
+            (0, 1, 2, 3, 4),
+            (0, 5, 6, 7, 8),
+            (0, 9, 10, 11, 12),
+            (0, 13, 14, 15, 16),
+            (0, 17, 18, 19, 20),
+        ]
+    # Scatter hand joints on image
+    x = joints[:, 0]
+    y = joints[:, 1]
+    if scatter:
+        ax.scatter(x, y, 1, "r")
+
+    # Add idx labels to joints
+    for row_idx, row in enumerate(joints):
+        if joint_idxs:
+            plt.annotate(str(row_idx), (row[0], row[1]))
+    _draw2djoints(ax, joints, links, alpha=alpha, linewidth=linewidth)
+    ax.axis("equal")
+
+
+def _draw2djoints(ax, annots, links, alpha=1, linewidth=1):
+    colors = ["r", "m", "b", "c", "g"]
+
+    for finger_idx, finger_links in enumerate(links):
+        for idx in range(len(finger_links) - 1):
+            _draw2dseg(
+                ax,
+                annots,
+                finger_links[idx],
+                finger_links[idx + 1],
+                c=colors[finger_idx],
+                alpha=alpha,
+                linewidth=linewidth,
+            )
+
+
+def _draw2dseg(ax, annot, idx1, idx2, c="r", alpha=1, linewidth=1):
+    ax.plot(
+        [annot[idx1, 0], annot[idx2, 0]],
+        [annot[idx1, 1], annot[idx2, 1]],
+        c=c,
+        alpha=alpha,
+        linewidth=linewidth,
+    )
+
+
+def visualize_joints_2d_cv2(
+    img,
+    joints,
+    joint_idxs=True,
+    links=None,
+    alpha=1,
+    scatter=True,
+    linewidth=2,
+):
+    if links is None:
+        links = [
+            (0, 1, 2, 3, 4),
+            (0, 5, 6, 7, 8),
+            (0, 9, 10, 11, 12),
+            (0, 13, 14, 15, 16),
+            (0, 17, 18, 19, 20),
+        ]
+    # Scatter hand joints on image
+
+    # Add idx labels to joints
+    _draw2djoints_cv2(img, joints, links, alpha=alpha, linewidth=linewidth)
+    return img
+
+
+def _draw2djoints_cv2(img, annots, links, alpha=1, linewidth=1):
+    colors = [
+        (0, 255, 0),
+        (0, 255, 255),
+        (0, 0, 255),
+        (255, 0, 255),
+        (255, 0, 0),
+        (255, 255, 0),
+    ]
+
+    for finger_idx, finger_links in enumerate(links):
+        for idx in range(len(finger_links) - 1):
+            img = _draw2dseg_cv2(
+                img,
+                annots,
+                finger_links[idx],
+                finger_links[idx + 1],
+                col=colors[finger_idx],
+                alpha=alpha,
+                linewidth=linewidth,
+            )
+    return img
+
+
+def _draw2dseg_cv2(
+    img, annot, idx1, idx2, col=(0, 255, 0), alpha=1, linewidth=1
+):
+    cv2.line(
+        img,
+        (annot[idx1, 0], annot[idx1, 1]),
+        (annot[idx2, 0], annot[idx2, 1]),
+        col,
+        linewidth,
+    )
+    return img
 
 def get_hand_line_ids():
     line_ids = []
@@ -63,7 +207,7 @@ def plot_skeleton(hand_joints, line_ids):
     ax.scatter(hand_joints[:, 0],  hand_joints[:, 1], hand_joints[:, 2], marker=all_poss[n], s=ss[n], cmap=colors[n], label='hand joints')
 
     line_ids = get_hand_line_ids()
-    
+
     for line_idx, (idx0, idx1) in enumerate(line_ids):
         bone = hand_joints[idx0] - hand_joints[idx1]
         h = np.linalg.norm(bone)
@@ -106,13 +250,16 @@ def plot3d_pts(pts, pts_name, s=1, dpi=350, title_name=None, sub_name='default',
     cmap    = plt.cm.jet
     top     = plt.cm.get_cmap('Oranges_r', 128)
     bottom  = plt.cm.get_cmap('Blues', 128)
-
+    if isinstance(s, list):
+        ss = s
+    else:
+        ss = [s] * len(pts[0])
     colors = np.vstack((top(np.linspace(0, 1, 10)),
                            bottom(np.linspace(0, 1, 10))))
     # colors = ListedColormap(newcolors, name='OrangeBlue')
     # colors  = cmap(np.linspace(0., 1., 5))
-    # colors = ['Blues', 'Blues',  'Blues', 'Blues', 'Blues']
-    all_poss=['o', 'o','o', '.','o', '*', '.','o', 'v','^','>','<','s','p','*','h','H','D','d','1','','']
+    # '.', '.', '.',
+    all_poss=['o', 'o', 'o', 'o','o', '*', '.','o', 'v','^','>','<','s','p','*','h','H','D','d','1','','']
     num     = len(pts)
     for m in range(num):
         ax = plt.subplot(1, num, m+1, projection='3d')
@@ -122,36 +269,36 @@ def plot3d_pts(pts, pts_name, s=1, dpi=350, title_name=None, sub_name='default',
             ax.view_init(elev=view_angle[0], azim=view_angle[1])
         if len(pts[m]) > 1:
             for n in range(len(pts[m])):
-                ss = [s] * len(pts[m])
-                ss[0] = 2**2
                 if color_channel is None:
-                    ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2], marker=all_poss[n], s=ss[n], cmap=colors[n], label=pts_name[m][n])
+                    ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2], marker=all_poss[n], s=ss[n], cmap=colors[n], label=pts_name[m][n], depthshade=False)
                 else:
-                    if colorbar:
+                    if np.amax(color_channel[m][n], axis=0, keepdims=True)[0, 0] == np.amin(color_channel[m][n], axis=0, keepdims=True)[0, 0]:
                         rgb_encoded = color_channel[m][n]
                     else:
-                        rgb_encoded = (color_channel[m][n] - np.amin(color_channel[m][n], axis=0, keepdims=True))/np.array(np.amax(color_channel[m][n], axis=0, keepdims=True) - np.amin(color_channel[m][n], axis=0, keepdims=True))
+                        rgb_encoded = (color_channel[m][n] - np.amin(color_channel[m][n], axis=0, keepdims=True))/np.array(np.amax(color_channel[m][n], axis=0, keepdims=True) - np.amin(color_channel[m][n], axis=0, keepdims=True)+ 1e-6)
                     if len(pts[m])==3 and n==2:
-                        p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2],  marker=all_poss[4], s=s, c=rgb_encoded, label=pts_name[m][n])
+                        p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2],  marker=all_poss[4], s=ss[n], c=rgb_encoded, label=pts_name[m][n], depthshade=False)
                     else:
-                        p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2],  marker=all_poss[n], s=s, c=rgb_encoded, label=pts_name[m][n])
+                        p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2],  marker=all_poss[n], s=ss[n], c=rgb_encoded, label=pts_name[m][n], depthshade=False)
                     if colorbar:
                         fig.colorbar(p)
         else:
-            ss = [s] * len(pts[m])
-            ss[0] = 2**2
             for n in range(len(pts[m])):
                 if color_channel is None:
-                    p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2], marker=all_poss[n], s=s, cmap=colors[n])
+                    p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2], marker=all_poss[n], s=ss[n], cmap=colors[n], depthshade=False)
                 else:
-                    if colorbar:
+                    # if colorbar:
+                    # rgb_encoded = color_channel[m][n]
+                    if np.amax(color_channel[m][n], axis=0, keepdims=True)[0, 0] == np.amin(color_channel[m][n], axis=0, keepdims=True)[0, 0]:
                         rgb_encoded = color_channel[m][n]
                     else:
-                        rgb_encoded = (color_channel[m][n] - np.amin(color_channel[m][n], axis=0, keepdims=True))/np.array(np.amax(color_channel[m][n], axis=0, keepdims=True) - np.amin(color_channel[m][n], axis=0, keepdims=True))
+                        rgb_encoded = (color_channel[m][n] - np.amin(color_channel[m][n], axis=0, keepdims=True))/np.array(np.amax(color_channel[m][n], axis=0, keepdims=True) - np.amin(color_channel[m][n], axis=0, keepdims=True)+ 1e-6)
+                    # else:
+                    #     rgb_encoded = (color_channel[m][n] - np.amin(color_channel[m][n], axis=0, keepdims=True))/np.array(np.amax(color_channel[m][n], axis=0, keepdims=True) - np.amin(color_channel[m][n], axis=0, keepdims=True))
                     if len(pts[m])==3 and n==2:
-                        p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2],  marker=all_poss[4], s=s, c=rgb_encoded)
+                        p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2],  marker=all_poss[4], s=ss[n], c=rgb_encoded, depthshade=False)
                     else:
-                        p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2],  marker=all_poss[n], s=s, c=rgb_encoded)
+                        p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2],  marker=all_poss[n], s=ss[n], c=rgb_encoded, depthshade=False)
                     if colorbar:
                         # fig.colorbar(p)
                         fig.colorbar(p, ax=ax)
@@ -288,6 +435,44 @@ def viz_voxels():
     # use openGL to visualize voxels
     pass
 
+def visualize_pointcloud(points, normals=None, title_name='0', labels=None,
+                         out_file=None, show=False):
+    r''' Visualizes point cloud data.
+
+    Args:
+        points (tensor): point data
+        normals (tensor): normal data (if existing)
+        out_file (string): output file
+        show (bool): whether the plot should be shown
+    '''
+    # Use numpy
+    points = np.asarray(points)
+    # Create plot
+    fig = plt.figure()
+    ax = fig.gca(projection=Axes3D.name)
+    if labels is not None:
+        points = points[np.where(labels>0)[0]]
+    ax.scatter(points[:, 2], points[:, 0], points[:, 1])
+    if normals is not None:
+        ax.quiver(
+            points[:, 2], points[:, 0], points[:, 1],
+            normals[:, 2], normals[:, 0], normals[:, 1],
+            length=0.1, color='k'
+        )
+    ax.set_xlabel('Z')
+    ax.set_ylabel('X')
+    ax.set_zlabel('Y')
+    ax.set_xlim(-0.5, 0.5)
+    ax.set_ylim(-0.5, 0.5)
+    ax.set_zlim(-0.5, 0.5)
+    ax.view_init(elev=30, azim=45)
+    if title_name is not None:
+        plt.title(title_name)
+    if out_file is not None:
+        plt.savefig(out_file)
+    if show:
+        plt.show()
+    plt.close(fig)
 
 def plot_scene_w_grasps(list_obj_verts, list_obj_faces, list_obj_handverts, list_obj_handfaces, plane_parameters):
     fig = plt.figure()

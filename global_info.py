@@ -230,6 +230,7 @@ class global_info(object):
 
         # check dataset_name automactically
         group_path = None
+        project_path = None
         if platform.uname()[0] == 'Darwin':
             print("Now it knows it's in my local Mac")
             base_path = '/Users/DragonX/Downloads/ARC/6DPOSE'
@@ -240,6 +241,8 @@ class global_info(object):
         elif platform.uname()[1] == 'dragon':
             base_path = '/home/dragon/Documents/CVPR2020'
             second_path = '/home/dragon/Documents/ICML2021'
+            group_path= '/home/dragon/Documents/ICML2021'
+            project_path = '/home/dragon/Dropbox/ICML2021/code'
             # second_path = '/home/dragon/ARCwork'
             # mano_path = '/home/dragon/Downloads/ICML2021/YCB_Affordance/data/mano'
             mano_path = '/home/dragon/Dropbox/ICML2021/code/manopth/mano/models'
@@ -248,6 +251,7 @@ class global_info(object):
             group_path= '/groups/CESCA-CV'
             second_path = '/groups/CESCA-CV/ICML2021'
             mano_path = '/home/lxiaol9/3DGenNet2019/manopth/mano/models'
+            project_path = '/home/lxiaol9/3DGenNet2019'
 
         self.render_path = second_path + '/data/render'
         self.viz_path  = second_path + '/data/images'
@@ -264,6 +268,7 @@ class global_info(object):
         self.second_path = second_path
         self.base_path = base_path
         self.group_path= group_path
+        self.project_path= project_path
 
 if __name__ == '__main__':
     infos = global_info()

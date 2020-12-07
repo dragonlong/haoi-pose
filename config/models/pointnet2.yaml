@@ -1,3 +1,4 @@
+# @package _global_
 models:
     # PointNet++: Deep Hierarchical 0ure Learning on Point Sets in a Metric Space (https://arxiv.org/abs/1706.02413)
     pointnet2:

@@ -404,7 +404,7 @@ class NetworkBase():
                 else:
                     # regressionT
                     diff_p = (pred_dict[key] - gt_dict[key]).view(value.size(0), -1, 3).contiguous()
-                    loss_dict[key] = torch.mean(huber_loss(torch.norm(diff_p, dim=2)))
+                    loss_dict[key] = torch.mean(torch.norm(diff_p, dim=2))
                     # loss_dict[key] = torch.mean(torch.norm(diff_p, dim=2), dim=1)
             elif 'cls' in key:
                 loss_dict[key] = compute_miou_loss(pred_dict[key], gt_dict[key], loss_type=cfg.TRAIN.loss)

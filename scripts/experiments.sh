@@ -52,7 +52,6 @@ screen -X -S  quit
   python post_hand.py --hand --exp_num=0.8 --mano 2>&1 | tee eval_0.8_mano.log &
   python pred_check.py --exp_num=0.8 --hand --mano
 
-
 0.9: # retrain with larger learning rate, 0.1-0.3
 python train.py verbose=True gpu=1 name_model='votenet' exp_num='0.9' MODEL.arch_decoder='votenet' pred_mano=False 2>&1 | tee outputs/train_0.9.log
 python post_hand.py --hand --exp_num=0.9 --mano 2>&1 | tee eval_0.8_mano.log &
@@ -68,8 +67,11 @@ python train.py verbose=True gpu=1 name_model='votenet' exp_num='0.91' MODEL.arc
 
 0.94: # retrain with larger learning rate, 0.1-0.2, add center + confidence prediction after 1st epoch
 python train.py verbose=True gpu=1 name_model='votenet' exp_num='0.94' MODEL.arch_decoder='votenet' pred_mano=False 2>&1 | tee outputs/train_0.94.log
+python pred_check.py --exp_num=0.94 --hand --mano --contact --domain=seen
+python pred_check.py --exp_num=0.94 --hand --mano --contact --domain=unseen
+
 #
-0.95: # retrain with larger learning rate, 0.1-0.2, add 1 * 0.5 * center_loss after 1st epoch
+0.95: # retrain with larger learning rate, 0.1-0.2, center + confidence prediction after 1st epoch, confidence on every prediction points, sigmoid
 python train.py verbose=True gpu=1 name_model='votenet' exp_num='0.95' MODEL.arch_decoder='votenet' pred_mano=False 2>&1 | tee outputs/train_0.95.log
 
 1.0: # regressionR(6D), regressionT, partcls loss, NOCS loss, hand vertices, joints loss
@@ -77,9 +79,24 @@ python train.py verbose=True gpu=1 name_model='votenet' exp_num='0.95' MODEL.arc
   python post_hand.py --hand --exp_num=0.8 --mano 2>&1 | tee eval_0.8_mano.log &
   python pred_check.py --exp_num=0.8 --hand --mano
 
-1.1: # 5 * regressionR(6D), 5 * regressionT, partcls loss, NOCS loss, hand vertices, joints loss
+1.1: # regressionR(6D), regressionT, partcls loss, NOCS loss, hand vertices, joints loss, using L1 loss
   python train.py training=hand gpu=0 name_model='pointnet2_kaolin' exp_num='1.1' MODEL.arch_decoder='kaolin' pred_mano=True hand_only=True 2>&1 | tee outputs/train_1.1.log
   python post_hand.py --hand --exp_num=0.8 --mano 2>&1 | tee eval_0.8_mano.log &
+  python pred_check.py --exp_num=0.8 --hand --mano 2>&! | tee
+
+1.2: # regressionR(6D), regressionT, partcls loss, NOCS loss, hand vertices, joints loss, using L1 loss, translation put into Mano(tonight)
+  python train.py training=hand gpu=0 name_model='pointnet2_kaolin' exp_num='1.2' MODEL.arch_decoder='kaolin' pred_mano=True hand_only=True 2>&1 | tee outputs/train_1.1.log
+  python post_hand.py --hand --exp_num=0.8 --mano 2>&1 | tee eval_0.8_mano.log &
   python pred_check.py --exp_num=0.8 --hand --mano
+
+1.3: # object pose estimation on obman
+  python train.py training=hand gpu=0 name_model='pointnet2_kaolin' name_dset='obman' exp_num='1.3' MODEL.arch_decoder='kaolin' 2>&1 | tee outputs/train_1.3.log
+
+2.01: occupancy networks for object recontruction
+  # for object level recontruction
+  python train_obman.py training.out_dir='out/pointcloud/2.01' 2>&1 | tee outputs/occ_train_2.01.log
+
+2.1:
+  python train_obman.py training.out_dir='out/pointcloud/2.1' 2>&1 | tee outputs/occ_train_2.1.log
 # 1.1:
 #   python train.py verbose=True gpu=1 name_model='pointnet2_charlesssg' ca218
