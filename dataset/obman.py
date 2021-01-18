@@ -9,29 +9,40 @@ from igl import read_triangle_mesh, signed_distance
 from meshplot import plot, subplot, interact
 
 import __init__
-import global_info
+from global_info import global_info
 from common.queries import BaseQueries, get_trans_queries
 from common import handutils
 from common.data_utils import fast_load_obj
-from common.d3_utils import calculate_3d_backprojections
+from common.d3_utils import calculate_3d_backprojections, align_rotation
 from common.vis_utils import plot_imgs
 
 from utils.external import binvox_rw, voxels
 from utils.external.libmesh import check_mesh_contains
 ImageFile.LOAD_TRUNCATED_IMAGES = True
-def breakpoint():
+def bp():
     import pdb;pdb.set_trace()
+
+# try using custom packages
+infos     = global_info()
+my_dir    = infos.base_path
+group_path= infos.group_path
+second_path = infos.second_path
+render_path = infos.render_path
+project_path= infos.project_path
+categories  = infos.categories
+categories_id = infos.categories_id
+symmetry_dict = infos.symmetry_dict
+
 
 class ObMan:
     def __init__(
         self,
         split="train",
-        root=None,
+        mode="obj",
         joint_nb=21,
         mini_factor=None,
         use_cache=False,
         root_palm=False,
-        mode="obj",
         segment=False,
         override_scale=False,
         use_external_points=True,
@@ -42,10 +53,11 @@ class ObMan:
     ):
         # Set cache path
         self.split = split
+        self.mode  = mode
         obman_root = os.path.join(obman_root, split)
         self.override_scale = override_scale  # Use fixed scale
         self.root_palm = root_palm
-        self.mode = mode
+        self.obman_root= obman_root
         self.segment = segment
         self.apply_obj_transform = apply_obj_transform
         self.segmented_depth = segmented_depth
@@ -111,7 +123,7 @@ class ObMan:
         # Cache information
         self.use_cache = use_cache
         self.name = "obman"
-        self.cache_folder = os.path.join("dataset/data", "cache", self.name)
+        self.cache_folder = os.path.join(project_path, "haoi-pose/dataset/data", "cache", self.name)
         os.makedirs(self.cache_folder, exist_ok=True)
         self.mini_factor = mini_factor
         self.cam_intr = np.array(
@@ -141,6 +153,11 @@ class ObMan:
             (0, 13, 14, 15, 16),
             (0, 17, 18, 19, 20),
         ]
+        # Load mano faces
+        self.faces = {}
+        for side in ['left', 'right']:
+            with open(f'{project_path}/haoi-pose/dataset/mano_faces_{side}.pkl', 'rb') as p_f:
+                self.faces[side] = pickle.load(p_f)
 
         # Object info
         self.shapenet_template = os.path.join(
@@ -314,6 +331,7 @@ class ObMan:
         obj_transforms = [
             annotations["obj_transforms"][idx] for idx in selected_idxs
         ]
+        #
         meta_infos = [annotations["meta_infos"][idx] for idx in selected_idxs]
         if "depth_infos" in annotations:
             has_depth_info = True
@@ -418,6 +436,13 @@ class ObMan:
 
         return segm_img
 
+    def get_verts2d(self, idx):
+        verts3d = self.get_verts3d(idx)
+        verts2d = get_coords_2d(
+            verts3d, cam_extr=None, cam_calib=self.cam_intr)
+        return verts2d
+
+
     def get_joints2d(self, idx):
         return self.joints2d[idx].astype(np.float32)
 
@@ -438,10 +463,32 @@ class ObMan:
 
     def get_verts3d(self, idx):
         verts3d = self.hand_verts3d[idx]
-        verts3d = self.cam_extr[:3, :3].dot(verts3d.transpose()).transpose()
-        return 1000 * verts3d
+        if self.apply_obj_transform:
+            verts3d = self.cam_extr[:3, :3].dot(verts3d.transpose()).transpose()
+        else:
+            obj_transform = np.linalg.pinv(self.obj_transforms[idx])
+            hom_verts = np.concatenate([verts3d, np.ones([verts3d.shape[0], 1])],
+                                       axis=1)
+            verts3d = obj_transform.dot(hom_verts.T).T[:, :3]
+        # return 1000 * verts3d
+        return verts3d
 
-    def get_occupany_pts(self, idx, canon_pts=None, npt=2048, thres=0.01):
+    def get_surface_pts(self, idx, canon_pts=None, debug=False):
+        # read obj
+        model_path = self.obj_paths[idx]
+        surface_pts_path = model_path.replace("model_normalized", "surface_points")
+        all_pts = np.load(surface_pts_path, allow_pickle=True)
+        # change target points
+        boundary_pts = [np.min(canon_pts, axis=0), np.max(canon_pts, axis=0)]
+        center_pt = (boundary_pts[0] + boundary_pts[1])/2
+        length_bb = np.linalg.norm(boundary_pts[0] - boundary_pts[1])
+
+        # we care about the nomralized shape in NOCS
+        points = (all_pts - center_pt.reshape(1, 3)) / length_bb + 0.5
+        nomral_vectors = np.ones_like(points)
+        return points, nomral_vectors
+
+    def get_occupany_pts(self, idx, canon_pts=None, npt=2048, thres=0.01, debug=False):
         # read obj
         model_path = self.obj_paths[idx]
         outside_pts_path = model_path.replace("model_normalized", "outside_points")
@@ -472,6 +519,15 @@ class ObMan:
         occupancy_labels = np.ones((2048))
         occupancy_labels[-length_list[-1]:] = 0
         points = np.concatenate(final_pts, axis=0)
+
+        # change target points
+        boundary_pts = [np.min(canon_pts, axis=0), np.max(canon_pts, axis=0)]
+        center_pt = (boundary_pts[0] + boundary_pts[1])/2
+        length_bb = np.linalg.norm(boundary_pts[0] - boundary_pts[1])
+
+        # we care about the nomralized shape in NOCS
+        points = (points - center_pt.reshape(1, 3)) / length_bb + 0.5
+
         # # v, f = read_triangle_mesh(model_path_obj)
         # if os.path.exists(model_path):
         #     with open(model_path, "rb") as obj_f:
@@ -526,53 +582,94 @@ class ObMan:
                 # with open(filename, "r") as m_f:
                 #     all_pts.append(pickle.load(m_f))
                 all_pts.append(np.load(filename, allow_pickle=True))
+
         occupancy_labels0 = np.ones((all_pts[0].shape[0]))
         occupancy_labels1 = np.zeros((all_pts[1].shape[0]))
         occupancy_labels = np.concatenate([occupancy_labels0, occupancy_labels1], axis=0)
         points = np.concatenate(all_pts, axis=0)
 
+        # change target points
+        boundary_pts = [np.min(canon_pts, axis=0), np.max(canon_pts, axis=0)]
+        center_pt = (boundary_pts[0] + boundary_pts[1])/2
+        length_bb = np.linalg.norm(boundary_pts[0] - boundary_pts[1])
+
+        # we care about the nomralized shape in NOCS
+        points = (points - center_pt.reshape(1, 3)) / length_bb + 0.5
+
         return points, occupancy_labels
 
     def get_obj_verts_faces(self, idx):
         model_path = self.obj_paths[idx]
-        model_path_obj = model_path.replace(".pkl", ".obj")
+        model_path_obj = model_path.replace('.pkl', '.obj')
         if os.path.exists(model_path):
-            with open(model_path, "rb") as obj_f:
+            print('---loading ', model_path)
+            with open(model_path, 'rb') as obj_f:
                 mesh = pickle.load(obj_f)
         elif os.path.exists(model_path_obj):
-            with open(model_path_obj, "r") as m_f:
+            print('---loading ', model_path_obj)
+            with open(model_path_obj, 'r') as m_f:
                 mesh = fast_load_obj(m_f)[0]
         else:
             raise ValueError(
-                "Could not find model pkl or obj file at {}".format(
-                    model_path.split(".")[-2]
-                )
-            )
+                'Could not find model pkl or obj file at {}'.format(
+                    model_path.split('.')[-2]))
 
-        obj_scale = self.meta_infos[idx]["obj_scale"]
-        if self.mode == "obj" or self.override_scale:
-            verts = mesh["vertices"] * 0.18
-        else:
-            verts = mesh["vertices"] * obj_scale
+        verts = mesh['vertices']
         canon_pts = np.copy(verts)
-        # boundary_pts = [np.min(verts, axis=0), np.max(verts, axis=0)]
         # Apply transforms
         if self.apply_obj_transform:
+            obj_scale = self.meta_infos[idx]["obj_scale"]
             obj_transform = self.obj_transforms[idx]
-            hom_verts = np.concatenate(
-                [verts, np.ones([verts.shape[0], 1])], axis=1
-            )
+            hom_verts = np.concatenate([verts, np.ones([verts.shape[0], 1])],
+                                       axis=1)
             trans_verts = obj_transform.dot(hom_verts.T).T[:, :3]
-            trans_verts = (
-                self.cam_extr[:3, :3].dot(trans_verts.transpose()).transpose()
-            )
+            trans_verts = self.cam_extr[:3, :3].dot(
+                trans_verts.transpose()).transpose()
         else:
             trans_verts = verts
-        return (
-            np.array(trans_verts).astype(np.float32) * 1000,
-            np.array(mesh["faces"]).astype(np.int16),
-            canon_pts
-        )
+        return np.array(trans_verts).astype(np.float32), np.array(
+            mesh['faces']).astype(np.int16), canon_pts
+
+    # def get_obj_verts_faces(self, idx):
+    #     model_path = self.obj_paths[idx]
+    #     model_path_obj = model_path.replace(".pkl", ".obj")
+    #     if os.path.exists(model_path):
+    #         with open(model_path, "rb") as obj_f:
+    #             mesh = pickle.load(obj_f)
+    #     elif os.path.exists(model_path_obj):
+    #         with open(model_path_obj, "r") as m_f:
+    #             mesh = fast_load_obj(m_f)[0]
+    #     else:
+    #         raise ValueError(
+    #             "Could not find model pkl or obj file at {}".format(
+    #                 model_path.split(".")[-2]
+    #             )
+    #         )
+    #
+    #     obj_scale = self.meta_infos[idx]["obj_scale"]
+    #     if self.mode == "obj" or self.override_scale:
+    #         verts = mesh["vertices"] * 0.18
+    #     else:
+    #         verts = mesh["vertices"] * obj_scale
+    #     canon_pts = np.copy(verts)
+    #     # boundary_pts = [np.min(verts, axis=0), np.max(verts, axis=0)]
+    #     # Apply transforms
+    #     if self.apply_obj_transform:
+    #         obj_transform = self.obj_transforms[idx]
+    #         hom_verts = np.concatenate(
+    #             [verts, np.ones([verts.shape[0], 1])], axis=1
+    #         )
+    #         trans_verts = obj_transform.dot(hom_verts.T).T[:, :3]
+    #         trans_verts = (
+    #             self.cam_extr[:3, :3].dot(trans_verts.transpose()).transpose()
+    #         )
+    #     else:
+    #         trans_verts = verts
+    #     return (
+    #         np.array(trans_verts).astype(np.float32) * 1000,
+    #         np.array(mesh["faces"]).astype(np.int16),
+    #         canon_pts
+    #     )
 
     def get_objpoints3d(self, idx, point_nb=600):
         model_path = self.obj_paths[idx].replace(
@@ -624,7 +721,7 @@ class ObMan:
 
         return trans_points.astype(np.float32) * 1000, canon_pts
 
-    def get_nocs(self, idx, points, boundary_pts):
+    def get_nocs(self, idx, points, boundary_pts, symmetry_factor=False):
         # cam2world
         # boundary_pts = [np.min(canon_pts, axis=0), np.max(canon_pts, axis=0)]
         c2w_mat = np.linalg.pinv(self.cam_extr[:3, :3])
@@ -633,6 +730,17 @@ class ObMan:
         )
         # world2canonical
         obj_transform = self.obj_transforms[idx]
+
+        # consider_symmetry:
+        class_id      = self.meta_infos[idx]['obj_class_id']
+        category_name = categories_id[class_id]
+        instance_id   = self.meta_infos[idx]['obj_sample_id']
+        # print(class_id, category_name)
+        # and category_name in ['bottle', 'can', 'bowl']
+        if symmetry_factor and symmetry_dict[f'{class_id}_{instance_id}']: # : # remove any y rotation
+            # print('---', class_id, ' transformed!!')
+            obj_transform = align_rotation(obj_transform)
+
         obj_transform_inv = np.linalg.pinv(obj_transform)
         hom_points = np.concatenate([trans_points, np.ones([trans_points.shape[0], 1])], axis=1)
         trans_points = obj_transform_inv.dot(hom_points.T).T[:, :3]
@@ -658,6 +766,10 @@ class ObMan:
 
         return cloud
 
+    def get_faces3d(self, idx):
+        faces = self.faces[self.get_sides(idx)]
+        return faces
+
     def get_depth(self, idx):
         image_path = self.image_names[idx]
         if self.mode == "all":
@@ -669,6 +781,8 @@ class ObMan:
         image_path = image_path.replace("jpg", "png")
 
         img = cv2.imread(image_path, 1)
+        img_hand = img[:, :, 1]
+        img_obj  = img[:, :, 2]
         if img is None:
             raise ValueError("cv2 could not open {}".format(image_path))
 
@@ -688,7 +802,11 @@ class ObMan:
         assert (
             img.max() == 255
         ), "Max value of depth jpg should be 255, not {}".format(img.max())
+
         img = (img - 1) / 254 * (depth_min - depth_max) + depth_max
+        # img_hand = (img_hand - 1) / 254 * (depth_info["hand_depth_min"] - depth_info["hand_depth_max"]) + depth_info["hand_depth_max"]
+        # img_obj = (img_obj - 1) / 254 * (depth_info["obj_depth_min"] - depth_info["obj_depth_max"]) + depth_info["obj_depth_max"]
+        # print(np.max(img), np.min(img))
         if self.segmented_depth:
             obj_hand_segm = (np.asarray(self.get_segm(idx)) / 255).astype(
                 np.int
@@ -727,6 +845,12 @@ class ObMan:
     def __len__(self):
         return len(self.image_names)
 
+    def get_obj_verts2d(self, idx):
+        verts3d, _, _ = self.get_obj_verts_faces(idx)
+        verts3d = verts3d
+        verts2d = get_coords_2d(
+            verts3d, cam_extr=None, cam_calib=self.cam_intr)
+        return verts2d
 
 def _get_segm(img, side="left"):
     if side == "right":
@@ -741,3 +865,15 @@ def _get_segm(img, side="left"):
         [hand_segm_img, obj_segm_img, np.zeros_like(hand_segm_img)], axis=2
     )
     return segm_img
+
+def get_coords_2d(coords3d, cam_extr=None, cam_calib=None):
+    if cam_extr is None:
+        coords2d_hom = np.dot(cam_calib, coords3d.transpose())
+    else:
+        coords3d_hom = np.concatenate(
+            [coords3d, np.ones((coords3d.shape[0], 1))], 1)
+        coords3d_hom = coords3d_hom.transpose()
+        coords2d_hom = np.dot(cam_calib, np.dot(cam_extr, coords3d_hom))
+    coords2d = coords2d_hom / coords2d_hom[2, :]
+    coords2d = coords2d[:2, :]
+    return coords2d.transpose()

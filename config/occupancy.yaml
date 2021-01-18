@@ -4,7 +4,30 @@ defaults:
     optional: True
   - datasets: obman
     optional: True
+eval: False
+debug: False
 method: conv_onet
+oracle_nocs: False
+use_noisy_nocs: True
+use_category_code: False
+use_transform_hand: False
+use_hand_occupancy: False
+use_wandb: False
+task: 'obj_reconstruction'  # hand_regression, obj_reconstruction, hand_reconstruction, contacts_vote
+target_category: ''
+exp_num: 'default'
+exp_name: 'default'
+name_dset: 'obman'
+item: 'obman'
+n_max_parts : 4
+num_points: 1024
+num_expr: 0.01
+learning_rate: 0.0001
+name_model: pointnet2_charlesmsg # Name of the specific model to load
+root_data: "/groups/CESCA-CV/ICML2021/data"
+log_dir: '/model/${item}/${exp_num}' #
+idx: 0
+num: 10
 data:
   dataset: Shapes3D
   path: data/ShapeNet
@@ -42,6 +65,7 @@ model:
   encoder_kwargs: {}
   multi_gpu: false
   c_dim: 512
+  num_occ_heads: 1
 training:
   out_dir:  out/default
   batch_size: 64
@@ -53,9 +77,10 @@ training:
   eval_sample: false
   model_selection_metric: loss
   model_selection_mode: minimize
-  n_workers: 4
+  n_workers: 8
   n_workers_val: 4
 test:
+  category_id: 0
   threshold: 0.5
   eval_mesh: true
   eval_pointcloud: true

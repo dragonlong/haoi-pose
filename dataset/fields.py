@@ -7,9 +7,8 @@ import trimesh
 
 import __init__
 from dataset.core import Field
-from utils import binvox_rw
+from utils.external import binvox_rw
 from common.d3_utils import coord2index, normalize_coord
-
 
 class IndexField(Field):
     ''' Basic index field.'''

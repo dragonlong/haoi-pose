@@ -4,7 +4,7 @@ TRAIN:
   shuffle_train: True
   use_direct_regression: False
   partcls_loss_multiplier: 1.0
-  nocs_loss_multiplier : 0.1
+  nocs_loss_multiplier : 1.0
   gocs_loss_multiplier : 0.0
   handvertices_loss_multiplier : 1.0
   handjoints_loss_multiplier : 1.0
@@ -24,8 +24,8 @@ TRAIN:
   parametri_type: "orth"
 
   # data source
-  batch_size: 16
-  batch_size_per_gpu: 16
+  batch_size: 32
+  batch_size_per_gpu: 32
   train_data_file: "shape2motion/hdf5/0.01/train.txt"
   train_first_n: -1
   train_data_add_noise: true
@@ -52,21 +52,22 @@ TRAIN:
   decay_step: 200000
   decay_rate: 0.7
   init_learning_rate: 0.001
-  running_lr: 0.01
-  lr_encoder: 0.01
-  lr_decoder: 0.01
-  running_lr_encoder: 0.01
-  running_lr_decoder: 0.01
+  running_lr: 0.001
+  lr_encoder: 0.001
+  lr_decoder: 0.001
+  running_lr_encoder: 0.001
+  running_lr_decoder: 0.001
   #
   loss: "xentropy"
   loss_weight: 1.0
   epsilon_w: 0.001
   optim: "SGD"
-  #
+  # the one we are really using
   lr_pow: 1.0
-  lr_decay: 0.998
+  lr_decay: 0.999
   lr_warmup: True
   beta1: 0.9
+  # for optimizer
   momentum: 0.9
   weight_decay: 1e-4
   fix_bn: False
@@ -88,6 +89,7 @@ TRAIN:
   log_dir: "results/log"
 
 MODEL:
+  use_xyz: True
   num_classes: 4
   arch_encoder: "identical"
   arch_decoder: "pointnet2_single"
@@ -97,7 +99,8 @@ MODEL:
 
 HEAD:
   partcls_per_point: [128, 4, 'softmax']
-  nocs_per_point : [128, None, 'sigmoid']
+  nocs_per_point : [128, 128, None, 'sigmoid']
+  # nocs_per_point : [128, 64, None, 'sigmoid']
   # gocs_per_point : [128, 3, 'sigmoid']
   # handheatmap_per_point :  [128, 128, 21, 'sigmoid']
   # handunitvec_per_point :  [128, 128, 63, 'tanh']

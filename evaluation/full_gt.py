@@ -91,7 +91,7 @@ if __name__ == '__main__':
     save_path = base_path + '/pickle/{}/'.format(main_exp)
     if not os.path.exists(save_path):
         os.makedirs(save_path)
-        
+
     if args.item == 'washing_machine':
         problem_ins = ['0016']
     elif args.item == 'drawer':

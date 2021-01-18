@@ -59,7 +59,7 @@ if __name__ == '__main__':
 
         # angles = np.linspace(0, 1, args.cnt)
         prefix    = ['mtllib none_motion.mtl', 'usemtl material_5131']
-        directory = '{}/{}/'.format(save_path, cur_urdf) # 
+        directory = '{}/{}/'.format(save_path, cur_urdf) #
         if not os.path.exists( directory ):
             os.makedirs(directory)
         for p in range(args.cnt):
@@ -73,7 +73,7 @@ if __name__ == '__main__':
                 if obj_files is not None and not isinstance(obj_files, list):
                     dict_mesh, _, _, _ = load_model_split(obj_files)
                     name_obj  = obj_files.split('.')[0].split('/')[-1]
-                    name_list.append(name_obj) 
+                    name_list.append(name_obj)
                     anchor = np.array(urdf_ins['joint']['xyz'][k])
                     univec = np.array(urdf_ins['joint']['axis'][k])
                     theta  = angles[i, p, ind_link] * np.pi/2
@@ -99,4 +99,3 @@ if __name__ == '__main__':
             print(cur_urdf, name_list, angles)
             save_objmesh(save_name, whole_obj_dict, prefix=prefix)
         subprocess.run(["cp", f'{data_root}/objects/{args.item}/0001/part_objs/none_motion.mtl', f'{save_path}/{cur_urdf}/'])
-

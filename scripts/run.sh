@@ -103,11 +103,95 @@ end=`date +%s`
 runtime=$((end-start))
 echo ${runtime}
 
-start_idx:args.start_idx + args.group_by
+hao
+cd tools
+for i in 0 1 2 3 4
+do
+python obman_samplepoints.py idx=$i num=10 &
+done
+
+hao
+cd tools
+for i in 5 6 7 8 9
+do
+python obman_samplepoints.py idx=$i num=10 &
+done
+#>>>>>>>>>> for evaluation
+# viz
+# scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/eyeglasses/1/viz/* /home/dragon/Documents/ICML2021/model/eyeglasses/1/viz/
+EXP=1.4
+item='obman'
+domain='unseen'
+mkdir -p /home/dragon/Documents/ICML2021/model/${item}/${EXP}/preds/${domain}/
+scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/${item}/${EXP}/preds/${domain}/* /home/dragon/Documents/ICML2021/model/${item}/${EXP}/preds/${domain}/
+mv ~/Downloads/0000*.h5 /home/dragon/Documents/ICML2021/model/${item}/${EXP}/preds/${domain}/
+
+# log
+for EXP in 1.35
+do
+cd /home/dragon/Documents/ICML2021/log
+# EXP=1.35
+item='obman'
+scp -r lxiaol9@newriver2.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/${item}/${EXP}/tb/ ${EXP}
+done
 
 cd /home/dragon/Documents/ICML2021/log
-EXP=2.1
-mkdir ${EXP}
-scp -rf lxiaol9@newriver1.arc.vt.edu:/home/lxiaol9/3DGenNet2019/haoi-pose/out/pointcloud/${EXP}/logs/* ${EXP}
+EXP=2.08
+item='obman'
+scp -r lxiaol9@newriver2.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/${item}/${EXP}/logs/ ${EXP}
+
+# mesh training vis
+EXP=2.03
+item='obman'
+domain='unseen'
+mkdir -p /home/dragon/Documents/ICML2021/model/${item}/${EXP}/
+scp -r lxiaol9@newriver2.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/obman/2.1/vis/ /home/dragon/Documents/ICML2021/model/${item}/${EXP}/
+
+#>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> for evluation <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< #
+# mesh eval
+EXP=2.03
+item='obman'
+domain='unseen'
+mkdir -p /home/dragon/Documents/ICML2021/model/${item}/${EXP}/generation/${domain}/
+scp -r lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/${item}/${EXP}/generation/ /home/dragon/Documents/ICML2021/model/${item}/${EXP}/
+
+#
+scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/eyeglasses/1/viz/* /home/dragon/Documents/ICML2021/model/eyeglasses/1/viz/
+mkdir -p /home/dragon/Documents/ICML2021/model/eyeglasses/1.0/preds/seen/
+scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/eyeglasses/1.0/preds/seen/0001_0_* /home/dragon/Documents/ICML2021/model/eyeglasses/1.0/preds/seen/
+
+cd /home/dragon/Documents/ICML2021/log
+EXP=1.41
+item='obman'
+scp -r lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/obman/${EXP}/tb/ ${EXP}
+# scp -rf lxiaol9@newriver1.arc.vt.edu:/home/lxiaol9/3DGenNet2019/haoi-pose/out/pointcloud/${EXP}/logs/* ${EXP}
 
 scp -r lxiaol9@newriver1.arc.vt.edu:/home/lxiaol9/3DGenNet2019/haoi-pose/out/pointcloud/2.01/vis /home/dragon/Documents/ICML2021/results/val_pred/2.01/
+# Press Enter, ~, . one after the other to disconnect from a frozen session.
+
+for i in 0.1  0.2  0.3  0.4  0.5  3.9  3.91  5.9  5.91  8.12  8.14  pointnet2_charlesmsg_0  pointnet2_charlesmsg_1  pointnet2_charlesssg_1  pointnet2_meteornet_1
+do
+ echo $i
+ mkdir -p $i/train
+ mkdir -p $i/unseen
+ mkdir -p $i/seen
+done
+
+#
+# # scp lxiaol9@newriver1.arc.vt.edu:/home/lxiaol9/3DGenNet2019/haoi-pose/out/pointcloud/2.01/vis/800* /home/dragon/Documents/ICML2021/results/val_pred/2.01/
+# scp -r lxiaol9@newriver1.arc.vt.edu:/home/lxiaol9/3DGenNet2019/haoi-pose/outputs/media /home/dragon/Dropbox/ICML2021/code/haoi-pose/outputs
+# # local
+# python viz_helper.py
+#
+
+
+# how to get faster SDF value from mesh!!
+1. create watertight mesh with;
+
+2. Sample points near the surface, and use libigl to get SDF value;
+
+3. Use's occupancy's methods for decide whether points belong to volume or others;
+
+4. Trimesh's code;
+
+5. Use Pyrender to visualize the points;

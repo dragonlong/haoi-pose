@@ -15,7 +15,7 @@
 
 import numpy as np
 import __init__
-from modules.layers import *
+from models.layers import *
 
 def breakpoint():
     import pdb;pdb.set_trace()

@@ -42,15 +42,15 @@ def create_conv(in_channels, out_channels, kernel_size, order, num_groups, paddi
     modules = []
     for i, char in enumerate(order):
         if char == 'r':
-            modules.append(('ReLU', nn.ReLU(inplace=True)))
+            models.append(('ReLU', nn.ReLU(inplace=True)))
         elif char == 'l':
-            modules.append(('LeakyReLU', nn.LeakyReLU(negative_slope=0.1, inplace=True)))
+            models.append(('LeakyReLU', nn.LeakyReLU(negative_slope=0.1, inplace=True)))
         elif char == 'e':
-            modules.append(('ELU', nn.ELU(inplace=True)))
+            models.append(('ELU', nn.ELU(inplace=True)))
         elif char == 'c':
             # add learnable bias only in the absence of batchnorm/groupnorm
             bias = not ('g' in order or 'b' in order)
-            modules.append(('conv', conv3d(in_channels, out_channels, kernel_size, bias, padding=padding)))
+            models.append(('conv', conv3d(in_channels, out_channels, kernel_size, bias, padding=padding)))
         elif char == 'g':
             is_before_conv = i < order.index('c')
             if is_before_conv:
@@ -63,13 +63,13 @@ def create_conv(in_channels, out_channels, kernel_size, order, num_groups, paddi
                 num_groups = 1
 
             assert num_channels % num_groups == 0, f'Expected number of channels in input to be divisible by num_groups. num_channels={num_channels}, num_groups={num_groups}'
-            modules.append(('groupnorm', nn.GroupNorm(num_groups=num_groups, num_channels=num_channels)))
+            models.append(('groupnorm', nn.GroupNorm(num_groups=num_groups, num_channels=num_channels)))
         elif char == 'b':
             is_before_conv = i < order.index('c')
             if is_before_conv:
-                modules.append(('batchnorm', nn.BatchNorm3d(in_channels)))
+                models.append(('batchnorm', nn.BatchNorm3d(in_channels)))
             else:
-                modules.append(('batchnorm', nn.BatchNorm3d(out_channels)))
+                models.append(('batchnorm', nn.BatchNorm3d(out_channels)))
         else:
             raise ValueError(f"Unsupported layer type '{char}'. MUST be one of ['b', 'g', 'r', 'l', 'e', 'c']")
 
@@ -399,7 +399,7 @@ class Abstract3DUNet(nn.Module):
         if isinstance(f_maps, int):
             f_maps = number_of_features_per_level(f_maps, num_levels=num_levels)
 
-        # create encoder path consisting of Encoder modules. Depth of the encoder is equal to `len(f_maps)`
+        # create encoder path consisting of Encoder models. Depth of the encoder is equal to `len(f_maps)`
         encoders = []
         for i, out_feature_num in enumerate(f_maps):
             if i == 0:
@@ -414,7 +414,7 @@ class Abstract3DUNet(nn.Module):
 
         self.encoders = nn.ModuleList(encoders)
 
-        # create decoder path consisting of the Decoder modules. The length of the decoder is equal to `len(f_maps) - 1`
+        # create decoder path consisting of the Decoder models. The length of the decoder is equal to `len(f_maps) - 1`
         decoders = []
         reversed_f_maps = list(reversed(f_maps))
         for i in range(len(reversed_f_maps) - 1):

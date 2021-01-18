@@ -14,6 +14,7 @@ from models.conv_onet import generation
 import dataset as data
 from utils import config
 from common.d3_utils import decide_total_volume_range, update_reso
+from common import bp
 from torchvision import transforms
 import numpy as np
 
@@ -65,10 +66,17 @@ def get_model(cfg, device=None, dataset=None, **kwargs):
             if bool(set(fea_type) & set(['xz', 'xy', 'yz'])):
                 encoder_kwargs['plane_resolution'] = dataset.total_reso
 
-    decoder = model.decoder_dict[decoder](
-        dim=dim, c_dim=c_dim, padding=padding,
-        **decoder_kwargs
-    )
+    # by Xiaolong
+    if cfg.use_category_code:
+        decoder = model.decoder_dict[decoder](
+            dim=3, c_dim=c_dim+9, padding=padding, cfg=cfg,
+            **decoder_kwargs
+        )
+    else:
+        decoder = model.decoder_dict[decoder](
+            dim=3, c_dim=c_dim, padding=padding, cfg=cfg,
+            **decoder_kwargs
+        )
 
     if encoder == 'idx':
         encoder = nn.Embedding(len(dataset), c_dim)
@@ -81,7 +89,7 @@ def get_model(cfg, device=None, dataset=None, **kwargs):
         encoder = None
 
     model_cur = model.ConvolutionalOccupancyNetwork(
-        decoder, encoder, device=device
+        decoder, encoder, device=device, cfg=cfg
     )
 
     return model_cur
@@ -106,6 +114,7 @@ def get_trainer(model, optimizer, cfg, device, **kwargs):
         device=device, input_type=input_type,
         vis_dir=vis_dir, threshold=threshold,
         eval_sample=cfg['training']['eval_sample'],
+        cfg=cfg
     )
 
     return trainer
@@ -161,6 +170,7 @@ def get_generator(model, cfg, device, **kwargs):
         padding=cfg['data']['padding'],
         vol_info = vol_info,
         vol_bound = vol_bound,
+        cfg=cfg
     )
     return generator
 

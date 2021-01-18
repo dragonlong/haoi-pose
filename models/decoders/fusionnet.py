@@ -21,7 +21,7 @@ import yaml
 import __init__
 import global_info
 from common.bidirect import c2p_map, p2c_map
-from modules.fusor import attent1d, maxpl1d, attent1d_spatial
+from models.fusor import attent1d, maxpl1d, attent1d_spatial
 
 setting = global_info.setting()
 if setting.USE_MULTI_GPU:

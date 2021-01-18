@@ -34,7 +34,7 @@ from pytransform3d.rotations import *
 import _init_paths
 from common.vis_utils import plot3d_pts, plot2d_img, plot_arrows, plot_arrows_list, plot_hand_w_object
 from common.data_utils import fast_load_obj, get_obj_mesh
-from common.d3_utils import mat_from_rvec, rvec_from_mat, compute_rotation_matrix_from_euler, compute_euler_angles_from_rotation_matrices, compute_rotation_matrix_from_ortho6d
+from common.d3_utils import mat_from_rvec, rvec_from_mat, compute_rotation_matrix_from_euler, compute_euler_angles_from_rotation_matrices, compute_rotation_matrix_from_ortho6d, transform_pcloud
 from common.debugger import breakpoint, print_group
 from global_info import global_info
 
@@ -52,24 +52,6 @@ whole_obj = infos.whole_obj
 part_obj  = infos.part_obj
 obj_urdf  = infos.obj_urdf
 
-
-def transform_pcloud(pcloud, RT, inv=False, extra_R=None, verbose=False):
-    """
-    by default, pcloud: [N, 3]
-    """
-    # if extra_R is not None:
-    #     pcloud = np.dot(pcloud, extra_R[:3, :3].T)
-    if inv:
-        inv_R     = np.linalg.pinv(RT[:3, :3])
-        pcloud_tf = np.dot(inv_R, pcloud.T  - RT[:3, 3].reshape(3, 1))
-        pcloud_tf = pcloud_tf.T
-    else:
-        pcloud_tf = np.dot(pcloud, RT[:3, :3].T) + RT[:3, 3].reshape(1, 3)
-    if verbose:
-        print_group([RT, pcloud[:3, :], pcloud_tf[:3, :]], ['RT', 'original pts', 'transformed pts'])
-        plot3d_pts([[pcloud, pcloud_tf]], [['pts', 'transformed pts']], s=1, mode='continuous',  limits = [[-0.5, 0.5], [-0.5, 0.5], [-0.5, 1.5]], title_name=['Camera + World Pts'])
-
-    return pcloud_tf
 
 def get_hand_pcloud(data, verbose=False):
     roi_ind = np.where(data['partcls_per_point']==3)[0]
@@ -217,19 +199,19 @@ if __name__ == '__main__':
         # >>>>>>>>> we get from rendered data
         hand_pcloud = get_hand_pcloud(data, verbose=True)
         obj_pcloud, obj_pcloud_list, nocs_list  = get_obj_pcloud(data, verbose=True)
-        hand_vertices, hand_faces = get_hand_mesh(data, mano_layer_right, verbose=True)
-        obj_vertices, obj_faces   = get_obj_mesh(viz_files[i].split('.')[0], verbose=False)
-        obj_vertices_tf           = transform_pcloud(np.copy(obj_vertices), RT=data['extrinsic_params'], extra_R= matrix_from_euler_xyz([-np.pi/2, 0, 0]))
-
-        hand_contacts = data['hand_contacts'][()]
-        hand_pcloud_tf = transform_pcloud(np.copy(hand_pcloud), RT=data['extrinsic_params'], inv=True,  verbose=False)
-        obj_pcloud_tf  = transform_pcloud(np.copy(obj_pcloud), RT=data['extrinsic_params'], inv=True,  verbose=False)
+        # hand_vertices, hand_faces = get_hand_mesh(data, mano_layer_right, verbose=True)
+        # obj_vertices, obj_faces   = get_obj_mesh(viz_files[i].split('.')[0], verbose=False)
+        # obj_vertices_tf           = transform_pcloud(np.copy(obj_vertices), RT=data['extrinsic_params'], extra_R= matrix_from_euler_xyz([-np.pi/2, 0, 0]))
         #
-        plot_hand_w_object(obj_verts=hand_vertices, obj_faces=hand_faces, hand_verts=hand_vertices, hand_faces=hand_faces, s=5**2, pts=[[hand_contacts]], save=False, mode='continuous')
-
-        plot_hand_w_object(obj_verts=obj_vertices, obj_faces=obj_faces, hand_verts=obj_vertices, hand_faces=obj_faces, pts=[[obj_pcloud_tf]], save=False, mode='continuous')
-
-        plot_hand_w_object(obj_verts=obj_vertices_tf, obj_faces=obj_faces, hand_verts=hand_vertices, hand_faces=hand_faces, save=False, mode='continuous')
+        # hand_contacts = data['hand_contacts'][()]
+        # hand_pcloud_tf = transform_pcloud(np.copy(hand_pcloud), RT=data['extrinsic_params'], inv=True,  verbose=False)
+        # obj_pcloud_tf  = transform_pcloud(np.copy(obj_pcloud), RT=data['extrinsic_params'], inv=True,  verbose=False)
+        # #
+        # plot_hand_w_object(obj_verts=hand_vertices, obj_faces=hand_faces, hand_verts=hand_vertices, hand_faces=hand_faces, s=5**2, pts=[[hand_contacts]], save=False, mode='continuous')
+        #
+        # plot_hand_w_object(obj_verts=obj_vertices, obj_faces=obj_faces, hand_verts=obj_vertices, hand_faces=obj_faces, pts=[[obj_pcloud_tf]], save=False, mode='continuous')
+        #
+        # plot_hand_w_object(obj_verts=obj_vertices_tf, obj_faces=obj_faces, hand_verts=hand_vertices, hand_faces=hand_faces, save=False, mode='continuous')
 
         # hand_vertices_tf, hand_faces_tf = get_hand_mesh_onestep(data, mano_layer_right, verbose=False)
         # plot_hand_w_object(obj_verts=hand_vertices_tf, obj_faces=hand_faces_tf, hand_verts=hand_vertices_tf, hand_faces=hand_faces_tf, pts=[[hand_pcloud]], save=False, mode='continuous')

@@ -16,14 +16,15 @@ from torch.utils.data import Dataset
 from torchvision.transforms import functional as func_transforms
 import __init__
 from global_info import global_info
-from common import data_utils, handutils, vis_utils
+from common import data_utils, handutils, vis_utils, bp
+from common.d3_utils import align_rotation # 4 * 4
 from common.queries import (
     BaseQueries,
     TransQueries,
     one_query_in,
     no_query_in,
 )
-def breakpoint():
+def bp():
     import pdb;pdb.set_trace()
 
 infos           = global_info()
@@ -49,6 +50,7 @@ class HandDataset(Dataset):
     def __init__(
         self,
         pose_dataset,
+        cfg=None,
         center_idx=9,
         point_nb=600,
         inp_res=256,
@@ -76,6 +78,7 @@ class HandDataset(Dataset):
         block_rot=False,
         black_padding=False,
         as_obj_only=False,
+        is_testing=False
     ):
         """
         Args:
@@ -86,7 +89,23 @@ class HandDataset(Dataset):
             right hands, if 'left', do the opposite
         """
         # Dataset attributes
+        self.num_points   = cfg.num_points # fixed for category with < 5 parts
+        self.J_num        = 21
+        self.batch_size   = cfg.batch_size
+        self.n_max_parts  = 2
+        self.task       = cfg.task
+        if self.task == 'category_pose':
+            self.is_gen       = cfg.is_gen
+            self.is_debug     = cfg.is_debug
+            self.nocs_type    = cfg.nocs_type
+
+            # controls
+            self.pred_mano  = cfg.pred_mano
+            self.rot_align  = cfg.rot_align
+            self.hand_only  = cfg.hand_only
+
         self.pose_dataset = pose_dataset
+        self.cfg = cfg
         self.as_obj_only = as_obj_only
         self.inp_res = inp_res
         self.point_nb = point_nb
@@ -95,6 +114,7 @@ class HandDataset(Dataset):
         self.sides = sides
         self.black_padding = black_padding
 
+        self.is_testing   = is_testing
         # Color jitter attributes
         self.hue = hue
         self.contrast = contrast
@@ -102,7 +122,7 @@ class HandDataset(Dataset):
         self.saturation = saturation
         self.blur_radius = blur_radius
 
-        self.max_rot = max_rot
+        self.max_rot   = max_rot
         self.block_rot = block_rot
 
         # Training attributes
@@ -121,63 +141,53 @@ class HandDataset(Dataset):
                 shapenet_info[row['class']] = row['path']
 
         sample_paths = []
-        self.models = []
+        self.models  = []
         self.categories = []
+        self.class2category = {}
+        self.category2ind = {}
+        # self.categories = ['02876657', '03797390', '02880940', '02946921', '03593526', '03624134', '02992529', '02942699', '04074963']
         for class_id, class_path in tqdm(shapenet_info.items(), desc='class'):
-            samples = sorted(os.listdir(class_path))
-            self.categories.append(class_path.split('/')[-1])
-            self.models.append(samples)
-        # # If categories is None, use all subfolders
-        # if categories is None:
-        #     categories = os.listdir(dataset_folder)
-        #     categories = [c for c in categories
-        #                   if os.path.isdir(os.path.join(dataset_folder, c))]
-        #
-        # # Read metadata file
-        # metadata_file = os.path.join(dataset_folder, 'metadata.yaml')
-        #
-        # if os.path.exists(metadata_file):
-        #     with open(metadata_file, 'r') as f:
-        #         self.metadata = yaml.load(f)
-        # else:
-        #     self.metadata = {
-        #         c: {'id': c, 'name': 'n/a'} for c in categories
-        #     }
-        #
-        # # Set index
-        # for c_idx, c in enumerate(categories):
-        #     self.metadata[c]['idx'] = c_idx
-        #
-        # # Get all models
-        # self.models = []
-        # for c_idx, c in enumerate(categories):
-        #     subpath = os.path.join(dataset_folder, c)
-        #     if not os.path.isdir(subpath):
-        #         logger.warning('Category %s does not exist in dataset.' % c)
-        #
-        #     if split is None:
-        #         self.models += [
-        #             {'category': c, 'model': m} for m in [d for d in os.listdir(subpath) if (os.path.isdir(os.path.join(subpath, d)) and d != '') ]
-        #         ]
-        #
-        #     else:
-        #         split_file = os.path.join(subpath, split + '.lst')
-        #         with open(split_file, 'r') as f:
-        #             models_c = f.read().split('\n')
-        #
-        #         if '' in models_c:
-        #             models_c.remove('')
-        #
-        #         self.models += [
-        #             {'category': c, 'model': m}
-        #             for m in models_c
-        #         ]
+            try:
+                samples = sorted(os.listdir(class_path))
+                self.categories.append(class_path.split('/')[-1])
+                self.class2category[class_id] = self.categories[-1]
+                self.models.append(samples)
+            except:
+                class_path = class_path.replace('/groups/CESCA-CV/external', '/home/dragon/Documents/external')
+                samples = sorted(os.listdir(class_path))
+                self.categories.append(class_path.split('/')[-1])
+                self.class2category[class_id] = self.categories[-1]
+                self.models.append(samples)
+        print('we have categories: \n', self.categories)
+        for ind, category in enumerate(self.categories):
+            self.category2ind[category]= ind
 
+        self.list_frame = [fname.split('/')[-1].split('.')[0] for fname in self.pose_dataset.image_names]
+        self.arr_category = np.array([self.category2ind[model_path.split('/')[-4]] for model_path in self.pose_dataset.obj_paths])
+        self.list_instance = ['{}_{}'.format(model_path.split('/')[-3], model_path.split('/')[-4]) for model_path in self.pose_dataset.obj_paths]
+        self.ids_per_category = {}
+        for ind, category in enumerate(self.categories):
+            self.ids_per_category[category] = np.where(self.arr_category==ind)[0].tolist()
+        self.basename_list = ['{}_{}'.format(self.list_frame[j], self.list_instance[j]) for j in range(len(self.list_frame))]
+        if len(cfg.target_category) > 0:
+            # target_categorys = ['camera', 'knife', 'jar', 'cellphone', 'mug', 'remote']
+            # if type(target_categorys) is list:
+            #     self.all_ids = []
+            #     for target in target_categorys:
+            #         target_category = self.class2category[target]
+            #         self.all_ids += self.ids_per_category[target_category]
+            # else:
+            #     target_category = self.class2category[self.cfg.target_category] # # jar, 03593526
+            #     self.all_ids = self.ids_per_category[target_category]
+            target_category = self.class2category[self.cfg.target_category] # # jar, 03593526
+            self.all_ids = self.ids_per_category[target_category]
+        else:
+            self.all_ids = np.arange(0, len(self.pose_dataset)) # add one more level of packaging to change choice base;
     def get_model_dict(self, idx):
         return self.models[idx]
 
     def __len__(self):
-        return len(self.pose_dataset)
+        return len(self.all_ids)
 
     def get_sample(self, idx, query=None, debug=False):
         if query is None:
@@ -511,8 +521,17 @@ class HandDataset(Dataset):
             if camintr is None:
                 camintr = self.pose_dataset.get_camintr(idx)
             cloud = self.pose_dataset.get_pcloud(depth, camintr) # * 1000 - center3d
-            segm = self.pose_dataset.get_segm(idx, ext_cmd='obj', debug=False) # TODO
+
+            obj_segm = self.pose_dataset.get_segm(idx, ext_cmd='obj', debug=False) # only TODO
+            obj_segm[obj_segm>1.0] = 1.0
+            obj_hand_segm = (np.asarray(self.pose_dataset.get_segm(idx, debug=False)) / 255).astype(np.int)
+            full_segm = obj_hand_segm[:, :, 0] | obj_hand_segm[:, :, 1]
+            if self.cfg.use_transform_hand:
+                segm = full_segm
+            else:
+                segm = obj_segm
             pcloud = cloud[np.where(segm>0)[0], np.where(segm>0)[1], :]
+            cls_arr = obj_segm[np.where(full_segm>0)[0], np.where(full_segm>0)[1]] # hand is 0, obj =1
             if debug:
                 sample[BaseQueries.pcloud] = pcloud
                 full_segm = self.pose_dataset.get_segm(idx, debug=False) # TODO
@@ -522,31 +541,23 @@ class HandDataset(Dataset):
                 sample['full_pcloud'] = full_pcloud
 
         if BaseQueries.nocs in query or TransQueries.nocs in query:
-            boundary_pts = [np.min(canon_pts, axis=0), np.max(canon_pts, axis=0)]
-            nocs = self.pose_dataset.get_nocs(idx, pcloud, boundary_pts)
-            if debug:
-                sample[BaseQueries.nocs] = nocs
-            if TransQueries.nocs in query:
-                rot_nocs = np.random.uniform(low=-self.max_rot, high=self.max_rot) * 5/180
-                rot_mat = np.array(
-                    [
-                        [np.cos(rot_nocs), -np.sin(rot_nocs), 0],
-                        [np.sin(rot_nocs), np.cos(rot_nocs), 0],
-                        [0, 0, 1],
-                    ]
-                ).astype(np.float32)
-                nocs = rot_mat.dot(
-                    nocs.transpose(1, 0)
-                ).transpose()
-                rand_shift = (np.random.rand(1, 3) - 0.5) * 0.1
-                nocs += rand_shift
-                # noise = self.stddev * np.random.randn(*nocs.shape)
-                # nocs = nocs + noise.astype(np.float32)
+            if self.cfg.oracle_nocs:
+                # change target points
+                boundary_pts = [np.min(canon_pts, axis=0), np.max(canon_pts, axis=0)]
+                center_pt = (boundary_pts[0] + boundary_pts[1])/2
+                length_bb = np.linalg.norm(boundary_pts[0] - boundary_pts[1])
+                nocs = (canon_pts - center_pt.reshape(1, 3)) / length_bb + 0.5
+            else:
+                boundary_pts = [np.min(canon_pts, axis=0), np.max(canon_pts, axis=0)]
+                nocs = self.pose_dataset.get_nocs(idx, pcloud, boundary_pts)
+                if debug:
+                    sample[BaseQueries.nocs] = nocs
             inds = np.random.choice(nocs.shape[0], 1024)
             if inds.shape[0] < 1024:
                 return None
             sample['inputs'] = nocs[inds].astype(np.float32)
-
+            if self.cfg.use_transform_hand:
+                sample['inputs'] = np.concatenate([sample['inputs'], cls_arr[inds].reshape(-1, 1)], axis=1)
         if debug:
             sample['canon_pts'] = canon_pts
             sample['model_path']= self.pose_dataset.obj_paths[idx]
@@ -556,291 +567,376 @@ class HandDataset(Dataset):
             sample['points'] = points.astype(np.float32)
             sample['points.occ'] = occupancy_labels.astype(np.float32)
 
+        model_path    = self.pose_dataset.obj_paths[idx]
+        category_name = model_path.split('/')[-4]
+        instance_name = model_path.split('/')[-3]
+        category_id   = self.categories.index(category_name)
+        category_code = np.zeros((len(self.categories)), dtype=np.float32)
+        category_code[category_id] = 1.0
+        sample['code'] = category_code
+
         if self.pose_dataset.split == 'val' or self.pose_dataset.split == 'test':
             # get points 'points_iou', 'points_iou.occ', 'idx', 'inputs.ind', 'points_iou.normalized'
-            points_iou, points_iou_occ = self.pose_dataset.get_volume_pts(idx)
+            points_iou, points_iou_occ = self.pose_dataset.get_volume_pts(idx, canon_pts)
             if points_iou is None:
                 return None
-            sample['points_iou'] = points_iou.astype(np.float32)
+            sample['points_iou']     = points_iou.astype(np.float32)
             sample['points_iou.occ'] = points_iou_occ.astype(np.float32)
-            # input indexs for
+
+        if self.cfg.eval:
+            pointcloud_chamfer, chamfer_normals = self.pose_dataset.get_surface_pts(idx, canon_pts)
+            sample['pointcloud_chamfer'] = pointcloud_chamfer.astype(np.float32)
+            sample['pointcloud_chamfer.normals'] = chamfer_normals.astype(np.float32)
 
         return sample
 
+    def get_sample_mine(self, idx, debug=False):
+        n_parts = self.n_max_parts
+        assert n_parts == 2
+        depth   = self.pose_dataset.get_depth(idx)
+        camintr = self.pose_dataset.get_camintr(idx)
+        cloud = self.pose_dataset.get_pcloud(depth, camintr) # * 1000 - center3d
+        obj_segm = self.pose_dataset.get_segm(idx, ext_cmd='obj', debug=False) # only TODO
+        obj_segm[obj_segm>1.0] = 1.0
+        # obj_pcloud = cloud[np.where(obj_segm>0)[0], np.where(obj_segm>0)[1], :] # object cloud
+        obj_hand_segm = (np.asarray(self.pose_dataset.get_segm(idx, debug=False)) / 255).astype(np.int)
+        segm = obj_hand_segm[:, :, 0] | obj_hand_segm[:, :, 1]
+
+        model_path = self.pose_dataset.obj_paths[idx].replace(
+            "model_normalized.pkl", "surface_points.pkl"
+        )
+        with open(model_path, "rb") as obj_f:
+            canon_pts = pickle.load(obj_f)
+
+        boundary_pts = [np.min(canon_pts, axis=0), np.max(canon_pts, axis=0)]
+
+        pts_arr = cloud[np.where(segm>0)[0], np.where(segm>0)[1], :]
+        cls_arr = obj_segm[np.where(segm>0)[0], np.where(segm>0)[1]] # hand is 0, obj =1
+        nocs    = self.pose_dataset.get_nocs(idx, pts_arr, boundary_pts)
+        n_total_points = pts_arr.shape[0]
+        output_arr     = [pts_arr, cls_arr, nocs]
+        if self.hand_only:
+            n_total_points   = np.where(cls_arr==0)[0].shape[0]
+
+        if n_total_points < self.num_points:
+            tile_n = int(self.num_points/n_total_points) + 1
+            n_total_points = tile_n * n_total_points
+            for j in range(len(output_arr)):
+                arr_tiled = np.concatenate([np.copy(output_arr[j])] * tile_n, axis=0)
+                output_arr[j] = arr_tiled
+
+        pts_arr, cls_arr, p_arr = output_arr
+        # use furthest point sampling
+        if self.hand_only:
+            hand_cls   = 0
+            perm       = np.random.permutation(n_total_points)
+            hand_inds  = np.where(cls_arr[perm]==hand_cls)[0]
+            sample_ind = hand_inds[:self.num_points].tolist()
+        else:
+            perm       = np.random.permutation(n_total_points)
+            sample_ind = np.arange(0, self.num_points).tolist()
+
+        pts_arr       = pts_arr[perm][sample_ind] # norm_factors[0] # by default is 1
+        cls_arr       = cls_arr[perm][sample_ind]
+        p_arr         = p_arr[perm][sample_ind]   # norm
+        mask_array    = np.zeros([self.num_points, n_parts], dtype=np.float32)
+        mask_array[np.arange(self.num_points), cls_arr.astype(np.int8)] = 1.00 #
+        mask_array[np.arange(self.num_points), 0] = 0.0
+        # mask_array[np.arange(self.num_points), n_parts-1] = 0.0 # ignore hand points for nocs prediction
+        if not self.is_testing:
+            pts_arr = torch.from_numpy(pts_arr.astype(np.float32).transpose(1, 0))
+            cls_arr = torch.from_numpy(cls_arr.astype(np.float32))
+            mask_array = torch.from_numpy(mask_array.astype(np.float32).transpose(1, 0))
+            p_arr = torch.from_numpy(p_arr.astype(np.float32).transpose(1, 0))
+        data_dict = {'P': pts_arr,
+                    'partcls_per_point': cls_arr, #
+                    'part_mask': mask_array,
+                    'nocs_per_point' : p_arr}
+        data_dict['index'] = idx
+        return data_dict
+
     def __getitem__(self, idx):
         try:
-            sample = self.get_sample(idx, self.queries)
+            idx = self.all_ids[idx]
+            if self.task == 'category_pose':
+                sample = self.get_sample_mine(idx)
+            else:
+                sample = self.get_sample(idx, self.queries)
         except Exception:
             traceback.print_exc()
             print("Encountered error processing sample {}".format(idx))
             random_idx = random.randint(0, len(self))
-            sample = self.get_sample(random_idx, self.queries)
+            idx = self.all_ids[random_idx]
+            if self.task == 'category_pose':
+                sample = self.get_sample_mine(idx)
+            else:
+                sample = self.get_sample(idx, self.queries)
+
         return sample
 
-    # def display_3d(self, ax, sample, proj="z", joint_idxs=False, axis_off=False):
-    #     # Scatter  projection of 3d vertices
-    #     pts = []
-    #     if TransQueries.verts3d in sample:
-    #         verts3d = sample[TransQueries.verts3d]
-    #         pts.append(verts3d)
-    #         ax.scatter(verts3d[:, 0], verts3d[:, 1], verts3d[:, 2], s=1)
-    #
-    #     # Scatter projection of object 3d vertices
-    #     if TransQueries.objpoints3d in sample:
-    #         obj_verts3d = sample[TransQueries.objpoints3d]
-    #         pts.append(obj_verts3d)
-    #         ax.scatter(obj_verts3d[:, 0], obj_verts3d[:, 1], obj_verts3d[:, 2], s=1)
-    #
-    #     # Scatter  projection of 3d vertices
-    #     if BaseQueries.verts3d in sample:
-    #         verts3d = sample[BaseQueries.verts3d]
-    #         pts.append(verts3d)
-    #         ax.scatter(verts3d[:, 0], verts3d[:, 1], verts3d[:, 2], s=1)
-    #
-    #     # Scatter projection of object 3d vertices
-    #     if BaseQueries.objpoints3d in sample:
-    #         obj_verts3d = sample[BaseQueries.objpoints3d]
-    #         pts.append(obj_verts3d)
-    #         ax.scatter(obj_verts3d[:, 0], obj_verts3d[:, 1], obj_verts3d[:, 2], s=1)
-    #
-    #     # Scatter projection of object 3d vertices
-    #     if BaseQueries.pcloud in sample:
-    #         obj_verts3d = sample[BaseQueries.pcloud]
-    #         pts.append(obj_verts3d)
-    #         ax.scatter(obj_verts3d[:, 0], obj_verts3d[:, 1], obj_verts3d[:, 2], s=1)
-    #
-    #     # Scatter projection of object 3d vertices
-    #     if TransQueries.pcloud in sample:
-    #         obj_verts3d = sample[TransQueries.pcloud]
-    #         pts.append(obj_verts3d)
-    #         ax.scatter(obj_verts3d[:, 0], obj_verts3d[:, 1], obj_verts3d[:, 2], s=1)
-    #
-    #     cam_equal_aspect_3d(ax, np.concatenate(pts, axis=0))
-    #     ax.set_xlabel('X Label')
-    #     ax.set_ylabel('Y Label')
-    #     ax.set_zlabel('Z Label')
-    #     if axis_off:
-    #         plt.axis('off')
-    #
-    # def display_nocs(self, ax, sample, proj="z", joint_idxs=False, axis_off=False):
-    #     # Scatter  projection of 3d vertices
-    #     pts = []
-    #     if TransQueries.nocs in sample:
-    #         verts3d = sample[TransQueries.nocs]
-    #         pts.append(verts3d)
-    #         ax.scatter(verts3d[:, 0], verts3d[:, 1], verts3d[:, 2], s=1)
-    #
-    #     # Scatter  projection of 3d vertices
-    #     if BaseQueries.nocs in sample:
-    #         verts3d = sample[BaseQueries.nocs]
-    #         pts.append(verts3d)
-    #         ax.scatter(verts3d[:, 0], verts3d[:, 1], verts3d[:, 2], s=1)
-    #
-    #     if 'canon_pts' in sample:
-    #         obj_verts3d = sample['canon_pts']
-    #         pts.append(obj_verts3d)
-    #         ax.scatter(obj_verts3d[:, 0], obj_verts3d[:, 1], obj_verts3d[:, 2], s=1)
-    #
-    #     cam_equal_aspect_3d(ax, np.concatenate(pts, axis=0))
-    #     ax.set_xlabel('X Label')
-    #     ax.set_ylabel('Y Label')
-    #     ax.set_zlabel('Z Label')
-    #     if axis_off:
-    #         plt.axis('off')
-    #
-    # def display_proj(self, ax, sample, proj="z", joint_idxs=False):
-    #
-    #     if proj == "z":
-    #         proj_1 = 0
-    #         proj_2 = 1
-    #         ax.invert_yaxis()
-    #     elif proj == "y":
-    #         proj_1 = 0
-    #         proj_2 = 2
-    #     elif proj == "x":
-    #         proj_1 = 1
-    #         proj_2 = 2
-    #
-    #     if TransQueries.joints3d in sample:
-    #         joints3d = sample[TransQueries.joints3d]
-    #         vis_utils.visualize_joints_2d(
-    #             ax,
-    #             np.stack([joints3d[:, proj_1], joints3d[:, proj_2]], axis=1),
-    #             joint_idxs=joint_idxs,
-    #             links=self.pose_dataset.links,
-    #         )
-    #     # Scatter  projection of 3d vertices
-    #     if TransQueries.verts3d in sample:
-    #         verts3d = sample[TransQueries.verts3d]
-    #         ax.scatter(verts3d[:, proj_1], verts3d[:, proj_2], s=1)
-    #
-    #     # Scatter projection of object 3d vertices
-    #     if TransQueries.objpoints3d in sample:
-    #         obj_verts3d = sample[TransQueries.objpoints3d]
-    #         ax.scatter(obj_verts3d[:, proj_1], obj_verts3d[:, proj_2], s=1)
-    #     ax.set_aspect("equal")  # Same axis orientation as imshow
-    #
-    # def visualize_3d_proj(self, idx, joint_idxs=False):
-    #     queries = [
-    #         BaseQueries.sides,
-    #         BaseQueries.images,
-    #         TransQueries.joints3d,
-    #         TransQueries.images,
-    #         TransQueries.objpoints3d,
-    #         TransQueries.verts3d,
-    #         BaseQueries.joints2d,
-    #     ]
-    #
-    #     sample_queries = []
-    #     for query in queries:
-    #         if query in self.pose_dataset.all_queries:
-    #             sample_queries.append(query)
-    #
-    #     sample = self.get_sample(idx, query=sample_queries)
-    #     fig = plt.figure()
-    #
-    #     # Display transformed image
-    #     ax = fig.add_subplot(121)
-    #     img = sample[TransQueries.images].numpy().transpose(1, 2, 0)
-    #     if not self.normalize_img:
-    #         img += 0.5
-    #     ax.imshow(img)
-    #
-    #     # Add title
-    #     if BaseQueries.sides in sample:
-    #         side = sample[BaseQueries.sides]
-    #         ax.set_title("{} hand".format(side))
-    #
-    #     if TransQueries.objpoints3d in sample:
-    #         ax = fig.add_subplot(122, projection="3d")
-    #         objpoints3d = sample[TransQueries.objpoints3d].numpy()
-    #         ax.scatter(objpoints3d[:, 0], objpoints3d[:, 1], objpoints3d[:, 2])
-    #         ax.view_init(elev=90, azim=-90)
-    #         cam_equal_aspect_3d(ax, objpoints3d)
-    #     plt.show()
-    #
-    # def visualize_3d_transformed(self, idx, joint_idxs=False):
-    #     queries = [
-    #         BaseQueries.images,
-    #         BaseQueries.occupancy,
-    #         BaseQueries.sides,
-    #         BaseQueries.objpoints3d,
-    #         BaseQueries.verts3d,
-    #         BaseQueries.joints2d,
-    #         BaseQueries.joints3d,
-    #         BaseQueries.depth,
-    #         BaseQueries.pcloud,
-    #         BaseQueries.nocs,
-    #         TransQueries.joints3d,
-    #         TransQueries.images,
-    #         TransQueries.objpoints3d,
-    #         TransQueries.verts3d,
-    #         TransQueries.nocs,
-    #     ]
-    #     sample_queries = []
-    #     for query in queries:
-    #         if query in self.pose_dataset.all_queries:
-    #             sample_queries.append(query)
-    #     sample = self.get_sample(idx, query=sample_queries, debug=True)
-    #     print('sample has ', sample.keys())
-    #     self.save_for_viz(sample, index=idx)
-    #
-    #     vis_utils.visualize_pointcloud(sample['inputs'], title_name='inputs', show=True)
-    #     vis_utils.visualize_pointcloud(sample['points'], title_name='points', labels=sample['points.occ'], show=True)
-    #     fig = plt.figure()
-    #     # # Display transformed image
-    #     # ax = fig.add_subplot(141)
-    #     # img = sample[TransQueries.images].numpy().transpose(1, 2, 0)
-    #     # if not self.normalize_img:
-    #     #     img += 0.5
-    #     # ax.imshow(img)
-    #     # # Add title
-    #     # if BaseQueries.sides in sample:
-    #     #     side = sample[BaseQueries.sides]
-    #     #     ax.set_title("{} hand".format(side))
-    #     #
-    #     # # Display XY projection
-    #     # ax = fig.add_subplot(142)
-    #     # self.display_proj(ax, sample, proj="z", joint_idxs=joint_idxs)
-    #
-    #     # Display YZ projection
-    #     ax = fig.add_subplot(121, projection='3d')
-    #     self.display_nocs(ax, sample, proj="y", joint_idxs=joint_idxs)
-    #
-    #     # Display XZ projection
-    #     ax = fig.add_subplot(122, projection='3d')
-    #     self.display_3d(ax, sample, proj="y", joint_idxs=joint_idxs)
-    #     plt.show()
-    #     return fig
-    #
-    # def save_for_viz(self, batch, config=None, index=0):
-    #     save_viz = True
-    #     save_path= './media'
-    #     if save_viz:
-    #         viz_dict = batch
-    #         print('!!! Saving visualization data')
-    #         save_viz_path = f'{save_path}/full_viz/'
-    #         if not exists(save_viz_path):
-    #             makedirs(save_viz_path)
-    #         save_viz_name = f'{save_viz_path}{index}_data.npy'
-    #         print('saving to ', save_viz_name)
-    #         np.save(save_viz_name, arr=viz_dict)
-    #
-    # def visualize_transformed(self, idx, joint_idxs=False):
-    #     queries = [
-    #         BaseQueries.images,
-    #         BaseQueries.joints2d,
-    #         BaseQueries.sides,
-    #         BaseQueries.objverts3d,
-    #         TransQueries.images,
-    #         TransQueries.joints2d,
-    #         TransQueries.objverts3d,
-    #         BaseQueries.objfaces,
-    #         TransQueries.camintrs,
-    #         TransQueries.center3d,
-    #         TransQueries.objpoints3d,
-    #     ]
-    #     sample_queries = []
-    #     for query in queries:
-    #         if query in self.pose_dataset.all_queries:
-    #             sample_queries.append(query)
-    #     sample = self.get_sample(idx, query=sample_queries)
-    #     fig = plt.figure(figsize=(50, 20))
-    #     ax = fig.add_subplot(111)
-    #     img = sample[TransQueries.images].numpy().transpose(1, 2, 0)
-    #     if not self.normalize_img:
-    #         img += 0.5
-    #     ax.imshow(img)
-    #     # Add title
-    #     if BaseQueries.sides in sample:
-    #         side = sample[BaseQueries.sides]
-    #         ax.set_title("{} hand".format(side))
-    #
-    #     if TransQueries.joints2d in sample:
-    #         joints2d = sample[TransQueries.joints2d]
-    #         vis_utils.visualize_joints_2d(
-    #             ax,
-    #             joints2d,
-    #             joint_idxs=joint_idxs,
-    #             links=self.pose_dataset.links,
-    #         )
-    #     if (
-    #         TransQueries.camintrs in sample
-    #         and (TransQueries.objverts3d in sample)
-    #         and BaseQueries.objfaces in sample
-    #     ):
-    #         verts = (
-    #             torch.from_numpy(sample[TransQueries.objverts3d])
-    #             .unsqueeze(0)
-    #             .cuda()
-    #         )
-    #         center3d = (
-    #             torch.from_numpy(sample[TransQueries.center3d])
-    #             .cuda()
-    #             .unsqueeze(0)
-    #         )
-    #         verts = center3d.unsqueeze(1) / 1000 + verts / 1000
-    #     plt.show()
+    def display_3d(self, ax, sample, proj="z", joint_idxs=False, axis_off=False):
+        # Scatter  projection of 3d vertices
+        pts = []
+        if TransQueries.verts3d in sample:
+            verts3d = sample[TransQueries.verts3d]
+            pts.append(verts3d)
+            ax.scatter(verts3d[:, 0], verts3d[:, 1], verts3d[:, 2], s=1)
+
+        # Scatter projection of object 3d vertices
+        if TransQueries.objpoints3d in sample:
+            obj_verts3d = sample[TransQueries.objpoints3d]
+            pts.append(obj_verts3d)
+            ax.scatter(obj_verts3d[:, 0], obj_verts3d[:, 1], obj_verts3d[:, 2], s=1)
+
+        # Scatter  projection of 3d vertices
+        if BaseQueries.verts3d in sample:
+            verts3d = sample[BaseQueries.verts3d]
+            pts.append(verts3d)
+            ax.scatter(verts3d[:, 0], verts3d[:, 1], verts3d[:, 2], s=1)
+
+        # Scatter projection of object 3d vertices
+        if BaseQueries.objpoints3d in sample:
+            obj_verts3d = sample[BaseQueries.objpoints3d]
+            pts.append(obj_verts3d)
+            ax.scatter(obj_verts3d[:, 0], obj_verts3d[:, 1], obj_verts3d[:, 2], s=1)
+
+        # Scatter projection of object 3d vertices
+        if BaseQueries.pcloud in sample:
+            obj_verts3d = sample[BaseQueries.pcloud]
+            pts.append(obj_verts3d)
+            ax.scatter(obj_verts3d[:, 0], obj_verts3d[:, 1], obj_verts3d[:, 2], s=1)
+
+        # Scatter projection of object 3d vertices
+        if TransQueries.pcloud in sample:
+            obj_verts3d = sample[TransQueries.pcloud]
+            pts.append(obj_verts3d)
+            ax.scatter(obj_verts3d[:, 0], obj_verts3d[:, 1], obj_verts3d[:, 2], s=1)
+
+        cam_equal_aspect_3d(ax, np.concatenate(pts, axis=0))
+        ax.set_xlabel('X Label')
+        ax.set_ylabel('Y Label')
+        ax.set_zlabel('Z Label')
+        if axis_off:
+            plt.axis('off')
+
+    def display_nocs(self, ax, sample, proj="z", joint_idxs=False, axis_off=False):
+        # Scatter  projection of 3d vertices
+        pts = []
+        if TransQueries.nocs in sample:
+            verts3d = sample[TransQueries.nocs]
+            pts.append(verts3d)
+            ax.scatter(verts3d[:, 0], verts3d[:, 1], verts3d[:, 2], s=1)
+
+        # Scatter  projection of 3d vertices
+        if BaseQueries.nocs in sample:
+            verts3d = sample[BaseQueries.nocs]
+            pts.append(verts3d)
+            ax.scatter(verts3d[:, 0], verts3d[:, 1], verts3d[:, 2], s=1)
+
+        if 'canon_pts' in sample:
+            obj_verts3d = sample['canon_pts']
+            pts.append(obj_verts3d)
+            ax.scatter(obj_verts3d[:, 0], obj_verts3d[:, 1], obj_verts3d[:, 2], s=1)
+
+        cam_equal_aspect_3d(ax, np.concatenate(pts, axis=0))
+        ax.set_xlabel('X Label')
+        ax.set_ylabel('Y Label')
+        ax.set_zlabel('Z Label')
+        if axis_off:
+            plt.axis('off')
+
+    def display_proj(self, ax, sample, proj="z", joint_idxs=False):
+
+        if proj == "z":
+            proj_1 = 0
+            proj_2 = 1
+            ax.invert_yaxis()
+        elif proj == "y":
+            proj_1 = 0
+            proj_2 = 2
+        elif proj == "x":
+            proj_1 = 1
+            proj_2 = 2
+
+        if TransQueries.joints3d in sample:
+            joints3d = sample[TransQueries.joints3d]
+            vis_utils.visualize_joints_2d(
+                ax,
+                np.stack([joints3d[:, proj_1], joints3d[:, proj_2]], axis=1),
+                joint_idxs=joint_idxs,
+                links=self.pose_dataset.links,
+            )
+        # Scatter  projection of 3d vertices
+        if TransQueries.verts3d in sample:
+            verts3d = sample[TransQueries.verts3d]
+            ax.scatter(verts3d[:, proj_1], verts3d[:, proj_2], s=1)
+
+        # Scatter projection of object 3d vertices
+        if TransQueries.objpoints3d in sample:
+            obj_verts3d = sample[TransQueries.objpoints3d]
+            ax.scatter(obj_verts3d[:, proj_1], obj_verts3d[:, proj_2], s=1)
+        ax.set_aspect("equal")  # Same axis orientation as imshow
+
+    def visualize_3d_proj(self, idx, joint_idxs=False):
+        queries = [
+            BaseQueries.sides,
+            BaseQueries.images,
+            TransQueries.joints3d,
+            TransQueries.images,
+            TransQueries.objpoints3d,
+            TransQueries.verts3d,
+            BaseQueries.joints2d,
+        ]
+
+        sample_queries = []
+        for query in queries:
+            if query in self.pose_dataset.all_queries:
+                sample_queries.append(query)
+
+        sample = self.get_sample(idx, query=sample_queries)
+        fig = plt.figure()
+
+        # Display transformed image
+        ax = fig.add_subplot(121)
+        img = sample[TransQueries.images].numpy().transpose(1, 2, 0)
+        if not self.normalize_img:
+            img += 0.5
+        ax.imshow(img)
+
+        # Add title
+        if BaseQueries.sides in sample:
+            side = sample[BaseQueries.sides]
+            ax.set_title("{} hand".format(side))
+
+        if TransQueries.objpoints3d in sample:
+            ax = fig.add_subplot(122, projection="3d")
+            objpoints3d = sample[TransQueries.objpoints3d].numpy()
+            ax.scatter(objpoints3d[:, 0], objpoints3d[:, 1], objpoints3d[:, 2])
+            ax.view_init(elev=90, azim=-90)
+            cam_equal_aspect_3d(ax, objpoints3d)
+        plt.show()
+
+    def visualize_3d_transformed(self, idx, joint_idxs=False):
+        queries = [
+            BaseQueries.images,
+            BaseQueries.occupancy,
+            BaseQueries.sides,
+            BaseQueries.objpoints3d,
+            BaseQueries.verts3d,
+            BaseQueries.joints2d,
+            BaseQueries.joints3d,
+            BaseQueries.depth,
+            BaseQueries.pcloud,
+            BaseQueries.nocs,
+            TransQueries.joints3d,
+            TransQueries.images,
+            TransQueries.objpoints3d,
+            TransQueries.verts3d,
+            TransQueries.nocs,
+        ]
+        sample_queries = []
+        for query in queries:
+            if query in self.pose_dataset.all_queries:
+                sample_queries.append(query)
+        sample = self.get_sample(idx, query=sample_queries, debug=True)
+        # print('sample has ', sample.keys())
+        # self.save_for_viz(sample, index=idx)
+
+        # vis_utils.visualize_pointcloud(sample['inputs'], title_name='inputs', backend='pyrender')
+        # vis_utils.visualize_pointcloud(sample['points'], title_name='points', labels=sample['points.occ'], backend='pyrender')
+        # img = sample[TransQueries.images].numpy().transpose(1, 2, 0)
+
+        canon_pts = sample['canon_pts']
+        boundary_pts = [np.min(canon_pts, axis=0), np.max(canon_pts, axis=0)]
+        center_pt = (boundary_pts[0] + boundary_pts[1])/2
+        length_bb = np.linalg.norm(boundary_pts[0] - boundary_pts[1])
+        canon_pts_normalized = (canon_pts - center_pt.reshape(1, 3)) / length_bb + 0.5
+        # vis_utils.visualize_pointcloud([sample[BaseQueries.pcloud], sample['full_pcloud']], title_name='input depth', backend='pyrender')
+        # vis_utils.visualize_pointcloud([sample[TransQueries.verts3d], sample[TransQueries.objpoints3d]], title_name='verts & object', backend='pyrender')
+        vis_utils.visualize_pointcloud([sample[BaseQueries.nocs], canon_pts_normalized], title_name='points', labels=sample['points.occ'], backend='pyrender')
+        #
+        # # Display XY projection
+        # ax = fig.add_subplot(142)
+        # self.display_proj(ax, sample, proj="z", joint_idxs=joint_idxs)
+        #
+        # # Display YZ projection
+        # ax = fig.add_subplot(121, projection='3d')
+        # self.display_nocs(ax, sample, proj="y", joint_idxs=joint_idxs)
+        #
+        # # Display XZ projection
+        # ax = fig.add_subplot(122, projection='3d')
+        # self.display_3d(ax, sample, proj="y", joint_idxs=joint_idxs)
+        #
+        # show 3d points
+
+    def save_for_viz(self, batch, config=None, index=0):
+        save_viz = True
+        save_path= './media'
+        if save_viz:
+            viz_dict = batch
+            print('!!! Saving visualization data')
+            save_viz_path = f'{save_path}/full_viz/'
+            if not exists(save_viz_path):
+                makedirs(save_viz_path)
+            save_viz_name = f'{save_viz_path}{index}_data.npy'
+            print('saving to ', save_viz_name)
+            np.save(save_viz_name, arr=viz_dict)
+
+    def visualize_transformed(self, idx, joint_idxs=False):
+        queries = [
+            BaseQueries.images,
+            BaseQueries.joints2d,
+            BaseQueries.sides,
+            BaseQueries.objverts3d,
+            TransQueries.images,
+            TransQueries.joints2d,
+            TransQueries.objverts3d,
+            BaseQueries.objfaces,
+            TransQueries.camintrs,
+            TransQueries.center3d,
+            TransQueries.objpoints3d,
+        ]
+        sample_queries = []
+        for query in queries:
+            if query in self.pose_dataset.all_queries:
+                sample_queries.append(query)
+        sample = self.get_sample(idx, query=sample_queries)
+        fig = plt.figure(figsize=(50, 20))
+        ax = fig.add_subplot(111)
+        img = sample[TransQueries.images].numpy().transpose(1, 2, 0)
+        if not self.normalize_img:
+            img += 0.5
+        ax.imshow(img)
+        # Add title
+        if BaseQueries.sides in sample:
+            side = sample[BaseQueries.sides]
+            ax.set_title("{} hand".format(side))
+
+        if TransQueries.joints2d in sample:
+            joints2d = sample[TransQueries.joints2d]
+            vis_utils.visualize_joints_2d(
+                ax,
+                joints2d,
+                joint_idxs=joint_idxs,
+                links=self.pose_dataset.links,
+            )
+        if (
+            TransQueries.camintrs in sample
+            and (TransQueries.objverts3d in sample)
+            and BaseQueries.objfaces in sample
+        ):
+            verts = (
+                torch.from_numpy(sample[TransQueries.objverts3d])
+                .unsqueeze(0)
+                .cuda()
+            )
+            center3d = (
+                torch.from_numpy(sample[TransQueries.center3d])
+                .cuda()
+                .unsqueeze(0)
+            )
+            verts = center3d.unsqueeze(1) / 1000 + verts / 1000
+        plt.show()
 
 
 def cam_equal_aspect_3d(ax, verts, flip_x=False):

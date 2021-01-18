@@ -1,0 +1,6 @@
+- generation.copy_input=True
+- item='obman'
+- name_dset='obman'
+- exp_num='2.06'
+- target_category='bottle'
+- use_category_code=False

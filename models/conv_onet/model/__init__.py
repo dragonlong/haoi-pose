@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from torch import distributions as dist
 from models.conv_onet.model import decoder
-
+from common import bp
 # Decoder dictionary
 decoder_dict = {
     'simple_local': decoder.LocalDecoder,
@@ -19,12 +19,10 @@ class ConvolutionalOccupancyNetwork(nn.Module):
         encoder (nn.Module): encoder network
         device (device): torch device
     '''
-
-    def __init__(self, decoder, encoder=None, device=None):
+    def __init__(self, decoder, encoder=None, device=None, cfg=None):
         super().__init__()
-
+        self.cfg = cfg
         self.decoder = decoder.to(device)
-
         if encoder is not None:
             self.encoder = encoder.to(device)
         else:
@@ -32,7 +30,7 @@ class ConvolutionalOccupancyNetwork(nn.Module):
 
         self._device = device
 
-    def forward(self, p, inputs, sample=True, **kwargs):
+    def forward(self, p, inputs, s=None, sample=True, **kwargs):
         ''' Performs a forward pass through the network.
 
         Args:
@@ -46,7 +44,7 @@ class ConvolutionalOccupancyNetwork(nn.Module):
         else:
             batch_size = p.size(0)
         c = self.encode_inputs(inputs)
-        p_r = self.decode(p, c, **kwargs)
+        p_r = self.decode(p, c, s, **kwargs)
         return p_r
 
     def encode_inputs(self, inputs):
@@ -64,15 +62,20 @@ class ConvolutionalOccupancyNetwork(nn.Module):
 
         return c
 
-    def decode(self, p, c, **kwargs):
+    def decode(self, p, c, s=None, **kwargs):
         ''' Returns occupancy probabilities for the sampled points.
 
         Args:
             p (tensor): points
             c (tensor): latent conditioned code c
         '''
-
-        logits = self.decoder(p, c, **kwargs)
+        logits = self.decoder(p, c, s, **kwargs)
+        if type(logits) is list:
+            p_rs = []
+            for logit in logits:
+                p_r = dist.Bernoulli(logits=logit)
+                p_rs.append(p_r)
+            return p_rs
         p_r = dist.Bernoulli(logits=logits)
         return p_r
 

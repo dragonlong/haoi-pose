@@ -4,6 +4,7 @@ import collections
 import os
 import sys
 import platform
+import numpy as np
 
 class setting():
     def __init__(self):
@@ -19,6 +20,35 @@ DatasetInfo = collections.namedtuple(
 
 TaskData= collections.namedtuple('TaskData', ['query', 'target'])
 
+""" obman meta infos
+(Pdb) print(annotations.keys())
+dict_keys(['depth_infos', 'image_names', 'joints2d', 'joints3d', 'hand_sides', 'hand_poses', 'hand_pcas', 'hand_verts3d', 'obj_paths', 'obj_transforms', 'meta_infos'])
+(Pdb) print(annotations['meta_infos'].keys())
+*** AttributeError: 'list' object has no attribute 'keys'
+(Pdb) print(annotations['meta_infos'][0])
+{'obj_scale': 0.2, 'obj_class_id': '02876657', 'obj_sample_id': '860c81982a1703d35a7ce4c111af2db', 'grasp_quality': 0.3023727713275639, 'grasp_epsilon': 0.015956883019473657, 'grasp_volume': 0.03792773308413238}
+"""
+
+""" meta info
+(Pdb) meta_info.keys()
+dict_keys(['affine_transform', 'bg_path', 'grasp_epsilon', 'grasp_volume', 'obj_depth_min', 'coords_2d', 'obj_visibility_ratio', 'body_tex', 'sample_id', 'obj_scale', 'class_id', 'coords_3d', 'depth_min', 'obj_texture', 'side', 'obj_path', 'pose', 'trans', 'depth_max', 'z', 'grasp_quality', 'hand_depth_max', 'verts_3d', 'shape', 'hand_pose', 'hand_depth_min', 'obj_depth_max', 'pca_pose', 'sh_coeffs'])
+(Pdb) meta_info['trans']
+array([ 0.18896857,  0.46480602, -1.1284928 ], dtype=float32)
+(Pdb) meta_info['pose'].shape
+(156,)
+(Pdb) meta_info['sh_coeffs'].shape
+(9,)
+(Pdb) meta_info['hand_pose'].shape
+(45,)
+(Pdb) meta_info['pca_pose'].shape
+(45,)
+(Pdb) meta_info['affine_transform']
+array([[-0.01125364,  0.17572469,  0.09483772, -0.02914107],
+       [ 0.14346975, -0.05895266,  0.12625773,  0.02036591],
+       [ 0.13888767,  0.07513601, -0.12273872, -0.82511777],
+       [ 0.        ,  0.        ,  0.        ,  1.        ]],
+      dtype=float32)
+"""
 _DATASETS = dict(
     eyeglasses=DatasetInfo(
         dataset_name='shape2motion',
@@ -36,6 +66,22 @@ _DATASETS = dict(
         joint_baseline='8.12',
         style='new'
        ),
+    obman=DatasetInfo(
+        dataset_name='obman',
+        num_object=3200,
+        parts_map=[[0], [1]],
+        num_parts=2,
+        train_size=None,
+        test_size=None,
+        train_list=None,
+        test_list=None,
+        spec_list=None,
+        spec_map=None,
+        exp='8.1',
+        baseline='8.11',
+        joint_baseline='8.12',
+        style='new'
+       ),
    humanhand=DatasetInfo(
         dataset_name='shape2motion',
         num_object=1,
@@ -47,9 +93,9 @@ _DATASETS = dict(
         test_list=['0006'],
         spec_list=['0007'],
         spec_map=None,
-        exp='8.2',
-        baseline='8.21',
-        joint_baseline='8.22',
+        exp=None,
+        baseline=None,
+        joint_baseline=None,
         style='new'
        ),
     # eyeglasses_hand=DatasetInfo(
@@ -227,7 +273,7 @@ class global_info(object):
         self.model_type= 'pointnet++'
         self.group_path= None
         self.name_dataset = 'shape2motion'
-
+        # print('---leveraging platform-wise global infos')
         # check dataset_name automactically
         group_path = None
         project_path = None
@@ -239,9 +285,9 @@ class global_info(object):
         elif platform.uname()[1] == 'vllab3':
             base_path = '/mnt/data/lxiaol9/rbo'
         elif platform.uname()[1] == 'dragon':
-            base_path = '/home/dragon/Documents/CVPR2020'
+            base_path = '/home/dragon/Documents/ICML2021'
             second_path = '/home/dragon/Documents/ICML2021'
-            group_path= '/home/dragon/Documents/ICML2021'
+            group_path= '/home/dragon/Documents'
             project_path = '/home/dragon/Dropbox/ICML2021/code'
             # second_path = '/home/dragon/ARCwork'
             # mano_path = '/home/dragon/Downloads/ICML2021/YCB_Affordance/data/mano'
@@ -252,7 +298,7 @@ class global_info(object):
             second_path = '/groups/CESCA-CV/ICML2021'
             mano_path = '/home/lxiaol9/3DGenNet2019/manopth/mano/models'
             project_path = '/home/lxiaol9/3DGenNet2019'
-
+        self.platform_name = platform.uname()[1]
         self.render_path = second_path + '/data/render'
         self.viz_path  = second_path + '/data/images'
         self.hand_mesh = second_path + '/data/hands'
@@ -269,6 +315,33 @@ class global_info(object):
         self.base_path = base_path
         self.group_path= group_path
         self.project_path= project_path
+        self.categories_list = ['02876657', '03797390', '02880940', '02946921', '03593526', '03624134', '02992529', '02942699', '04074963']
+        self.categories = { 'bottle': '02876657', # 498
+                            'mug': '03797390', # 214
+                            'bowl': '02880940', # 186
+                            'can': '02946921', # 108
+                            'jar':  '03593526', # 596
+                            'knife': '03624134', # 424
+                            'cellphone': '02992529',# 831
+                            'camera': '02942699', #113,
+                            'remote': '04074963', #66
+                            }
+        self.categories_id = { '02876657': 'bottle', # 498
+                            '03797390': 'mug', # 214
+                            '02880940': 'bowl', # 186
+                            '02946921': 'can' , # 108
+                            '03593526': 'jar'  , # 596
+                            '03624134': 'knife' , # 424
+                            '02992529': 'cellphone' ,# 831
+                            '02942699': 'camera', # 113,
+                            '04074963': 'remote', # 66
+                            }
+        self.symmetry_dict = np.load(f'{self.project_path}/haoi-pose/dataset/data/symmetry.npy', allow_pickle=True).item()
+        # num = 0
+        # for key, value in self.symmetry_dict.items():
+        #     if value:
+        #         num +=1
+        # print(f'we have {num} symmetric objects')
 
 if __name__ == '__main__':
     infos = global_info()

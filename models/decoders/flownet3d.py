@@ -1,5 +1,5 @@
-import torch 
-import time 
+import torch
+import time
 import torch.nn as nn
 import numpy as np
 from kaolin.models.PointNet2 import furthest_point_sampling
@@ -25,9 +25,9 @@ def breakpoint():
 class Sample(nn.Module):
     def __init__(self, num_points):
         super(Sample, self).__init__()
-        
+
         self.num_points = num_points
-        
+
     def forward(self, points):
         # breakpoint()
         xyz1_ind = furthest_point_sampling(points.permute(0, 2, 1).contiguous(), self.num_points)
@@ -38,11 +38,11 @@ class Sample(nn.Module):
 class Group(nn.Module):
     def __init__(self, radius, num_samples, knn=False):
         super(Group, self).__init__()
-        
+
         self.radius = radius
         self.num_samples = num_samples
         self.knn    = knn
-        
+
     def forward(self, xyz2, xyz1, features):
         # find nearest points in xyz2 for every points in xyz1
         if self.knn:
@@ -50,9 +50,9 @@ class Group(nn.Module):
             ind = dist.topk(self.num_samples, dim=1, largest=False)[1].int().permute(0, 2, 1).contiguous()
         else:
             ind = ball_query(self.radius, self.num_samples, xyz2.permute(0, 2, 1).contiguous(),
-                             xyz1.permute(0, 2, 1).contiguous(), False) 
+                             xyz1.permute(0, 2, 1).contiguous(), False)
         xyz2_grouped = group_gather_by_index(xyz2, ind)
-        xyz_diff     = xyz2_grouped - xyz1.unsqueeze(3) 
+        xyz_diff     = xyz2_grouped - xyz1.unsqueeze(3)
         features_grouped = group_gather_by_index(features, ind) # batch_size, channel2, npoint1, nsample
         new_features = torch.cat([xyz_diff, features_grouped], dim=1) # batch_size, channel2+3, npoint1, nsample
         return new_features
@@ -62,16 +62,16 @@ class Group(nn.Module):
 class SetConv(nn.Module):
     def __init__(self, num_points, radius, num_samples, in_channels, out_channels):
         super(SetConv, self).__init__()
-        
+
         self.sample = Sample(num_points)
         self.group = Group(radius, num_samples)
-        
+
         layers = []
         out_channels = [in_channels+3, *out_channels]
         for i in range(1, len(out_channels)):
             layers += [nn.Conv2d(out_channels[i - 1], out_channels[i], 1, bias=True), nn.BatchNorm2d(out_channels[i], eps=0.001), nn.ReLU()]
         self.conv = nn.Sequential(*layers)
-        
+
     def forward(self, points, features):
         xyz1 = self.sample(points)
         new_features = self.group(points, xyz1, features)
@@ -79,21 +79,21 @@ class SetConv(nn.Module):
         new_features = new_features.max(dim=3)[0]
         return xyz1, new_features
 
-# 
+#
 class FlowEmbedding(nn.Module):
     def __init__(self, num_samples, in_channels, out_channels, pooling='max', knn=True, corr_func='elementwise_product'):
         super(FlowEmbedding, self).__init__()
-        
+
         self.num_samples = num_samples
-        
+
         self.group = Group(None, self.num_samples, knn=True) # TODO
-        
+
         layers = []
         out_channels = [2*in_channels+3, *out_channels]
         for i in range(1, len(out_channels)):
             layers += [nn.Conv2d(out_channels[i - 1], out_channels[i], 1, bias=True), nn.BatchNorm2d(out_channels[i], eps=0.001), nn.ReLU()]
         self.conv = nn.Sequential(*layers)
-        
+
     def forward(self, xyz1, xyz2, feat1, feat2):
         """
         Input:
@@ -107,9 +107,9 @@ class FlowEmbedding(nn.Module):
         """
         # breakpoint()
         feat2_grouped = self.group(xyz2, xyz1, feat2) # here we group feat2
-        feat1_expanded= feat1.unsqueeze(3) 
+        feat1_expanded= feat1.unsqueeze(3)
         # corr_function
-        
+
         new_features = feat2_grouped
         new_features = torch.cat([new_features, feat1.unsqueeze(3).expand(-1, -1, -1, self.num_samples)], dim=1)
         new_features = self.conv(new_features)
@@ -119,15 +119,15 @@ class FlowEmbedding(nn.Module):
 class SetUpConv(nn.Module):
     def __init__(self, num_samples, in_channels1, in_channels2, out_channels1, out_channels2):
         super(SetUpConv, self).__init__()
-        
+
         self.group = Group(None, num_samples, knn=True)
-        
+
         layers = []
         out_channels1 = [in_channels1+3, *out_channels1]
         for i in range(1, len(out_channels1)):
             layers += [nn.Conv2d(out_channels1[i - 1], out_channels1[i], 1, bias=True), nn.BatchNorm2d(out_channels1[i], eps=0.001), nn.ReLU()]
         self.conv1 = nn.Sequential(*layers)
-        
+
         layers = []
         if len(out_channels1) == 1:
             out_channels2 = [in_channels1+in_channels2+3, *out_channels2]
@@ -136,7 +136,7 @@ class SetUpConv(nn.Module):
         for i in range(1, len(out_channels2)):
             layers += [nn.Conv2d(out_channels2[i - 1], out_channels2[i], 1, bias=True), nn.BatchNorm2d(out_channels2[i], eps=0.001), nn.ReLU()]
         self.conv2 = nn.Sequential(*layers)
-        
+
     def forward(self, xyz1, xyz2, feat1, feat2):
         """
         Inputs:
@@ -160,13 +160,13 @@ class SetUpConv(nn.Module):
 class FeaturePropagation(nn.Module):
     def __init__(self, in_channels1, in_channels2, out_channels):
         super(FeaturePropagation, self).__init__()
-        
+
         layers = []
         out_channels = [in_channels1+in_channels2, *out_channels]
         for i in range(1, len(out_channels)):
             layers += [nn.Conv2d(out_channels[i - 1], out_channels[i], 1, bias=True), nn.BatchNorm2d(out_channels[i], eps=0.001), nn.ReLU()]
         self.conv = nn.Sequential(*layers)
-        
+
     def forward(self, xyz1, xyz2, feat1, feat2):
         dist, ind = three_nn(xyz2.permute(0, 2, 1).contiguous(), xyz1.permute(0, 2, 1).contiguous())
         dist = dist * dist
@@ -197,7 +197,7 @@ class FlowNet3D(nn.Module):
         #     nn.BatchNorm1d(128, eps=0.001),
         #     nn.ReLU(),
         #     nn.Conv1d(128, 3, 1, bias=True)
-        # ) 
+        # )
         self.set_conv1 = SetConv(1024, 0.5, 16, 1, [32, 32, 64]) # TODO
         self.set_conv2 = SetConv(256, 1.0, 16, 64, [64, 64, 128])
         self.flow_embedding = FlowEmbedding(64, 128, [128, 128, 128])
@@ -213,7 +213,7 @@ class FlowNet3D(nn.Module):
             nn.ReLU(),
             nn.Conv1d(128, 3, 1, bias=True)
         )
-         
+
    # pointnet2_charlesmsg:
    #      class: pointnet2.PointNet2_D
    #      conv_type: "DENSE"
@@ -250,7 +250,7 @@ class FlowNet3D(nn.Module):
    #      mlp_cls:
    #          nn: [128, 128]
    #          dropout: 0.5
-   
+
     def forward(self, xyz1, xyz2, feat1, feat2):
         xyz1_1, feat1_1 = self.set_conv1(xyz1, feat1)
         xyz1_2, feat1_2 = self.set_conv2(xyz1_1, feat1_1)
@@ -259,17 +259,17 @@ class FlowNet3D(nn.Module):
         xyz2_2, feat2_2 = self.set_conv2(xyz2_1, feat2_1)
 
         embedding = self.flow_embedding(xyz1_2, xyz2_2, feat1_2, feat2_2)
-        
+
         xyz1_3, feat1_3 = self.set_conv3(xyz1_2, embedding)
         xyz1_4, feat1_4 = self.set_conv4(xyz1_3, feat1_3)
-        
+
         new_feat1_3 = self.set_upconv1(xyz1_4, xyz1_3, feat1_4, feat1_3)
         new_feat1_2 = self.set_upconv2(xyz1_3, xyz1_2, new_feat1_3, torch.cat([feat1_2, embedding], dim=1))
         new_feat1_1 = self.set_upconv3(xyz1_2, xyz1_1, new_feat1_2, feat1_1)
         new_feat1 = self.fp(xyz1_1, xyz1, new_feat1_1, feat1)
 
         flow = self.classifier(new_feat1)
-        
+
         return flow
 
 def criterion(pred_flow, flow, mask=None):
@@ -284,11 +284,11 @@ if __name__ == '__main__':
     xyz1 = np.array([[1, 4, 0], [1, 3, 0], [1, 2, 0], [1, 1, 0], [1, 0, 0], [2, 0, 0], [3, 0, 0], [3, 1, 0]], dtype=np.float32)
     xyz2 = xyz1 + np.array([[2, 1, 0]], dtype=np.float32)
     xyz1 = torch.from_numpy(xyz1.copy().transpose(1, 0)[np.newaxis, :, :]).cuda(gpu).float()
-    xyz2 = torch.from_numpy(xyz2.copy().transpose(1, 0)[np.newaxis, :, :]).cuda(gpu) + 0.1 * torch.rand(1, 3, N, requires_grad=False, device=deploy_device) 
+    xyz2 = torch.from_numpy(xyz2.copy().transpose(1, 0)[np.newaxis, :, :]).cuda(gpu) + 0.1 * torch.rand(1, 3, N, requires_grad=False, device=deploy_device)
     xyz2 = xyz2.float()
     print(xyz1, xyz2)
     flow = xyz2 - xyz1
-    feat1 = torch.rand(1, 1, N, requires_grad=False, device=deploy_device) 
+    feat1 = torch.rand(1, 1, N, requires_grad=False, device=deploy_device)
     feat2 = feat1
     model = FlowNet3D().cuda(gpu)
 

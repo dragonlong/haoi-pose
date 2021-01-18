@@ -19,10 +19,12 @@ import dataset.parser as parserModule
 from dataset.obman_parser import ObmanParser
 from dataset.hand_mano_regression import ManoRegressionDataset
 from dataset.hand_shape2motion import ContactsVoteDataset
-from modules.network import Network
-# from modules.network_base import NetworkBase as Network
+# network
+from models.network import Network
+# from models.network_base import NetworkBase as Network
+
 from global_info import global_info
-from common.debugger import breakpoint
+from common.debugger import *
 
 def get_dataset(cfg):
     # >>>>>>>>>>>>>>>>> 1. create data loader;
@@ -57,9 +59,10 @@ def main_worker(gpu, cfg):
         if cfg.eval:
             break
         print('---epoch {}'.format(epoch))
+        if test_loader is not None:
+            test_miou, test_loss    = model.valid_epoch(gpu, test_loader, model.modules['point'], epoch, cfg, prefix='unseen', save_pred=epoch%2==0)
+        valid_miou, valid_loss  = model.valid_epoch(gpu, valid_loader, model.modules['point'], epoch, cfg, prefix='unseen', save_pred=epoch%2==0)
         train_miou, train_loss  = model.train_epoch(gpu, train_loader, model.modules['point'], epoch, cfg)
-        valid_miou, valid_loss  = model.valid_epoch(gpu, valid_loader, model.modules['point'], epoch, cfg, prefix='seen', save_pred=epoch%2==0)
-        test_miou, test_loss    = model.valid_epoch(gpu, test_loader, model.modules['point'], epoch, cfg, prefix='unseen', save_pred=epoch%2==0)
 
         #>>>>>>>>>>>> save checkpoints <<<<<<<<<<<<<<<<<<#
         # if best_train_iou < train_miou:
@@ -73,7 +76,7 @@ def main_worker(gpu, cfg):
         # best_valid_iou = valid_miou
 
     print('Training Done!')
-    test_miou, test_loss    = model.valid_epoch(gpu, test_loader, model.modules['point'], epoch, cfg, prefix='unseen', save_pred=True)
+    test_miou, test_loss = model.valid_epoch(gpu, test_loader, model.modules['point'], epoch, cfg, prefix='unseen', save_pred=True)
 
 @hydra.main(config_path="config/config.yaml")
 def main(cfg):
@@ -89,6 +92,7 @@ def main(cfg):
     data_infos  = infos.datasets[cfg.item]
     cfg.n_max_parts = data_infos.num_parts
     cfg.MODEL.num_classes = cfg.n_max_parts
+    cfg.HEAD.partcls_per_point[1] = cfg.MODEL.num_classes
     if 'nocs_per_point' in cfg.HEAD:
         cfg.HEAD.nocs_per_point[-2] = cfg.n_max_parts * 3
     cfg.root_data   = infos.second_path + '/data'

@@ -1,5 +1,5 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
-# 
+#
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
@@ -29,24 +29,24 @@ def polygon_clip(subjectPolygon, clipPolygon):
    """
    def inside(p):
       return(cp2[0]-cp1[0])*(p[1]-cp1[1]) > (cp2[1]-cp1[1])*(p[0]-cp1[0])
- 
+
    def computeIntersection():
       dc = [ cp1[0] - cp2[0], cp1[1] - cp2[1] ]
       dp = [ s[0] - e[0], s[1] - e[1] ]
       n1 = cp1[0] * cp2[1] - cp1[1] * cp2[0]
-      n2 = s[0] * e[1] - s[1] * e[0] 
+      n2 = s[0] * e[1] - s[1] * e[0]
       n3 = 1.0 / (dc[0] * dp[1] - dc[1] * dp[0])
       return [(n1*dp[0] - n2*dc[0]) * n3, (n1*dp[1] - n2*dc[1]) * n3]
- 
+
    outputList = subjectPolygon
    cp1 = clipPolygon[-1]
- 
+
    for clipVertex in clipPolygon:
       cp2 = clipVertex
       inputList = outputList
       outputList = []
       s = inputList[-1]
- 
+
       for subjectVertex in inputList:
          e = subjectVertex
          if inside(e):
@@ -75,7 +75,7 @@ def convex_hull_intersection(p1, p2):
         hull_inter = ConvexHull(inter_p)
         return inter_p, hull_inter.volume
     else:
-        return None, 0.0  
+        return None, 0.0
 
 def box3d_vol(corners):
     ''' corners: (8,3) no assumption on axis direction '''
@@ -103,7 +103,7 @@ def box3d_iou(corners1, corners2):
     '''
     # corner points are in counter clockwise order
     rect1 = [(corners1[i,0], corners1[i,2]) for i in range(3,-1,-1)]
-    rect2 = [(corners2[i,0], corners2[i,2]) for i in range(3,-1,-1)] 
+    rect2 = [(corners2[i,0], corners2[i,2]) for i in range(3,-1,-1)]
     area1 = poly_area(np.array(rect1)[:,0], np.array(rect1)[:,1])
     area2 = poly_area(np.array(rect2)[:,0], np.array(rect2)[:,1])
     inter, inter_area = convex_hull_intersection(rect1, rect2)
@@ -180,7 +180,7 @@ def box2d_iou(box1, box2):
         {'x1':box2[0], 'y1':box2[1], 'x2':box2[2], 'y2':box2[3]})
 
 # -----------------------------------------------------------
-# Convert from box parameters to 
+# Convert from box parameters to
 # -----------------------------------------------------------
 def roty(t):
     """Rotation about the y-axis."""
@@ -265,7 +265,7 @@ if __name__=='__main__':
     pc.set_array(np.array(colors))
     ax.add_collection(pc)
     plt.show()
- 
+
     # Demo on ConvexHull
     points = np.random.rand(30, 2)   # 30 random points in 2-D
     hull = ConvexHull(points)
@@ -276,19 +276,19 @@ if __name__=='__main__':
 
     # Demo on convex hull overlaps
     sub_poly = [(0,0),(300,0),(300,300),(0,300)]
-    clip_poly = [(150,150),(300,300),(150,450),(0,300)] 
+    clip_poly = [(150,150),(300,300),(150,450),(0,300)]
     inter_poly = polygon_clip(sub_poly, clip_poly)
     print(poly_area(np.array(inter_poly)[:,0], np.array(inter_poly)[:,1]))
-    
+
     # Test convex hull interaction function
     rect1 = [(50,0),(50,300),(300,300),(300,0)]
-    rect2 = [(150,150),(300,300),(150,450),(0,300)] 
+    rect2 = [(150,150),(300,300),(150,450),(0,300)]
     plot_polys([rect1, rect2])
     inter, area = convex_hull_intersection(rect1, rect2)
     print((inter, area))
     if inter is not None:
         print(poly_area(np.array(inter)[:,0], np.array(inter)[:,1]))
-    
+
     print('------------------')
     rect1 = [(0.30026005199835404, 8.9408694211408424), \
              (-1.1571105364358421, 9.4686676477075533), \

@@ -21,6 +21,7 @@ from os.path import exists, join
 import __init__
 from global_info import global_info
 from dataset import obman
+from dataset import obman_ho
 from dataset.obman_handataset import HandDataset
 from dataset.parser import Parser
 from common.queries import BaseQueries, TransQueries
@@ -35,44 +36,54 @@ project_path= infos.project_path
 def breakpoint():
     import pdb;pdb.set_trace()
 
-def get_dataset(
-    dat_name,
-    split,
-    train_it=True,
-    mini_factor=None,
-    black_padding=False,
-    center_idx=9,
-    point_nb=600,
-    sides="both",
-    meta={},
-    max_queries=[
-        TransQueries.affinetrans,
-        TransQueries.images,
-        TransQueries.verts3d,
-        TransQueries.center3d,
-        TransQueries.joints3d,
-        TransQueries.objpoints3d,
-        TransQueries.camintrs,
-        BaseQueries.sides,
-    ],
-    use_cache=True,
-    limit_size=None):
-    if dat_name == "obman":
-        pose_dataset = obman.ObMan(
-            mini_factor=mini_factor,
-            mode=meta["mode"],
-            override_scale=meta["override_scale"],
-            segment=False,
+def get_dataset(cfg,
+                dset_name,
+                split,
+                train_it=True,
+                black_padding=False,
+                max_queries=None,
+                use_cache=True):
+    # begin here
+    task=cfg.task
+    meta={
+        "mode": cfg.DATASET.mode,
+        "override_scale": cfg.DATASET.override_scale,
+        "fhbhands_split_type": cfg.DATASET.fhbhands_split_type,
+        "fhbhands_split_choice": cfg.DATASET.fhbhands_split_choice,
+        "fhbhands_topology": cfg.DATASET.fhbhands_topology,
+    }
+    max_queries=max_queries
+    point_nb=cfg.DATASET.atlas_points_nb
+    center_idx=cfg.DATASET.center_idx
+    limit_size=cfg.limit_size
+    sides=cfg.DATASET.sides
+    if cfg.use_hand_occupancy:
+        pose_dataset = obman_ho.ObMan_HO(
             split=split,
             use_cache=use_cache,
+            mode=meta["mode"],
+            mini_factor=cfg.DATASET.mini_factor,
+            override_scale=meta["override_scale"],
+            segment=False,
             use_external_points=True,
             shapenet_root=f"{group_path}/external/ShapeNetCore.v2",
-            obman_root=f"{group_path}/external/obman/obman",
-        )
+            obman_root=f"{group_path}/external/obman/obman")
+    else:
+        pose_dataset = obman.ObMan(
+            split=split,
+            use_cache=use_cache,
+            mode=meta["mode"],
+            mini_factor=cfg.DATASET.mini_factor,
+            override_scale=meta["override_scale"],
+            segment=False,
+            use_external_points=True,
+            shapenet_root=f"{group_path}/external/ShapeNetCore.v2",
+            obman_root=f"{group_path}/external/obman/obman")
+
     # Find maximal dataset-compatible queries
     queries = set(max_queries).intersection(set(pose_dataset.all_queries))
     max_rot = np.pi
-    scale_jittering = 0.3
+    scale_jittering  = 0.3
     center_jittering = 0.2
 
     if "override_scale" not in meta:
@@ -80,6 +91,7 @@ def get_dataset(
 
     dataset = HandDataset(
         pose_dataset,
+        cfg=cfg,
         black_padding=black_padding,
         block_rot=False,
         sides=sides,
@@ -102,60 +114,53 @@ def get_dataset(
             )
         else:
             warnings.warn(
-                "Working wth subset of {} of size {}".format(dat_name, limit_size)
+                "Working wth subset of {} of size {}".format(dset_name, limit_size)
             )
             dataset = Subset(dataset, list(range(limit_size)))
     return dataset
 
+def get_queries(cfg):
+    max_queries = [
+        BaseQueries.occupancy,
+        BaseQueries.depth,
+        BaseQueries.pcloud,
+        BaseQueries.nocs,
+        TransQueries.nocs,
+    ]
+    # max_queries = [
+    #     TransQueries.affinetrans,
+    #     TransQueries.images,
+    #     TransQueries.verts3d,
+    #     TransQueries.center3d,
+    #     TransQueries.joints3d,
+    #     TransQueries.objpoints3d,
+    #     TransQueries.pcloud,
+    #     TransQueries.camintrs,
+    #     BaseQueries.sides,
+    #     BaseQueries.camintrs,
+    #     BaseQueries.meta,
+    #     BaseQueries.segms,
+    #     BaseQueries.depth,
+    #     TransQueries.sdf,
+    #     TransQueries.sdf_points,
+    # ]
+    if cfg.DATASET.mano_lambda_joints2d:
+        max_queries.append(TransQueries.joints2d)
+    return max_queries
+
 class ObmanParser(Parser):
     def __init__(self, cfg, mode='train', return_loader=True, domain=None, first_n=-1, add_noise=False, fixed_order=False, num_expr=0.01):
-        # max_queries = [
-        #     TransQueries.affinetrans,
-        #     TransQueries.images,
-        #     TransQueries.verts3d,
-        #     TransQueries.center3d,
-        #     TransQueries.joints3d,
-        #     TransQueries.objpoints3d,
-        #     TransQueries.pcloud,
-        #     TransQueries.camintrs,
-        #     BaseQueries.sides,
-        #     BaseQueries.camintrs,
-        #     BaseQueries.meta,
-        #     BaseQueries.segms,
-        #     BaseQueries.depth,
-        #     TransQueries.sdf,
-        #     TransQueries.sdf_points,
-        # ]
-        max_queries = [
-            BaseQueries.occupancy,
-            BaseQueries.depth,
-            BaseQueries.pcloud,
-            BaseQueries.nocs,
-            TransQueries.nocs,
-        ]
-        if cfg.DATASET.mano_lambda_joints2d:
-            max_queries.append(TransQueries.joints2d)
         limit_size = cfg.limit_size
-        dat_name   = 'obman'
+        dset_name  = 'obman'
+        max_queries= get_queries(cfg)
+
         if mode != 'debug':
             self.train_dataset = get_dataset(
-                dat_name,
-                meta={
-                    "mode": cfg.DATASET.mode,
-                    "override_scale": cfg.DATASET.override_scale,
-                    "fhbhands_split_type": cfg.DATASET.fhbhands_split_type,
-                    "fhbhands_split_choice": cfg.DATASET.fhbhands_split_choice,
-                    "fhbhands_topology": cfg.DATASET.fhbhands_topology,
-                },
-                split='train',
-                sides=cfg.DATASET.sides,
-                train_it=True,
+                cfg,
+                dset_name,
                 max_queries=max_queries,
-                mini_factor=cfg.DATASET.mini_factor,
-                point_nb=cfg.DATASET.atlas_points_nb,
-                center_idx=cfg.DATASET.center_idx,
-                limit_size=limit_size,
-            )
+                split='train',
+                train_it=True)
             print("Final dataset size: {}".format(len(self.train_dataset)))
 
             if return_loader:
@@ -173,30 +178,13 @@ class ObmanParser(Parser):
         else:
             self.trainloader = None
 
-        self.valid_dataset = get_dataset(
-            dat_name,
+        self.valid_dataset = get_dataset(cfg,
+            dset_name,
             max_queries=max_queries,
-            meta={
-                "mode": cfg.DATASET.mode,
-                "fhbhands_split_type": cfg.DATASET.fhbhands_split_type,
-                "fhbhands_split_choice": cfg.DATASET.fhbhands_split_choice,
-                "fhbhands_topology": cfg.DATASET.fhbhands_topology,
-                "override_scale": cfg.DATASET.override_scale,
-            },
-            sides=cfg.DATASET.sides,
             split='val',
-            train_it=False,
-            mini_factor=cfg.DATASET.mini_factor,
-            point_nb=cfg.DATASET.atlas_points_nb,
-            center_idx=cfg.DATASET.center_idx,
-            use_cache=True,
-        )
+            train_it=False)
 
-        # Initialize val dataloader
-        if cfg.DATASET.evaluate:
-            drop_last = True
-        else:
-            drop_last = True  # Keeps batch_size constant
+        drop_last = True  # Keeps batch_size constant
         if return_loader:
             self.validloader = torch.utils.data.DataLoader(
                 self.valid_dataset,
@@ -210,8 +198,7 @@ class ObmanParser(Parser):
             self.validloader = None
         self.testloader = None
 
-
-@hydra.main(config_path="../configs/default.yaml")
+@hydra.main(config_path="../config/occupancy.yaml")
 def main(cfg):
     OmegaConf.set_struct(cfg, False)  # This allows getattr and hasattr methods to function correctly
 

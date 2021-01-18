@@ -133,7 +133,7 @@ def main():
             pca_input= np.concatenate([posesnew[:, :3], pca_pcs], axis=1)
             #
             mano_trans = hand_attrs['grasps'][j]['mano_trans']
-
+            breakpoint()
             hand_vertices, hand_joints = mano_layer_right.forward(th_pose_coeffs=torch.FloatTensor(posesnew), th_trans=torch.FloatTensor(mano_trans))
             # hand_vertices, hand_joints = mano_layer_right(torch.FloatTensor(pca_input), th_trans=torch.FloatTensor(mano_trans))
             hand_joints = hand_joints.cpu().data.numpy()[0]/scale

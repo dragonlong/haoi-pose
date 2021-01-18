@@ -1,6 +1,6 @@
 import numpy as np
 import transforms3d as tf
-from math import pi ,sin, cos
+from math import pi ,sin, cos, sqrt
 import torch
 import itertools
 from pyquaternion import Quaternion
@@ -10,8 +10,84 @@ from mpl_toolkits.mplot3d import Axes3D
 import __init__
 from utils.external.libkdtree import KDTree
 
+"""
+align_rotation: find the theta component along y axis; reduce the rotation around one axis;
+compute_iou(occ1, occ2): occupancy values for 3D IoU
+chamfer_distance:
+get_nearest_neighbors_indices_batch:
+
+# RTs
+transform_pcloud(pcloud, RT, inv=False): flexible RT/RT-1 to pcloud;
+transform_points(points, transform): RT, or R
+point_rotate_about_axis(pts, anchor, unitvec, theta): rotate pts around an arbitrary axis
+
+# get R/T
+rotate_pts: rotation matrix between two point sets
+scale_pts: scale difference between two point sets
+transform_pts(source, target): get R, T, S between two sets
+rotate_about_axis(theta, axis='x'): return rotation mat around any axis;
+
+# box & pts
+get_3d_bbox(scale, shift = 0)
+pts_inside_box(pts, bbox)
+point_in_hull_slow(point, hull, tolerance=1e-12)
+iou_3d(bbox1, bbox2, nres=50)
+
+# camera
+calculate_2d_projections(coordinates_3d, intrinsics):
+calculate_3d_backprojections(depth, K, height=480, width=640, verbose=False):
+project3d(pcloud_target, projMat, height=512, width=512):
+project_to_camera(points, transform):
+
+# compare RT
+compute_RT_distances
+axis_diff_degree
+rot_diff_degree
+rot_diff_rad
+
+# mutual transform
+mat_from_rvec
+mat_from_euler
+mat_from_quat
+
+# discretization
+voxelize()
+make_3d_grid()
+normalize_coordinate(p, padding=0.1, plane='xz'):
+normalize_3d_coordinate(p, padding=0.1):
+normalize_coord(p, vol_range, plane='xz'):
+coordinate2index(x, reso, coord_type='2d'):
+coord2index(p, vol_range, reso=None, plane='xz'):
+"""
+
 def breakpoint():
     import pdb;pdb.set_trace()
+
+# to align the transformation,
+# 0. transform the symmetric axis from (x, y, z) -> y
+# 1. be able to determine the 3 rotation angle; theta_1
+# 2. find the best smallest matching angle; theta_2 = theta_1 - k * interval
+# 3. get the correction angle, theta_3 = theta_1 - theta_2
+# 4. get the correction matrix, M = f(-theta_3)
+def align_rotation(sRT, axis='y'):
+    """ Align rotations for symmetric objects.
+    Args:
+        sRT: 4 x 4
+    """
+    s = np.cbrt(np.linalg.det(sRT[:3, :3]))
+    R = sRT[:3, :3] / s
+    theta_x = R[0, 0] + R[2, 2]
+    theta_y = R[0, 2] - R[2, 0]
+    r_norm = sqrt(theta_x**2 + theta_y**2)
+    s_map = np.array([[theta_x/r_norm, 0.0, -theta_y/r_norm],
+                      [0.0,            1.0,  0.0           ],
+                      [theta_y/r_norm, 0.0,  theta_x/r_norm]])
+    rotation = R @ s_map
+    aligned_sRT = np.identity(4, dtype=np.float32)
+    aligned_sRT[:3, :3] = s * rotation
+    if sRT.shape[0] == 4:
+        aligned_sRT[:3, 3] = sRT[:3, 3]
+    return aligned_sRT
 
 def compute_iou(occ1, occ2):
     ''' Computes the Intersection over Union (IoU) value for two sets of
@@ -171,6 +247,30 @@ def make_3d_grid(bb_min, bb_max, shape):
 
     return p
 
+def compose_rt(rotation, translation):
+    aligned_RT = np.zeros((4, 4), dtype=np.float32)
+    aligned_RT[:3, :3] = rotation.transpose()
+    aligned_RT[:3, 3]  = translation
+    aligned_RT[3, 3]   = 1
+    return aligned_RT
+
+def transform_pcloud(pcloud, RT, inv=False, extra_R=None, verbose=False):
+    """
+    by default, pcloud: [N, 3]
+    """
+    # if extra_R is not None:
+    #     pcloud = np.dot(pcloud, extra_R[:3, :3].T)
+    if inv:
+        inv_R     = np.linalg.pinv(RT[:3, :3])
+        pcloud_tf = np.dot(inv_R, pcloud.T  - RT[:3, 3].reshape(3, 1))
+        pcloud_tf = pcloud_tf.T
+    else:
+        pcloud_tf = np.dot(pcloud, RT[:3, :3].T) + RT[:3, 3].reshape(1, 3)
+    if verbose:
+        print_group([RT, pcloud[:3, :], pcloud_tf[:3, :]], ['RT', 'original pts', 'transformed pts'])
+        plot3d_pts([[pcloud, pcloud_tf]], [['pts', 'transformed pts']], s=1, mode='continuous',  limits = [[-0.5, 0.5], [-0.5, 0.5], [-0.5, 1.5]], title_name=['Camera + World Pts'])
+
+    return pcloud_tf
 
 def transform_points(points, transform):
     ''' Transforms points with regard to passed camera information.
@@ -662,36 +762,6 @@ def point_in_hull_slow(point, hull, tolerance=1e-12):
     """
     return all((np.dot(eq[:-1], point) + eq[-1] <= tolerance) for eq in hull.equations)
 
-# def point_in_hull_fast(points: np.array, bounding_box: Box):
-#     """
-#     Check if a point lies in a bounding box. We first rotate the bounding box to align with axis. Meanwhile, we
-#     also rotate the whole point cloud. Finally, we just check the membership with the aid of aligned axis.
-#     :param points: nd.array (N x d); N: the number of points, d: point dimension
-#     :param bounding_box: the Box object
-#     return: The membership of points within the bounding box
-#     """
-#     # Make sure it is a unit quaternion
-#     bounding_box.orientation = bounding_box.orientation.normalised
-
-#     # Rotate the point clouds
-#     pc = bounding_box.orientation.inverse.rotation_matrix @ points.T
-#     pc = pc.T
-
-#     orientation_backup = Quaternion(bounding_box.orientation)  # Deep clone it
-#     bounding_box.rotate(bounding_box.orientation.inverse)
-
-#     corners = bounding_box.corners()
-
-#     # Test if the points are in the bounding box
-#     idx = np.where((corners[0, 7] <= pc[:, 0]) & (pc[:, 0] <= corners[0, 0]) &
-#                    (corners[1, 1] <= pc[:, 1]) & (pc[:, 1] <= corners[1, 0]) &
-#                    (corners[2, 2] <= pc[:, 2]) & (pc[:, 2] <= corners[2, 0]))[0]
-
-#     # recover
-#     bounding_box.rotate(orientation_backup)
-
-#     return idx
-
 def iou_3d(bbox1, bbox2, nres=50):
     bmin = np.min(np.concatenate((bbox1, bbox2), 0), 0)
     bmax = np.max(np.concatenate((bbox1, bbox2), 0), 0)
@@ -758,7 +828,7 @@ def calculate_3d_backprojections(depth, K, height=480, width=640, verbose=False)
     cam_cx = K[0, 2]
     cam_cy = K[1, 2]
     cam_fx = K[0, 0]
-    cam_fy = K[0, 0]
+    cam_fy = K[1, 1]
     # cam_fx = K[0, 0]
     # cam_fy = K[1, 1]
     cam_scale = 1
@@ -872,7 +942,6 @@ def project3d(pcloud_target, projMat, height=512, width=512):
     v = v.astype(np.int16)
     v = 512 - v
     print('u0, v0:\n', u[0], v[0])
-    # rgb_raw[v, u]   = 250*np.array([0, 0, 1])              #rgb_raw[u, v] +
 
     return u, v # x, y in cv coords
 
@@ -991,6 +1060,22 @@ def point_rotate_about_axis(pts, anchor, unitvec, theta):
 
     return rotated_pts
 
+def rotate_about_axis(theta, axis='x'):
+    if axis == 'x':
+        R = np.array([[1, 0, 0],
+                      [0, cos(theta), -sin(theta)],
+                      [0, sin(theta), cos(theta)]])
+
+    elif axis == 'y':
+        R = np.array([[cos(theta), 0, sin(theta)],
+                      [0, 1, 0],
+                      [-sin(theta), 0, cos(theta)]])
+
+    elif axis == 'z':
+        R = np.array([[cos(theta), -sin(theta), 0],
+                      [sin(theta), cos(theta),  0],
+                      [0, 0, 1]])
+    return R
 # def yaw_diff(gt_box: EvalBox, eval_box: EvalBox, period: float = 2*np.pi) -> float:
 #     """
 #     Returns the yaw angle difference between the orientation of two boxes.

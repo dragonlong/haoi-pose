@@ -1,11 +1,12 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from modules.layers import ResnetBlockFC
+from models.layers import ResnetBlockFC
 from torch_scatter import scatter_mean, scatter_max
 from common.d3_utils import coordinate2index, normalize_coordinate, normalize_3d_coordinate, map2local
 from models.encoder.unet import UNet
 from models.encoder.unet3d import UNet3D
+from common import bp
 
 class LocalPoolPointnet(nn.Module):
     ''' PointNet-based encoder network with ResNet blocks for each point.
@@ -41,7 +42,6 @@ class LocalPoolPointnet(nn.Module):
 
         self.actvn = nn.ReLU()
         self.hidden_dim = hidden_dim
-
         if unet:
             self.unet = UNet(c_dim, in_channels=c_dim, **unet_kwargs)
         else:
@@ -286,7 +286,6 @@ class PatchLocalPoolPointnet(nn.Module):
         index = inputs['index']
 
         batch_size, T, D = p.size()
-
         if self.map2local:
             pp = self.map2local(p)
             net = self.fc_pos(pp)

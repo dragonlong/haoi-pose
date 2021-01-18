@@ -1,5 +1,5 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
-# 
+#
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
@@ -17,7 +17,10 @@ import os
 import sys
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
-
+# sys.path.append(os.path.join(ROOT_DIR, 'models/pointnet2'))
+# def breakpoint():
+#     import pdb;pdb.set_trace()
+# breakpoint()
 import pointnet2_utils
 import pytorch_utils as pt_utils
 from typing import List
@@ -100,7 +103,7 @@ class PointnetSAModuleMSG(_PointnetSAModuleBase):
             nsamples: List[int],
             mlps: List[List[int]],
             bn: bool = True,
-            use_xyz: bool = True, 
+            use_xyz: bool = True,
             sample_uniformly: bool = False
     ):
         super().__init__()
@@ -259,7 +262,7 @@ class PointnetSAModuleVotes(nn.Module):
             new_features = F.avg_pool2d(
                 new_features, kernel_size=[1, new_features.size(3)]
             )  # (B, mlp[-1], npoint, 1)
-        elif self.pooling == 'rbf': 
+        elif self.pooling == 'rbf':
             # Use radial basis function kernel for weighted sum of features (normalized by nsample and sigma)
             # Ref: https://en.wikipedia.org/wiki/Radial_basis_function_kernel
             rbf = torch.exp(-1 * grouped_xyz.pow(2).sum(1,keepdim=False) / (self.sigma**2) / 2) # (B, npoint, nsample)
@@ -433,7 +436,7 @@ class PointnetLFPModuleMSG(nn.Module):
         super().__init__()
 
         assert(len(mlps) == len(nsamples) == len(radii))
-        
+
         self.post_mlp = pt_utils.SharedMLP(post_mlp, bn=bn)
 
         self.groupers = nn.ModuleList()

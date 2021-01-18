@@ -37,9 +37,12 @@ def visualize_pointcloud(points, normals=None, title_name='0',
     ax.set_xlabel('Z')
     ax.set_ylabel('X')
     ax.set_zlabel('Y')
-    ax.set_xlim(-0.5, 0.5)
-    ax.set_ylim(-0.5, 0.5)
-    ax.set_zlim(-0.5, 0.5)
+    ax.set_xlim(0, 1.0)
+    ax.set_ylim(0, 1.0)
+    ax.set_zlim(0, 1.0)
+    # ax.set_xlim(-0.5, 0.5)
+    # ax.set_ylim(-0.5, 0.5)
+    # ax.set_zlim(-0.5, 0.5)
     ax.view_init(elev=30, azim=45)
     if title_name is not None:
         plt.title(title_name)
@@ -76,15 +79,18 @@ def plot_imgs(imgs, imgs_name, title_name='default', sub_name='default', save_pa
     plt.close()
 
 if __name__ == '__main__':
-    my_dir      = './media/full_viz'
+    my_dir      = 'outputs/media/full_viz'
     filenames = [f'{my_dir}/{filename}' for filename in os.listdir(my_dir)]
     # print(filenames)
     for i, filename in enumerate(filenames):
         data = np.load(filename, allow_pickle=True).item()
         for key, value in data.items():
-            print(key, value.shape)
+            try:
+                data[key] = value.numpy()
+            except:
+                print(key, value)
         # 'points', 'points.occ', 'inputs', 'inputs.normals'
         for j in range(data['points'].shape[0]):
-
-            visualize_pointcloud(data['inputs'][j], title_name='inputs', show=True)
-            visualize_pointcloud(data['points'][j], title_name='occ pts', show=True)
+            plot3d_pts([[data['inputs'][j]], [data['points'][j]]], [['NOCS input'], ['Occupancy Label']], s=2, dpi=350, title_name=[f'{j}th', f'{j}th'], sub_name='default', color_channel=[[data['inputs'][j]], [ data['points.occ'][j].reshape(-1, 1) * np.array([[255, 0, 0]]) ]])
+            # visualize_pointcloud(data['inputs'][j], title_name='inputs', show=True)
+            # visualize_pointcloud(data['points'][j], title_name='occ pts', show=True)

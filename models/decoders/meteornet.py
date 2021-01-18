@@ -1,4 +1,4 @@
-import torch 
+import torch
 import time
 import torch.nn as nn
 import numpy as np
@@ -12,7 +12,6 @@ from kaolin.models.PointNet2 import three_interpolate
 from torch_scatter import scatter
 
 import __init__
-from modules.sampling import SampleK
 
 def breakpoint():
     import pdb;pdb.set_trace()

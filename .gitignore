@@ -1,0 +1,6 @@
+*all*.pkl
+/dataset/data/cache
+/dataset/media
+/dataset/outputs
+__pycache__
+.ipynb_checkpoints

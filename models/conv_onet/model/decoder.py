@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from modules.layers import ResnetBlockFC
+from models.layers import ResnetBlockFC
 from common.d3_utils import normalize_coordinate, normalize_3d_coordinate, map2local
-
+from common.debugger import bp
 class LocalDecoder(nn.Module):
     ''' Decoder.
         Instead of conditioning on global features, on plane/volume local features.
@@ -17,12 +17,12 @@ class LocalDecoder(nn.Module):
         sample_mode (str): sampling feature strategy, bilinear|nearest
         padding (float): conventional padding paramter of ONet for unit cube, so [-0.5, 0.5] -> [-0.55, 0.55]
     '''
-
     def __init__(self, dim=3, c_dim=128,
-                 hidden_size=256, n_blocks=5, leaky=False, sample_mode='bilinear', padding=0.1):
+                 hidden_size=256, n_blocks=5, leaky=False, sample_mode='bilinear', padding=0.1, cfg=None):
         super().__init__()
         self.c_dim = c_dim
         self.n_blocks = n_blocks
+        self.cfg = cfg
 
         if c_dim != 0:
             self.fc_c = nn.ModuleList([
@@ -36,7 +36,13 @@ class LocalDecoder(nn.Module):
             ResnetBlockFC(hidden_size) for i in range(n_blocks)
         ])
 
-        self.fc_out = nn.Linear(hidden_size, 1)
+        #
+        if self.cfg.use_hand_occupancy:
+            self.fc_out = nn.ModuleList()
+            for k in range(2):
+                self.fc_out.append(nn.Linear(hidden_size, 1)) #
+        else:
+            self.fc_out = nn.Linear(hidden_size, 1) #
 
         if not leaky:
             self.actvn = F.relu
@@ -45,7 +51,6 @@ class LocalDecoder(nn.Module):
 
         self.sample_mode = sample_mode
         self.padding = padding
-
 
     def sample_plane_feature(self, p, c, plane='xz'):
         xy = normalize_coordinate(p.clone(), plane=plane, padding=self.padding) # normalize to the range of (0, 1)
@@ -62,8 +67,7 @@ class LocalDecoder(nn.Module):
         c = F.grid_sample(c, vgrid, padding_mode='border', align_corners=True, mode=self.sample_mode).squeeze(-1).squeeze(-1)
         return c
 
-
-    def forward(self, p, c_plane, **kwargs):
+    def forward(self, p, c_plane, s=None, **kwargs):
         if self.c_dim != 0:
             plane_type = list(c_plane.keys())
             c = 0
@@ -76,20 +80,26 @@ class LocalDecoder(nn.Module):
             if 'yz' in plane_type:
                 c += self.sample_plane_feature(p, c_plane['yz'], plane='yz')
             c = c.transpose(1, 2)
-
+        if s is not None:
+            c = torch.cat([c, s.unsqueeze(1).repeat(1, c.shape[1], 1)], axis=-1)
         p = p.float()
         net = self.fc_p(p)
-
         for i in range(self.n_blocks):
             if self.c_dim != 0:
                 net = net + self.fc_c[i](c)
 
             net = self.blocks[i](net)
-
-        out = self.fc_out(self.actvn(net))
-        out = out.squeeze(-1)
-
-        return out
+        if self.cfg.use_hand_occupancy:
+            outs = []
+            for k in range(2):
+                out = self.fc_out[k](self.actvn(net))
+                out = out.squeeze(-1)
+                outs.append(out)
+            return outs
+        else:
+            out = self.fc_out(self.actvn(net))
+            out = out.squeeze(-1)
+            return out
 
 
 class PatchLocalDecoder(nn.Module):
@@ -155,7 +165,7 @@ class PatchLocalDecoder(nn.Module):
             c = F.grid_sample(c, vgrid, padding_mode='border', align_corners=True, mode=self.sample_mode).squeeze(-1).squeeze(-1)
         return c
 
-    def forward(self, p, c_plane, **kwargs):
+    def forward(self, p, c_plane, s=None, **kwargs):
         p_n = p['p_n']
         p = p['p']
 
@@ -181,7 +191,6 @@ class PatchLocalDecoder(nn.Module):
             if self.c_dim != 0:
                 net = net + self.fc_c[i](c)
             net = self.blocks[i](net)
-
         out = self.fc_out(self.actvn(net))
         out = out.squeeze(-1)
 
@@ -209,7 +218,6 @@ class LocalPointDecoder(nn.Module):
             self.fc_c = nn.ModuleList([
                 nn.Linear(c_dim, hidden_size) for i in range(n_blocks)
             ])
-
 
         self.fc_p = nn.Linear(dim, hidden_size)
 
@@ -247,7 +255,7 @@ class LocalPointDecoder(nn.Module):
 
         return c_out
 
-    def forward(self, p, c, **kwargs):
+    def forward(self, p, c, s=None,**kwargs):
         n_points = p.shape[1]
 
         if n_points >= 30000:

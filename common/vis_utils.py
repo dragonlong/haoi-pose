@@ -13,6 +13,11 @@ from descartes import PolygonPatch
 import matplotlib.pyplot as plt  # matplotlib.use('Agg') # TkAgg
 from mpl_toolkits.mplot3d import Axes3D
 from pylab import *
+import pyrender
+import trimesh
+import meshplot
+from meshplot import plot, subplot, interact
+from scipy.spatial import Delaunay
 
 import os
 import cv2
@@ -20,6 +25,7 @@ import vispy
 from vispy.scene import visuals, SceneCanvas
 
 """"
+render things all together in one window with multiple independent subplots
 3d: plot3d_pts(pts, pts_name, s=1,
 joints: visualize_joints_2d, plot_skeleton
 arrows: plot_arrows(points, offset=None, joint=None)
@@ -29,8 +35,9 @@ imgs:  plot_imgs
 
 
 """
-def breakpoint():
+def bp():
     import pdb;pdb.set_trace()
+
 # Colors for printing
 class bcolors:
     HEADER = '\033[95m'
@@ -42,15 +49,141 @@ class bcolors:
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
 
-def visualize_mesh(input, ax=None, mode='mesh', backend='matplotlib'):
-    if mode == 'mesh':
-        mesh_dict = input
+
+def visualize_2d(img,
+                 hand_joints=None,
+                 hand_verts=None,
+                 obj_verts=None,
+                 links=[(0, 1, 2, 3, 4), (0, 5, 6, 7, 8), (0, 9, 10, 11, 12),
+                        (0, 13, 14, 15, 16), (0, 17, 18, 19, 20)]):
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    ax.imshow(img)
+    ax.axis('off')
+    if hand_joints is not None:
+        visualize_joints_2d(
+            ax, hand_joints, joint_idxs=False, links=links)
+    if obj_verts is not None:
+        ax.scatter(obj_verts[:, 0], obj_verts[:, 1], alpha=0.1, c='r')
+    if hand_verts is not None:
+        ax.scatter(hand_verts[:, 0], hand_verts[:, 1], alpha=0.1, c='b')
+    plt.show()
+
+
+def visualize_3d(img,
+                 hand_verts=None,
+                 hand_faces=None,
+                 obj_verts=None,
+                 obj_faces=None):
+    fig = plt.figure()
+    ax = fig.add_subplot(121)
+    ax.imshow(img)
+    ax.axis('off')
+    ax = fig.add_subplot(122, projection='3d')
+    add_mesh(ax, hand_verts, hand_faces)
+    add_mesh(ax, obj_verts, obj_faces, c='r')
+    cam_equal_aspect_3d(ax, hand_verts)
+    plt.show()
+
+
+def visualize_pointcloud(points, normals=None, labels=None,
+                         title_name='0', out_file=None, backend='matplotlib', show=False):
+    r''' Visualizes point cloud data.
+
+    Args:
+        points (tensor): point data
+        normals (tensor): normal data (if existing)
+        out_file (string): output file
+        show (bool): whether the plot should be shown
+    '''
+    # Use numpy
+    if backend == 'pyrender':
+        pc = pyrender.PerspectiveCamera(yfov=np.pi / 3.0, aspectRatio=1.414)
+        oc = pyrender.OrthographicCamera(xmag=1.0, ymag=1.0)
+        scene = pyrender.Scene()
+        if type(points) is not list:
+            points = [points]
+        if type(labels) is not list:
+            labels = [labels] + [None] * (len(points) - 1)
+        palette = get_tableau_palette()
+        for j, pts in enumerate(points):
+            if pts.shape[0] > 5:
+                if labels[j] is not None and labels[j].shape[0] == pts.shape[0]:
+                    colors = np.array(labels[j]).reshape(-1, 1) * palette[j:j+1] / 255.0
+                else:
+                    colors = np.ones(pts.shape)
+                    colors = colors * palette[j:j+1] / 255.0
+                cloud = pyrender.Mesh.from_points(pts, colors=colors)
+                scene.add(cloud)
+            else:
+                # boundary_pts = [np.min(np.array(pts), axis=0), np.max(np.array(pts), axis=0)]
+                # length_bb = np.linalg.norm(boundary_pts[0] - boundary_pts[1])
+                # print(length_bb/100)
+                sm = trimesh.creation.uv_sphere(radius=1)
+                sm.visual.vertex_colors = (palette[j]/255.0).tolist()
+                # sm.visual.vertex_colors = [1.0, 1.0, 0.0]
+                tfs = np.tile(np.eye(4), (len(pts), 1, 1))
+                tfs[:,:3,3] = pts
+                m = pyrender.Mesh.from_trimesh(sm, poses=tfs)
+                scene.add(m)
+        viewer = pyrender.Viewer(scene, use_raymond_lighting=True, viewport_size = (1920, 1024), point_size=15, show_world_axis=True, window_title=title_name)
+        return scene, viewer
+
+    elif backend == 'matplotlib':
+        points = np.asarray(points)
+        fig = plt.figure()
+        ax = fig.gca(projection=Axes3D.name)
+
+        if labels is not None:
+            points = points[np.where(labels>0)[0]]
+        ax.scatter(points[:, 2], points[:, 0], points[:, 1])
+
+        # normals
+        if normals is not None:
+            ax.quiver(
+                points[:, 2], points[:, 0], points[:, 1],
+                normals[:, 2], normals[:, 0], normals[:, 1],
+                length=0.1, color='k'
+            )
+        ax.set_xlabel('Z')
+        ax.set_ylabel('X')
+        ax.set_zlabel('Y')
+        ax.set_xlim(-0.5, 0.5)
+        ax.set_ylim(-0.5, 0.5)
+        ax.set_zlim(-0.5, 0.5)
+        ax.view_init(elev=30, azim=45)
+        if title_name is not None:
+            plt.title(title_name)
+        if out_file is not None:
+            plt.savefig(out_file)
+        if show:
+            plt.show()
+        plt.close(fig)
+
+def visualize_mesh(input, pts=None, labels=None, ax=None, mode='mesh', backend='matplotlib', title_name=None, viz_mesh=True):
+    """
+    we have backend of matplotlib, pyrender, meshplot
+    """
     if mode == 'file':
         file_name = input
-    elif mode == 'vf':
-        v, f = input
-    tri = Delaunay(mesh_dict['vertices'])
+        with open(file_name , 'r') as obj_f:
+            mesh_dict = fast_load_obj(obj_f)[0]
+        mesh = trimesh.load(mesh_dict)
+    elif mode == 'trimesh':
+        if isinstance(input, list):
+            mesh = input[0]
+        else:
+            mesh = input
+        mesh_dict = {}
+        mesh_dict['vertices'] = mesh.vertices
+        mesh_dict['faces'] = mesh.faces
+    else:
+        mesh_dict = input
+        mesh = trimesh.load(mesh_dict)
+    v, f = mesh.vertices, mesh.faces
+    # get mesh_dict
     if backend=='matplotlib':
+        tri = Delaunay(mesh_dict['vertices'])
         dmesh = Poly3DCollection(
             mesh_dict['vertices'][tri.simplices[:, :3]], alpha=0.5)
         dmesh.set_edgecolor('b')
@@ -59,8 +192,64 @@ def visualize_mesh(input, ax=None, mode='mesh', backend='matplotlib'):
             fig = plt.figure(figsize=(12, 12))
             ax = fig.add_subplot(121, projection='3d')
         ax.add_collection3d(dmesh)
-    else:
-        pass
+    elif backend=='pyrender':
+        scene = pyrender.Scene()
+        if pts is not None:
+            if pts.shape[0] > 5000:
+                if labels is not None:
+                    colors = np.zeros(pts.shape)
+                    colors[labels < 0.1, 2] = 1
+                    colors[labels > 0.1, 1] = 1
+                    cloud = pyrender.Mesh.from_points(pts, colors=colors)
+                else:
+                    cloud = pyrender.Mesh.from_points(pts)
+                scene.add(cloud)
+            else:
+                sm = trimesh.creation.uv_sphere(radius=0.01)
+                sm.visual.vertex_colors = [1.0, 1.0, 0.0]
+                tfs = np.tile(np.eye(4), (len(pts), 1, 1))
+                tfs[:,:3,3] = pts
+                m = pyrender.Mesh.from_trimesh(sm, poses=tfs)
+                scene.add(m)
+        if viz_mesh:
+            if not isinstance(input, list):
+                mesh_list = [input]
+            else:
+                mesh_list = input
+            for mesh in mesh_list:
+                mesh_vis = pyrender.Mesh.from_trimesh(mesh)
+                scene.add(mesh_vis)
+        else:
+            sm = trimesh.creation.uv_sphere(radius=0.01)
+            sm.visual.vertex_colors = [1.0, 0.0, 0.0]
+            tfs = np.tile(np.eye(4), (len(v), 1, 1))
+            tfs[:,:3,3] = v
+            m = pyrender.Mesh.from_trimesh(sm, poses=tfs)
+            scene.add(m)
+
+        # line = pyrender.Mesh.from_trimesh(trimesh.creation.cylinder(radius=0.01, segment=[[0, 0, 0], [1, 1, 1]], transform=None))
+        # scene.add(line)
+        viewer = pyrender.Viewer(scene, use_raymond_lighting=True, point_size=5, show_world_axis=True, window_title=title_name)
+        # record=True, run_in_thread=True,
+        # t0 = time.time()
+        # plt.pause(2)
+        # viewer.close_external()
+        # viewer.save_gif('./demo.gif')
+    else: # meshplot
+        meshplot.offline()
+        p = plot(v, f, shading={"point_size": 0.2})
+        p.add_points(pts,shading={"point_size": 0.02, "point_color": "blue"})
+        p.save("test2.html")
+        # p.add_edges(v_box, f_box, shading={"line_color": "red"});
+        # add_edges(vertices, edges, shading={}, obj=None)
+        # add_lines(beginning, ending, shading={}, obj=None)
+        # add_mesh(v, f, c=None, uv=None, shading={})
+        # add_points(points, shading={}, obj=None)
+        # add_text(text, shading={})
+        # remove_object(obj_id)
+        # reset()
+        # to_html()
+        # update()
 
 
 def visualize_joints_2d(
@@ -185,6 +374,7 @@ def get_hand_line_ids():
 
     return line_ids
 
+
 def plot_skeleton(hand_joints, line_ids):
     fig     = plt.figure(dpi=dpi)
     cmap    = plt.cm.jet
@@ -244,10 +434,10 @@ def plot3d_pts(pts, pts_name, s=1, dpi=350, title_name=None, sub_name='default',
                     save_fig=False, save_path=None, flip=True,\
                     axis_off=False, show_fig=True, mode='pending'):
     """
-    fig using
+    fig using,
     """
     fig     = plt.figure(dpi=dpi)
-    cmap    = plt.cm.jet
+    # cmap    = plt.cm.jet
     top     = plt.cm.get_cmap('Oranges_r', 128)
     bottom  = plt.cm.get_cmap('Blues', 128)
     if isinstance(s, list):
@@ -260,6 +450,7 @@ def plot3d_pts(pts, pts_name, s=1, dpi=350, title_name=None, sub_name='default',
     # colors  = cmap(np.linspace(0., 1., 5))
     # '.', '.', '.',
     all_poss=['o', 'o', 'o', 'o','o', '*', '.','o', 'v','^','>','<','s','p','*','h','H','D','d','1','','']
+
     num     = len(pts)
     for m in range(num):
         ax = plt.subplot(1, num, m+1, projection='3d')
@@ -267,41 +458,23 @@ def plot3d_pts(pts, pts_name, s=1, dpi=350, title_name=None, sub_name='default',
             ax.view_init(elev=36, azim=-49)
         else:
             ax.view_init(elev=view_angle[0], azim=view_angle[1])
-        if len(pts[m]) > 1:
-            for n in range(len(pts[m])):
-                if color_channel is None:
-                    ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2], marker=all_poss[n], s=ss[n], cmap=colors[n], label=pts_name[m][n], depthshade=False)
+        # if len(pts[m]) > 1:
+        for n in range(len(pts[m])):
+            if color_channel is None:
+                ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2], marker=all_poss[n], s=ss[n], cmap=colors[n], label=pts_name[m][n], depthshade=False)
+            else:
+                if len(color_channel[m][n].shape) < 2:
+                    color_channel[m][n] = color_channel[m][n][:, np.newaxis] * np.array([[1]])
+                if np.amax(color_channel[m][n], axis=0, keepdims=True)[0, 0] == np.amin(color_channel[m][n], axis=0, keepdims=True)[0, 0]:
+                    rgb_encoded = color_channel[m][n]
                 else:
-                    if np.amax(color_channel[m][n], axis=0, keepdims=True)[0, 0] == np.amin(color_channel[m][n], axis=0, keepdims=True)[0, 0]:
-                        rgb_encoded = color_channel[m][n]
-                    else:
-                        rgb_encoded = (color_channel[m][n] - np.amin(color_channel[m][n], axis=0, keepdims=True))/np.array(np.amax(color_channel[m][n], axis=0, keepdims=True) - np.amin(color_channel[m][n], axis=0, keepdims=True)+ 1e-6)
-                    if len(pts[m])==3 and n==2:
-                        p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2],  marker=all_poss[4], s=ss[n], c=rgb_encoded, label=pts_name[m][n], depthshade=False)
-                    else:
-                        p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2],  marker=all_poss[n], s=ss[n], c=rgb_encoded, label=pts_name[m][n], depthshade=False)
-                    if colorbar:
-                        fig.colorbar(p)
-        else:
-            for n in range(len(pts[m])):
-                if color_channel is None:
-                    p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2], marker=all_poss[n], s=ss[n], cmap=colors[n], depthshade=False)
+                    rgb_encoded = (color_channel[m][n] - np.amin(color_channel[m][n], axis=0, keepdims=True))/np.array(np.amax(color_channel[m][n], axis=0, keepdims=True) - np.amin(color_channel[m][n], axis=0, keepdims=True)+ 1e-6)
+                if len(pts[m])==3 and n==2:
+                    p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2],  marker=all_poss[4], s=ss[n], c=rgb_encoded, label=pts_name[m][n], depthshade=False)
                 else:
-                    # if colorbar:
-                    # rgb_encoded = color_channel[m][n]
-                    if np.amax(color_channel[m][n], axis=0, keepdims=True)[0, 0] == np.amin(color_channel[m][n], axis=0, keepdims=True)[0, 0]:
-                        rgb_encoded = color_channel[m][n]
-                    else:
-                        rgb_encoded = (color_channel[m][n] - np.amin(color_channel[m][n], axis=0, keepdims=True))/np.array(np.amax(color_channel[m][n], axis=0, keepdims=True) - np.amin(color_channel[m][n], axis=0, keepdims=True)+ 1e-6)
-                    # else:
-                    #     rgb_encoded = (color_channel[m][n] - np.amin(color_channel[m][n], axis=0, keepdims=True))/np.array(np.amax(color_channel[m][n], axis=0, keepdims=True) - np.amin(color_channel[m][n], axis=0, keepdims=True))
-                    if len(pts[m])==3 and n==2:
-                        p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2],  marker=all_poss[4], s=ss[n], c=rgb_encoded, depthshade=False)
-                    else:
-                        p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2],  marker=all_poss[n], s=ss[n], c=rgb_encoded, depthshade=False)
-                    if colorbar:
-                        # fig.colorbar(p)
-                        fig.colorbar(p, ax=ax)
+                    p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2],  marker=all_poss[n], s=ss[n], c=rgb_encoded, label=pts_name[m][n], depthshade=False)
+                if colorbar:
+                    fig.colorbar(p)
 
         ax.set_xlabel('X Label')
         ax.set_ylabel('Y Label')
@@ -435,45 +608,6 @@ def viz_voxels():
     # use openGL to visualize voxels
     pass
 
-def visualize_pointcloud(points, normals=None, title_name='0', labels=None,
-                         out_file=None, show=False):
-    r''' Visualizes point cloud data.
-
-    Args:
-        points (tensor): point data
-        normals (tensor): normal data (if existing)
-        out_file (string): output file
-        show (bool): whether the plot should be shown
-    '''
-    # Use numpy
-    points = np.asarray(points)
-    # Create plot
-    fig = plt.figure()
-    ax = fig.gca(projection=Axes3D.name)
-    if labels is not None:
-        points = points[np.where(labels>0)[0]]
-    ax.scatter(points[:, 2], points[:, 0], points[:, 1])
-    if normals is not None:
-        ax.quiver(
-            points[:, 2], points[:, 0], points[:, 1],
-            normals[:, 2], normals[:, 0], normals[:, 1],
-            length=0.1, color='k'
-        )
-    ax.set_xlabel('Z')
-    ax.set_ylabel('X')
-    ax.set_zlabel('Y')
-    ax.set_xlim(-0.5, 0.5)
-    ax.set_ylim(-0.5, 0.5)
-    ax.set_zlim(-0.5, 0.5)
-    ax.view_init(elev=30, azim=45)
-    if title_name is not None:
-        plt.title(title_name)
-    if out_file is not None:
-        plt.savefig(out_file)
-    if show:
-        plt.show()
-    plt.close(fig)
-
 def plot_scene_w_grasps(list_obj_verts, list_obj_faces, list_obj_handverts, list_obj_handfaces, plane_parameters):
     fig = plt.figure()
     fig.subplots_adjust(0.05, 0.05, 0.95, 0.95)  # get rid of margins
@@ -604,21 +738,6 @@ def set_axes_equal(ax, limits=None):
         ax.set_zlim3d([z_limits[0], z_limits[1]])
 
 def plot2d_img(imgs, title_name=None, dpi=200, cmap=None, save_fig=False, show_fig=False, save_path=None, sub_name='0'):
-    # fig     = plt.figure(dpi=dpi)
-    # step = 0
-    # heights = [50 for a in range(1)]
-    # widths = [60 for a in range(2)]
-    # cmaps = [['viridis', 'binary'], ['plasma', 'coolwarm'], ['Greens', 'copper']]
-    # fig_width = 10  # inches
-    # fig_height = fig_width * sum(heights) / sum(widths)
-    # fig,axes = plt.subplots(nrows=1, ncols=2, figsize=(fig_width, fig_height), gridspec_kw={'height_ratios':heights}, dpi=dpi) #define to be 2 rows, and 4cols.
-
-    # for i in range(1):
-    #     for j in range(2):
-    #         axes[j].imshow(imgs[j])
-    #         axes[j].axis('off')
-    # plt.subplots_adjust(top = 1, bottom = 0, right = 1, left = 0,
-    #             hspace = 0.01, wspace = 0.01)
     all_poss=['.','o','v','^']
     num     = len(imgs)
     for m in range(num):
@@ -1037,6 +1156,27 @@ def viz_err_distri(val_gt, val_pred, title_name):
         err = np.squeeze(val_gt) - np.squeeze(val_pred)
     plot_distribution(err, labelx='L2 error', labely='Frequency', title_name=title_name, dpi=160)
 
+def draw_line(ax, lines=None):
+	if lines is None:
+		x = [1,2,3]
+		y = [1,2,3]
+	else:
+		x = lines[0]
+		y = lines[1]
+
+	line = Line2D(x, y)
+	ax.add_line(line)
+	ax.set_xlim(0, max(x))
+	ax.set_ylim(0, max(y))
+#
+# def draw_circle(ax, circles=None, colors=None):
+# 	if circles is None:
+# 		circles =  [[0.2, 0.2, 0.5]]
+# 	for i, params in enumerate(circles):
+# 		x, y, r = params
+# 		circle = mpatches.Circle([x, y], r, color=colors[i]) #xy1 圆心
+# 		ax.add_patch(circle)
+# 	plt.axis('equal')
 
 if __name__=='__main__':
     import numpy as np

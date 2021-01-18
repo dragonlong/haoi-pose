@@ -8,18 +8,20 @@ defaults:
     optional: True
   - models: '${defaults.1.model_type}.yaml'
 
+eval: False
 exp_num: '1'
 exp_name: 'default'
-task: 'category_pose'
+task: 'category_pose' # hand_regression, obj_reconstruction, hand_reconstruction, contacts_vote
 name_dset: 'shape2motion'
 item: 'eyeglasses'
 n_max_parts : 4
 num_points: 2048
 nocs_type: 'A'
 num_expr: 0.01
+target_category: ''
 name_model: pointnet2_charlesmsg # Name of the specific model to load
 root_data: "/groups/CESCA-CV/ICML2021/data"
-log_dir: '/model/${item}/${exp_num}' #
+log_dir: '/model/${item}/${exp_num}'      #
 
 # control
 verbose: False
@@ -27,6 +29,7 @@ use_pretrain: False
 is_debug: False
 is_gen: False
 eval: False
+use_noisy_nocs: True
 pretrained_path: ''
 is_testing: False
 pred_hand: True
@@ -34,7 +37,7 @@ pred_joint: False
 pred_mano: False
 rot_align: False
 hand_only: False
-
+use_hand_occupancy: False
 #
 pred_joint_ind: False
 pretty_print: False

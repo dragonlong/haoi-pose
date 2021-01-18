@@ -20,7 +20,10 @@ import _init_paths
 from common.vis_utils import plot3d_pts, plot2d_img, plot_arrows, plot_arrows_list, plot_hand_w_object
 from common.data_utils import get_demo_h5, get_full_test, save_objmesh, fast_load_obj, get_obj_mesh
 from common.aligning import estimateSimilarityTransform, estimateSimilarityUmeyama
-from evaluation.gt_check import transform_pcloud
+from common.debugger import *
+from common.handutils import *
+from common.algorithms import compute_pose_ransac
+from common.d3_utils import transform_pcloud
 from global_info import global_info
 
 infos     = global_info()
@@ -36,19 +39,45 @@ mano_path    = infos.mano_path
 whole_obj = infos.whole_obj
 part_obj  = infos.part_obj
 obj_urdf  = infos.obj_urdf
+categories_id = infos.categories_id
+project_path = infos.project_path
+#>>>>>>>>>>>>>>>>>>>>>>>>>>> misc <<<<<<<<<<<<<<<<<<<<<<<<<<<< #
+def fetch_data_entry(main_exp, args):
+    if args.item == 'obman':
+        base_path = second_path + '/model'
+        test_h5_path    = base_path + f'/{args.item}/{args.exp_num}/preds/{args.domain}'
+        test_group = os.listdir(test_h5_path)
+    else:
+        if args.domain == 'demo':
+            base_path       = second_path + '/results/demo'
+            test_h5_path    = base_path + '/{}'.format(main_exp)
+            test_group      = get_demo_h5(os.listdir(test_h5_path))
+        else:
+            base_path       = second_path + '/model' # testing
+            print('---checking results from ', base_path)
+            test_h5_path    = base_path + f'/{args.item}/{args.exp_num}/preds/{args.domain}'
+            test_group      = get_full_test(os.listdir(test_h5_path), unseen_instances, domain=args.domain, spec_instances=special_ins)
+    return base_path, test_h5_path, test_group
 
-def print_group(names, values):
-    for subname, subvalue in zip(names, values):
-        print(subname, ':\n', subvalue)
-        print('')
-# np.savetxt(f'{save_path}/contact_err_{domain}.txt', contacts_err, fmt='%1.5f', delimiter='\n')
+def fetch_exp_nums(args):
+    if args.item == 'obman':
+        exp_nums = [args.exp_num]
+    else:
+        exp_nums = ['0.94', args.exp_num, '1.1']
+        # 0.94: # retrain with larger learning rate, 0.1-0.2, add center + confidence prediction after 1st epoch
+        # # regressionR(6D), regressionT, partcls loss, NOCS loss, hand vertices, joints loss, using L1 loss
+    return exp_nums
 
-def compose_rt(rotation, translation):
-    aligned_RT = np.zeros((4, 4), dtype=np.float32)
-    aligned_RT[:3, :3] = rotation.transpose()
-    aligned_RT[:3, 3]  = translation
-    aligned_RT[3, 3]   = 1
-    return aligned_RT
+def split_basename(basename, args):
+    if args.item == 'obman':
+        try:
+            frame_order, instance, art_index, grasp_ind  = basename.split('_')[0:3] + ['0']
+        except:
+            instance, art_index, grasp_ind, frame_order = '0', '0', '0', basename
+    else:
+        instance, art_index, grasp_ind, frame_order = basename.split('_')[0:4]
+
+    return instance, art_index, grasp_ind, frame_order
 
 def get_parts_ind(hf, num_parts=4, gt_key='partcls_per_point_gt', pred_key='partcls_per_point_pred', verbose=False):
     mask_gt        =  hf[gt_key][()]
@@ -76,131 +105,23 @@ def get_parts_pcloud(hf, part_idx_list_gt, part_idx_list_pred, num_parts=4, verb
     pred_parts= [input_pts[part_idx_list_gt[j], :3] for j in range(num_parts)]
     input_pts = input_pts[:, :3]
     if verbose:
-        plot3d_pts([[input_pts]], [['input']], s=3**2, title_name=['inputs'], sub_name=str(i), axis_off=True, save_fig=args.save_fig, save_path=root_dset + '/NOCS/' + args.item)
-        plot3d_pts([gt_parts], [['Part {}'.format(j) for j in range(num_parts)]], s=3**2, title_name=['GT seg'], sub_name=str(i),  axis_off=True, save_fig=args.save_fig, save_path=root_dset + '/NOCS/' + args.item)
-        plot3d_pts([gt_parts[:3]], [['Part {}'.format(j) for j in range(3)]], s=3**2, title_name=['GT object'], sub_name=str(i),  axis_off=True, save_fig=args.save_fig, save_path=root_dset + '/NOCS/' + args.item)
-        plot3d_pts([pred_parts], [['Part {}'.format(j) for j in range(num_parts)]], s=3**2, title_name=['Pred seg'], sub_name=str(i), axis_off=False, save_fig=args.save_fig, save_path=root_dset + '/NOCS/' + args.item)
+        plot3d_pts([[input_pts]], [['pts']], s=2**2, title_name=['inputs'], sub_name=str(i), axis_off=False, save_fig=args.save_fig, save_path=root_dset + '/NOCS/' + args.item)
+        plot3d_pts([gt_parts], [['Part {}'.format(j) for j in range(num_parts)]], s=2**2, title_name=['GT seg'], sub_name=str(i),  axis_off=True, save_fig=args.save_fig, save_path=root_dset + '/NOCS/' + args.item)
+        # plot3d_pts([gt_parts[:3]], [['Part {}'.format(j) for j in range(3)]], s=2**2, title_name=['GT object'], sub_name=str(i),  axis_off=True, save_fig=args.save_fig, save_path=root_dset + '/NOCS/' + args.item)
+        plot3d_pts([pred_parts], [['Part {}'.format(j) for j in range(num_parts)]], s=2**2, title_name=['Pred seg'], sub_name=str(i), axis_off=False, save_fig=args.save_fig, save_path=root_dset + '/NOCS/' + args.item)
 
     return input_pts, gt_parts, pred_parts
 
-def get_hand_mesh_canonical(hf, verbose=False):
-    mano_layer_right = ManoLayer(
-            mano_root=mano_path , side='right', root_rot_mode='ratation_6d', use_pca=False, ncomps=45, flat_hand_mean=True)
-    hand_joints_gt   = hf['handjoints_gt'][()].reshape(-1, 3)
-    hand_joints_pred = hf['handjoints_pred'][()].reshape(-1, 3)
-    hand_verts_gt    = hf['handvertices_gt'][()].reshape(-1, 3)
-    hand_verts_pred  = hf['handvertices_pred'][()].reshape(-1, 3)
-    hand_params_gt   = hf['regression_params_gt'][()].reshape(1, -1)
-    hand_params_pred = hf['regression_params_pred'][()].reshape(1, -1)
-    if hand_params_pred.shape[0] < 51:
-        hand_rotation = hf['regressionR_pred'][()]
-        rot_in_6d   = hand_rotation[:, :2].T.reshape(1, -1)
-        hand_params_pred  = np.asarray(np.concatenate([rot_in_6d, hand_params_pred.reshape(1, -1)], axis=1)).reshape(1, -1)#
-
-    scale = 200
-    verts = []
-    faces = []
-    joints= []
-
-    if verbose:
-        for hand_params in [hand_params_gt, hand_params_pred]:
-            hand_vertices, hand_joints = mano_layer_right.forward(th_pose_coeffs=torch.FloatTensor(hand_params))
-            hand_joints = hand_joints.cpu().data.numpy()[0]/scale
-            hand_vertices = hand_vertices.cpu().data.numpy()[0]/scale
-            hand_faces = mano_layer_right.th_faces.cpu().data.numpy()
-            verts.append(hand_vertices)
-            faces.append(hand_faces)
-            joints.append(hand_joints)
-    else:
-        verts = [hand_verts_gt, hand_verts_pred]
-        joints= [hand_joints_gt, hand_joints_pred]
-    if verbose:
-        # compute GT joint error, and GT vertices error
-        plot_hand_w_object(obj_verts=verts[0], obj_faces=faces[0], hand_verts=verts[1], hand_faces=faces[1], s=5**2, save=False)
-
-    return verts, faces, joints
-
-def get_hand_mesh_camera(verts_canon, faces_canon, joints_canon, hand_trans, verbose=False):
-    verts, faces, joints = [], [], []
-    for j in range(2):
-        verts.append(verts_canon[j] + hand_trans[j])
-        joints.append(joints_canon[j] + hand_trans[j])
-    faces = faces_canon
-    if verbose:
-        plot_hand_w_object(obj_verts=verts[0], obj_faces=faces[0], hand_verts=verts[1], hand_faces=faces[1], s=5**2, mode='continuous', save=False)
-
-    return verts, faces, joints
-
-def vote_hand_joints_cam(hf, input_pts, part_idx_list_gt, verbose=False):
-    hand_heatmap_gt     = hf['handheatmap_per_point_gt'][()].transpose(1, 0)
-    hand_unitvec_gt     = hf['handunitvec_per_point_gt'][()].transpose(1, 0) # todo
-    hand_heatmap_pred   = hf['handheatmap_per_point_pred'][()].transpose(1, 0)
-    hand_unitvec_pred   = hf['handunitvec_per_point_pred'][()].transpose(1, 0)
-    thres_r             = 0.2
-    thres_var           = 0.05
-    results = {'vote': [], 'divergence': [], 'regression':None, 'final': []}
-    for j in range(21):
-        offset_gt    = hand_unitvec_gt[:, 3*j:3*(j+1)]   * (1- hand_heatmap_gt[:, j:j+1].reshape(-1, 1)) * thres_r
-        offset_pred  = hand_unitvec_pred[:, 3*j:3*(j+1)] * (1- hand_heatmap_pred[:, j:j+1].reshape(-1, 1)) * thres_r
-
-        idx = part_idx_list_gt[3]
-        ind_vote = np.where(hand_heatmap_gt[idx, j:j+1] > 0.01)[0]
-        if len(ind_vote) ==0:
-            results['vote'].append(np.array([0, 0, 0]).reshape(1, 3))
-            results['divergence'].append(1)
-            continue
-        joint_votes      = input_pts[idx][ind_vote] + offset_pred[idx][ind_vote]
-        vote_var         = np.sum(np.var(joint_votes, axis=0)) # N, 3
-        joint_voted      = np.mean(joint_votes, axis=0).reshape(1, 3)
-        results['vote'].append(joint_voted)
-        results['divergence'].append(vote_var)
-        print(f'Joint {j} GT: \n', offset_gt[idx][ind_vote])
-        print('')
-        print(f'Joint {j} pred: \n', offset_pred[idx][ind_vote])
-        if verbose:
-            plot_arrows(input_pts[idx][ind_vote], [offset_gt[idx][ind_vote], offset_pred[idx][ind_vote]], whole_pts=input_pts, title_name='{}th_joint_voting'.format(j), limits = [[-0.5, 0.5], [-0.5, 0.5], [0.5, 1.5]], dpi=200, s=25, thres_r=0.2, sparse=True, save=args.save_fig, index=i)
-
-    return results
-
-def get_hand_regression_camera(hf, input_pts, verbose=False):
-    hand_joints_gt   = hf['regression_params_gt'][()].reshape(-1, 3)
-    hand_joints_pred = hf['regression_params_pred'][()].reshape(-1, 3)
-    print('')
-    joints = [hand_joints_gt, hand_joints_pred]
-    if verbose:
-        print('hand_joints_gt: \n', hand_joints_gt)
-        print('hand_joints_pred: \n', hand_joints_pred)
-        print('---hand_joints regression error: \n', np.linalg.norm(hand_joints_pred-hand_joints_gt, axis=1))
-        plot3d_pts([[input_pts, hand_joints_gt, hand_joints_pred]], [['Input pts', 'GT joints', 'Pred joints']], s=8**2, title_name=['Direct joint regression'], limits = [[-0.5, 0.5], [-0.5, 0.5], [-0.5, 0.5]])
-#
-def get_hand_trans2camera(hf, basename, joints_canon, extra_hf=None, category='eyeglasses', verbose=False):
-    #>>>>>>>>>>>>>>>>>>>> get gt
-    if extra_hf is not None:
-        hand_trans_gt = extra_hf['regressionT_gt'][()] + extra_hf['mean_hand_gt'][()]
-        hand_trans_pred = extra_hf['regressionT_pred'][()] + extra_hf['mean_hand_gt'][()]
-    else:
-        if 'hand_joints_gt' in list(hf.keys()):
-            hand_joints   = hf['hand_joints_gt'][()]
-            hand_contacts = hf['hand_contacts_gt'][()]
-        else:
-            h5_file = f'{second_path}/data/hdf5/{category}/{basename[:-2]}/{basename[-1]}.h5'
-            with h5py.File(h5_file, 'r') as handle:
-                hand_joints   = handle['joints'][()]
-                hand_contacts = handle['contacts'][()]
-        hand_trans_gt = np.mean(hand_joints - joints_canon[0], axis=0).reshape(1, 3) # use GT joints
-        hand_trans_pred = hand_trans_gt
-
-    return [hand_trans_gt, hand_trans_pred]
-
 def get_parts_nocs(hf, part_idx_list_gt, part_idx_list_pred, nocs='part', num_parts=4, verbose=False):
-    nocs_err = []
+    nocs_err   = []
     scale_list = []
-    rt_list  = []
+    rt_list    = []
     nocs_gt        =  {}
     nocs_pred      =  {}
     nocs_gt['pn']  =  hf['nocs_per_point_gt'][()].transpose(1, 0)
     nocs_pred['pn']=  hf['nocs_per_point_pred'][()].transpose(1, 0)
-    for j in range(num_parts-1):
+    for j in range(0, num_parts):
+    # for j in range(num_parts-1):
         if nocs == 'part':
             a = nocs_gt['pn'][part_idx_list_gt[j], :]
             b1 = nocs_pred['pn'][part_idx_list_pred[j], 3*j:3*(j+1)]
@@ -211,17 +132,20 @@ def get_parts_nocs(hf, part_idx_list_gt, part_idx_list_pred, nocs='part', num_pa
                 b = nocs_pred['gn'][part_idx_list_gt[j], :3]
             else:
                 b = nocs_pred['gn'][part_idx_list_gt[j], 3*j:3*(j+1)]
-        c = input_pts[part_idx_list_gt[j], :]
-        c1 = input_pts[part_idx_list_pred[j], :]
+
+        c = input_pts[part_idx_list_gt[j], :] # point cloud
+        c1 = input_pts[part_idx_list_pred[j], :] # pred
         nocs_err.append(np.mean(np.linalg.norm(a - b, axis=1)))
         print('')
-        if verbose:
-            print(f'Part {j} GT nocs: \n', b)
+        if verbose and j!=0:
+            print(f'Part {j} mean nocs error: {nocs_err[-1]}')
+            print(f'Part {j} GT nocs: \n', a)
             print(f'Part {j} Pred nocs: \n', b)
-            plot3d_pts([[a, b]], [['GT part {}'.format(j), 'Pred part {}'.format(j)]], s=5**2, title_name=['NPCS comparison'], limits = [[0, 1], [0, 1], [0, 1]])
-            plot3d_pts([[a], [a]], [['Part {}'.format(j)], ['Part {}'.format(j)]], s=5**2, title_name=['GT NPCS', 'Pred NPCS'], color_channel=[[a], [b]], save_fig=True, limits = [[0, 1], [0, 1], [0, 1]], sub_name='{}'.format(j))
-            plot3d_pts([[a]], [['Part {}'.format(j)]], s=5**2, title_name=['NOCS Error'], color_channel=[[np.linalg.norm(a - b, axis=1)]], limits = [[0, 1], [0, 1], [0, 1]], colorbar=True)
-            plot3d_pts([[a], [c]], [['Part {}'.format(j)], ['Part {}'.format(j)]], s=5**2, title_name=['GT NOCS', 'point cloud'],limits = [[-0.5, 0.5], [-0.5, 0.5], [0.5, 1.5]], color_channel=[[a], [a]], save_fig=True, sub_name='{}'.format(j))
+            # plot3d_pts([[a],[b]], [['part {}'.format(j)], ['part {}'.format(j)]], s=5, title_name=['GT', 'Pred'], limits = [[0, 1], [0, 1], [0, 1]])
+            plot3d_pts([[a], [a]], [['Part {}'.format(j)], ['Part {}'.format(j)]], s=5, title_name=['GT NPCS', 'Pred NPCS'], color_channel=[[a], [b]], save_fig=True, limits = [[0, 1], [0, 1], [0, 1]], sub_name='{}'.format(j))
+            plot3d_pts([[a]], [['Part {}'.format(j)]], s=5, title_name=['NOCS Error'], color_channel=[[np.linalg.norm(a - b, axis=1)]], limits = [[0, 1], [0, 1], [0, 1]], colorbar=True)
+            plot3d_pts([[a], [b]], [['Part {}'.format(j)], ['Part {}'.format(j)]], s=5, title_name=['GT NPCS', 'Pred NPCS'], color_channel=[[a], [a]], save_fig=True, limits = [[0, 1], [0, 1], [0, 1]], sub_name='{}'.format(j))
+            # plot3d_pts([[a], [c]], [['Part {}'.format(j)], ['Part {}'.format(j)]], s=5, title_name=['GT NOCS', 'point cloud'],limits = [[-0.5, 0.5], [-0.5, 0.5], [-0.5, 1.5]], color_channel=[[a], [a]], save_fig=True, sub_name='{}'.format(j))
         # s, r, t, rt = estimateSimilarityUmeyama(a.transpose(), c.transpose())
         # rt_list.append(compose_rt(r, t))
         # scale_list.append(s)
@@ -233,98 +157,8 @@ def get_parts_nocs(hf, part_idx_list_gt, part_idx_list_pred, nocs='part', num_pa
     #     plot3d_pts([[d, c]], [['Part {} align'.format(j), 'Part {} cloud'.format(j)]], s=15, title_name=['estimation viz'], color_channel=[[a, a]], save_fig=True, sub_name='{}'.format(j))
     return nocs_gt, nocs_pred
 
-def get_object_pose(hf, basename, nocs_list, pts_list):
-    RTS=[]
-
-    return RTS
-
-def get_contacts_camera_raw(hf, basename=None, category='eyeglasses', verbose=False):
-    #>>>>>>>>>>>>>>>>>>>> get gt
-    if 'hand_contacts_gt' in list(hf.keys()):
-        hand_contacts = hf['hand_contacts_gt'][()]
-    else:
-        h5_file = f'{second_path}/data/hdf5/{category}/{basename[:-2]}/{basename[-1]}.h5'
-        with h5py.File(h5_file, 'r') as handle:
-            hand_contacts = handle['contacts'][()]
-
-    return [hand_contacts, hand_contacts]
-
-def get_contacts_camera(hf, basename, verbose=False):
-    # box_label_mask_gt (64,)
-    # center_label_gt (64, 3)
-    # center_pred: 128, 3
-    # object_assignment_pred (128,)
-    # objectness_label_pred (128,)
-    # objectness_mask_pred (128,)
-    # objectness_scores_pred (128, 2)
-    coords = hf['center_label_gt'][()]
-    mask   = hf['box_label_mask_gt'][()]
-    coords_gt = coords[np.where(mask>0)[0], :]
-
-    coords =  hf['center_pred'][()]
-    mask   =  hf['objectness_label_pred'][()]
-    confidence = hf['center_confidence_pred'][()]
-    scores = F.softmax(torch.FloatTensor(hf['objectness_scores_pred'][()]), dim=1).cpu().numpy()
-
-    # >>>>>>>>>>>>> check confidence distribution
-    valid_inds = np.where(scores[:, 1]>0.8)[0]
-    # valid_ind = scores[:, 1].argsort()[-10:][::-1]
-    # valid_ind   = confidence[valid_inds].argsort()[-5:][::-1]
-    coords_pred = coords[valid_inds, :]
-
-    gt_color = np.ones_like(coords_gt)
-    gt_color[:, 0:2] = 0 # Blue
-    pred_color = np.ones_like(coords_pred)
-    pred_color[:, 1:3] = 0 # Red
-    objectness_color = np.copy(pred_color) * scores[valid_inds, 1].reshape(-1, 1)
-    confidence_color = np.copy(pred_color) * confidence[valid_inds].reshape(-1, 1)
-
-    # >>>>>>>>>>>>>>>> NMS
-    coords_final = np.copy(coords_gt)
-    coords_idx  = []
-    for j in range(coords_gt.shape[0]):
-        idx = np.where(np.linalg.norm(coords_pred - coords_gt[j:j+1, :], axis=1)<0.1)[0]
-        if len(idx) > 0:
-            choose_id       = confidence[valid_inds][idx].argsort()[-1]
-            coords_final[j] = coords_pred[idx, :][choose_id]
-            coords_idx.append(idx[choose_id])
-
-    if verbose:
-        print(confidence[valid_inds])
-        print(confidence[valid_inds][coords_idx[:]])
-        confidence_color_final = confidence_color[coords_idx[:]]
-        coords_pred_final = coords_pred[coords_idx[:], :]
-        plot3d_pts([[coords_gt], [coords_gt, coords_pred]], [['GT'], ['GT', 'Pred']], s=[10**2, 5**2, 5**2], mode='continuous', dpi=200, title_name=['contact pts', 'Objectness'], color_channel=[[gt_color], [gt_color, objectness_color]])
-        plot3d_pts([[coords_gt], [coords_gt, coords_pred]], [['GT'], ['GT', 'Pred']], s=[10**2, 5**2, 5**2], mode='continuous', dpi=200, title_name=['contact pts', 'Confidence'], color_channel=[[gt_color], [gt_color, confidence_color]])
-        plot3d_pts([[coords_gt], [coords_gt, coords_pred_final]], [['GT'], ['GT', 'Pred']], s=[10**2, 5**2, 5**2], mode='continuous', dpi=200, title_name=['contact pts', 'Final'], color_channel=[[gt_color], [gt_color, confidence_color_final]])
-
-    return [coords_gt, coords_final], [coords_gt.shape[0], len(coords_idx)]
-
-def get_contacts_vote(hf, basename, input_pts, verbose=False):
-    # vote_label_gt (2048, 9)
-    # vote_label_mask_gt (2048,)
-    # vote_xyz_pred (1024, 3)
-    # seed_xyz_pred (1024, 3)
-    # seed_inds_pred (1024)
-    offset_gt = hf['vote_label_gt'][()][:, :3]
-    mask      = hf['vote_label_mask_gt'][()]
-    idx       = np.where(mask>0)[0]
-    ind_vote  = hf['seed_inds_pred'][()]
-    offset_pred =  hf['vote_xyz_pred'][()][:, :3] - hf['seed_xyz_pred'][()][:, :3]
-    if verbose:
-        plot_arrows(input_pts[ind_vote], [offset_gt[ind_vote], offset_pred], whole_pts=input_pts, title_name='contact voting', dpi=200, s=1, thres_r=0.2, sparse=True)
-
 def plot_hand_skeleton(hand_joints):
     pass
-
-def breakpoint():
-    import pdb;pdb.set_trace()
-
-def check_h5_keys(hf, verbose=False):
-    print('')
-    if verbose:
-        for key in list(hf.keys()):
-            print(key, hf[key][()].shape)
 
 def get_pca_stuff(second_path):
     pca_hand = np.load(second_path + f'/data/pickle/hand_pca.npy',allow_pickle=True).item()
@@ -345,6 +179,36 @@ def eval_contacts(domain, contacts_stat, save_path):
     np.savetxt(f'{save_path}/contact_err_{domain}.txt', contacts_err, fmt='%1.5f', delimiter='\n')
 
     print(f'>>>>>>>>>>>>>   {domain}    <<<<<<<<<<<< \n contacts_stat:\n contacts_err: {contacts_err}\n mean_contacts_err: {mean_contacts_err}\n contacts_miou:{contacts_miou}\n')
+
+def save_pose_pred(all_rts, filename):
+    print('saving to ', file_name)
+    with open(file_name, 'wb') as f:
+        pickle.dump(all_rts, f)
+
+    for j in range(num_parts):
+        print('mean rotation err of part {}: \n'.format(j), 'baseline: {}'.format(np.array(r_raw_err['baseline'][j]).mean()))
+        print('mean translation err of part {}: \n'.format(j), 'baseline: {}'.format(np.array(t_raw_err['baseline'][j]).mean()))
+
+def prepare_pose_eval(save_exp, args):
+    file_name       = my_dir + '/results/test_pred/{}/{}_{}_{}_rt_pn_general.pkl'.format(args.item, save_exp, args.domain, args.nocs)
+    save_path       = my_dir + '/results/test_pred/{}/'.format(args.item)
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+    all_rts   = {}
+    mean_err  = {'baseline': [], 'nonlinear': []}
+    if num_parts   == 2:
+        r_raw_err   = {'baseline': [[], []], 'nonlinear': [[], []]}
+        t_raw_err   = {'baseline': [[], []], 'nonlinear': [[], []]}
+        s_raw_err   = {'baseline': [[], []], 'nonlinear': [[], []]}
+    elif num_parts == 3:
+        r_raw_err   = {'baseline': [[], [], []], 'nonlinear': [[], [], []]}
+        t_raw_err   = {'baseline': [[], [], []], 'nonlinear': [[], [], []]}
+        s_raw_err   = {'baseline': [[], [], []], 'nonlinear': [[], [], []]}
+    elif num_parts == 4:
+        r_raw_err   = {'baseline': [[], [], [], []], 'nonlinear': [[], [], [], []]}
+        t_raw_err   = {'baseline': [[], [], [], []], 'nonlinear': [[], [], [], []]}
+        s_raw_err   = {'baseline': [[], [], [], []], 'nonlinear': [[], [], [], []]}
+    return all_rts, file_name, mean_err, r_raw_err, t_raw_err, s_raw_err
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -372,16 +236,7 @@ if __name__ == '__main__':
     special_ins     = dset_info.spec_list
     main_exp        = args.exp_num
     root_dset       = second_path + '/data'
-
-    if args.domain == 'demo':
-        base_path       = second_path + '/results/demo'
-        test_h5_path    = base_path + '/{}'.format(main_exp)
-        test_group      = get_demo_h5(os.listdir(test_h5_path))
-    else:
-        base_path       = second_path + '/model' # testing
-        print('---checking results from ', base_path)
-        test_h5_path    = base_path + f'/{args.item}/{args.exp_num}/preds/{args.domain}'
-        test_group      = get_full_test(os.listdir(test_h5_path), unseen_instances, domain=args.domain, spec_instances=special_ins)
+    base_path, test_h5_path, test_group = fetch_data_entry(main_exp, args)
 
     print('---we have {} testing data for {} {}'.format(len(test_group), args.domain, args.item))
 
@@ -393,15 +248,24 @@ if __name__ == '__main__':
     start_time = time.time()
     error_all = []
     contacts_stat = {'gt': [], 'pred': [], 'gt_cnt': 0, 'pred_cnt': 0}
-    exp_nums = ['0.94', args.exp_num, '1.1'] # contacts, mano, translation
+
+    exp_nums = fetch_exp_nums(args) # contacts, mano, translation
+    all_rts, file_name, mean_err, r_raw_err, t_raw_err, s_raw_err = prepare_pose_eval(main_exp, args)
+
+    # get_val_dataset():
+    cache_folder = os.path.join(project_path, "haoi-pose/dataset/data", "cache", 'obman')
+    cache_path = os.path.join(cache_folder, "{}_{}_mode_{}.pkl".format('train', '1.0', 'all'))
+    with open(cache_path, "rb") as cache_f:
+        annotations = pickle.load(cache_f)
+    meta_infos = annotations["meta_infos"]
+    bp()
     for i in range(len(test_group)):
+    # for i in range(10):
         h5_files   = []
         hf_list    = []
         h5_file    =  test_h5_path + '/' + test_group[i]
-        h5_files.append( h5_file.replace(args.exp_num, exp_nums[0]))
-        h5_files.append( h5_file.replace(args.exp_num, exp_nums[1]))
-        h5_files.append( h5_file.replace(args.exp_num, exp_nums[2]))
-
+        for sub_exp in exp_nums:
+            h5_files.append( h5_file.replace(args.exp_num, sub_exp))
         print('')
         print('----------Now checking {}: {}'.format(i, h5_file))
         for h5_file in h5_files:
@@ -410,13 +274,27 @@ if __name__ == '__main__':
             check_h5_keys(hf, verbose=args.verbose)
             hf_list.append(hf)
 
+        hf = hf_list[0]
+        basename       =  hf.attrs['basename']
+        # 1. get pts and gt contacts
+        instance, art_index, grasp_ind, frame_order = split_basename(basename, args)
+        part_idx_list_gt, part_idx_list_pred = get_parts_ind(hf, num_parts=num_parts)
+        print('---get_parts_pcloud')
+        input_pts, gt_parts, pred_parts      = get_parts_pcloud(hf, part_idx_list_gt, part_idx_list_pred, num_parts=num_parts, verbose=False)
+
+        #>>>>>>>>>>>>>>>>>>>>>>>>>>>>> optional <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<#
+        print('---get_parts_nocs')
+        nocs_gt, nocs_pred                   = get_parts_nocs(hf, part_idx_list_gt, part_idx_list_pred, num_parts=num_parts, verbose=False)
+        # nocs_noisy = nocs_gt['pn'] + np.random.rand(nocs_gt['pn'].shape[0], 3) * 1.0
+        # nocs_noisy = np.concatenate([nocs_noisy, nocs_noisy], axis=1)
+        try:
+            rts_dict = compute_pose_ransac(nocs_gt['pn'], nocs_pred['pn'], input_pts, part_idx_list_pred, num_parts, basename, r_raw_err, t_raw_err, s_raw_err, partidx_gt=part_idx_list_gt, align_sym=False)
+            # rts_dict = compute_pose_ransac(nocs_gt['pn'], nocs_pred['pn'], input_pts, part_idx_list_pred, num_parts, basename, r_raw_err, t_raw_err, s_raw_err, partidx_gt=part_idx_list_gt)
+            all_rts[basename]  = rts_dict
+        except:
+            continue
+        ############################## optional ends here #######################
         if args.contact:
-            hf = hf_list[0]
-            basename       =  hf.attrs['basename']
-            # 1. get pts and gt contacts
-            instance, art_index, grasp_ind, frame_order = basename.split('_')[0:4]
-            part_idx_list_gt, part_idx_list_pred = get_parts_ind(hf, num_parts=4)
-            input_pts, gt_parts, pred_parts      = get_parts_pcloud(hf, part_idx_list_gt, part_idx_list_pred, num_parts=4, verbose=False)
             contact_pts, contacts_num = get_contacts_camera(hf, basename, verbose=args.verbose)
             add_contacts_evaluation(contacts_stat, contact_pts, contacts_num)
             if args.verbose:
@@ -425,16 +303,16 @@ if __name__ == '__main__':
             # 2. check gt vote offset
             get_contacts_vote(hf, basename, input_pts, verbose=args.verbose)
 
-            # combined visualization
-            if args.viz:
-                plt.show()
-                plt.close()
+        # combined visualization
+        if args.viz:
+            plt.show()
+            plt.close()
 
-        hf = hf_list[1]
-        instance, art_index, grasp_ind, frame_order = basename.split('_')[0:4]
-        part_idx_list_gt, part_idx_list_pred = get_parts_ind(hf, num_parts=4)
-        input_pts, gt_parts, pred_parts      = get_parts_pcloud(hf, part_idx_list_gt, part_idx_list_pred, num_parts=4, verbose=False)
-        nocs_gt, nocs_pred                   = get_parts_nocs(hf, part_idx_list_gt, part_idx_list_pred, num_parts=4, verbose=False)
+    #     hf = hf_list[1]
+    #     instance, art_index, grasp_ind, frame_order = basename.split('_')[0:4]
+    #     part_idx_list_gt, part_idx_list_pred = get_parts_ind(hf, num_parts=4)
+    #     input_pts, gt_parts, pred_parts      = get_parts_pcloud(hf, part_idx_list_gt, part_idx_list_pred, num_parts=4, verbose=False)
+    #     nocs_gt, nocs_pred                   = get_parts_nocs(hf, part_idx_list_gt, part_idx_list_pred, num_parts=4, verbose=False)
 
         if args.hand:
             if args.vote:
@@ -490,5 +368,29 @@ if __name__ == '__main__':
         print('experiment: ', args.exp_num)
         for j, err in enumerate(error_norm):
             print(err)
+
+    print('saving to ', file_name)
+    with open(file_name, 'wb') as f:
+        pickle.dump(all_rts, f)
+
+    # evaluate per category as well
+    xyz_err_dict = {}
+    rpy_err_dict = {}
+    for key, value_dict in all_rts.items():
+        category_name = key.split('_')[-1]
+        if category_name not in xyz_err_dict:
+            xyz_err_dict[category_name] = []
+            rpy_err_dict[category_name] = []
+        rpy_err_dict[category_name].append(value_dict['rpy_err']['baseline'])
+        xyz_err_dict[category_name].append(value_dict['xyz_err']['baseline'])
+
+    # in total
+    for j in range(1, num_parts):
+        print('mean rotation err of part {}: \n'.format(j), 'baseline: {}'.format(np.array(r_raw_err['baseline'][j]).mean()))
+        print('mean translation err of part {}: \n'.format(j), 'baseline: {}'.format(np.array(t_raw_err['baseline'][j]).mean()))
+    all_categorys = xyz_err_dict.keys()
+    print('category\trotation error\ttranslation error')
+    for category in all_categorys:
+        print(f'{categories_id[category]}\t{np.array(rpy_err_dict[category]).mean():0.4f}\t{np.array(xyz_err_dict[category]).mean():0.4f}')
     end_time = time.time()
     print(f'---it takes {end_time-start_time} seconds')

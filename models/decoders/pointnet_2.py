@@ -48,7 +48,7 @@ import kaolin.cuda.ball_query
 import kaolin.cuda.furthest_point_sampling
 import kaolin.cuda.three_nn
 
-def breakpoint():
+def bp():
     import pdb;pdb.set_trace()
 
 class PointNet2Segmenter(nn.Module):
@@ -211,7 +211,7 @@ class PointNet2Segmenter(nn.Module):
                 nn.BatchNorm1d(128) if batchnorm else None,
                 nn.ReLU(),
                 nn.Dropout(0.5),
-                nn.Conv1d(128, num_classes, 1)
+                # nn.Conv1d(128, num_classes, 1) # commented by XL, 1.17, 2021
             ] if module is not None
         ]
         self.final_layers = nn.Sequential(*final_layer_modules)
@@ -247,12 +247,8 @@ class PointNet2Segmenter(nn.Module):
                 features_list[target_index + 1])
 
             target_index -= 1
-        return features_list[0], bottle_neck
-        # breakpoint()
-        # return (self.final_layers(features_list[0])
-        #         .transpose(1, 2)
-        #         .contiguous(), bottle_neck)
-
+        # return features_list[0], bottle_neck
+        return self.final_layers(features_list[0]), bottle_neck
 
 class PointNetFeatureExtractor(nn.Module):
     r"""PointNet feature extractor (extracts either global or local, i.e.,

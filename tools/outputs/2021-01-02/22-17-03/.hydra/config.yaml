@@ -1,0 +1,154 @@
+eval: false
+debug: false
+method: conv_onet
+oracle_nocs: false
+use_noisy_nocs: true
+use_category_code: false
+use_transform_hand: false
+task: obj_reconstruction
+target_category: ''
+exp_num: default
+exp_name: default
+name_dset: obman
+item: obman
+n_max_parts: 4
+num_points: 1024
+num_expr: 0.01
+learning_rate: 0.0001
+name_model: pointnet2_charlesmsg
+root_data: /groups/CESCA-CV/ICML2021/data
+log_dir: /model/${item}/${exp_num}
+data:
+  dataset: Shapes3D
+  path: /groups/CESCA-CV/external/output/ShapeNet
+  watertight_path: data/watertight
+  classes: null
+  input_type: partial_pointcloud
+  train_split: train
+  val_split: val
+  test_split: test
+  dim: 3
+  points_file: points.npz
+  points_iou_file: points.npz
+  multi_files: null
+  points_subsample: 2048
+  points_unpackbits: true
+  model_file: model.off
+  watertight_file: model_watertight.off
+  img_folder: img
+  img_size: 224
+  img_with_camera: false
+  img_augment: false
+  unit_size: 0.005
+  n_views: 24
+  pointcloud_file: pointcloud.npz
+  pointcloud_chamfer_file: pointcloud.npz
+  pointcloud_n: 1024
+  pointcloud_target_n: 1024
+  pointcloud_noise: 0.005
+  voxels_file: null
+  padding: 0.1
+model:
+  decoder: simple_local
+  encoder: pointnet_local_pool
+  decoder_kwargs:
+    sample_mode: bilinear
+    hidden_size: 32
+  encoder_kwargs:
+    hidden_dim: 32
+    plane_type:
+    - xz
+    - xy
+    - yz
+    plane_resolution: 64
+    unet: true
+    unet_kwargs:
+      depth: 4
+      merge_mode: concat
+      start_filts: 32
+  multi_gpu: false
+  c_dim: 32
+  num_occ_heads: 1
+training:
+  out_dir: out/pointcloud/obman_nocs_volume
+  batch_size: 64
+  print_every: 100
+  visualize_every: 20000
+  checkpoint_every: 10000
+  validate_every: 10000
+  backup_every: 10000
+  eval_sample: false
+  model_selection_metric: iou
+  model_selection_mode: maximize
+  n_workers: 8
+  n_workers_val: 8
+test:
+  category_id: 0
+  threshold: 0.2
+  eval_mesh: true
+  eval_pointcloud: false
+  remove_wall: false
+  model_file: model_best.pt
+generation:
+  batch_size: 100000
+  refinement_step: 0
+  vis_n_outputs: 2
+  generate_mesh: true
+  generate_pointcloud: true
+  generation_dir: generation
+  use_sampling: false
+  resolution_0: 32
+  upsampling_steps: 2
+  simplify_nfaces: null
+  copy_groundtruth: false
+  copy_input: true
+  latent_number: 4
+  latent_H: 8
+  latent_W: 8
+  latent_ny: 2
+  latent_nx: 2
+  latent_repeat: true
+  sliding_window: false
+  refine: false
+  n_x: 128
+  n_z: 1
+no_cuda: false
+DATASET:
+  train_datasets: obman
+  mini_factor: 1.0
+  sides: left
+  mode: all
+  fhbhands_split_type: subjects
+  fhbhands_split_choice:
+  - juice_bottle
+  - salt
+  - milk
+  - liquid_soap
+  - None
+  fhbhands_filter_object:
+  - juice_bottle
+  - salt
+  - milk
+  - liquid_soap
+  - None
+  fhbhands_topology:
+  - None
+  - '0'
+  - '1'
+  synthgrasp_class_ids: +
+  override_scale: false
+  train_splits:
+  - train
+  limit_size: 100
+  val_datasets: obman
+  val_splits:
+  - valid
+  controlled_exp: false
+  controlled_size: 60000
+  synthgrasps_segment: false
+  center_idx: 0
+  mano_lambda_joints2d: false
+  atlas_points_nb: 1024
+  workers: 8
+  train_batch: 32
+  test_batch: 16

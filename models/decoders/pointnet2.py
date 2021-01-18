@@ -11,8 +11,8 @@ from kaolin.models.PointNet2 import three_nn
 from kaolin.models.PointNet2 import three_interpolate
 
 import __init__
-from modules.layers import Identity
-from modules.blocks import GlobalDenseBaseModule, PointNetMSGDown, DenseFPModule, is_list
+from models.layers import Identity
+from models.blocks import GlobalDenseBaseModule, PointNetMSGDown, DenseFPModule, is_list
 
 SPECIAL_NAMES = ["radius", "max_num_neighbors", "block_names"]
 
@@ -66,23 +66,23 @@ class PointBaseModel(nn.Module):
                 for inner_opt in args_innermost:
                     inner_layer = GlobalDenseBaseModule(**inner_opt)
                     layers.append(inner_layer)
-                self.inner_modules.append(nn.Sequential(*layers))
+                self.inner_models.append(nn.Sequential(*layers))
             else:
-                self.inner_modules.append(GlobalDenseBaseModule(**args_innermost))
+                self.inner_models.append(GlobalDenseBaseModule(**args_innermost))
         else:
-            self.inner_modules.append(Identity())
+            self.inner_models.append(Identity())
 
         # Down modules
         for i in range(len(opt.down_conv.down_conv_nn)):
             args = self._fetch_arguments(opt.down_conv, i, "DOWN")
             down_module = PointNetMSGDown(**args)
-            self.down_modules.append(down_module)
+            self.down_models.append(down_module)
 
         # Up modules
         for i in range(len(opt.up_conv.up_conv_nn)):
             args = self._fetch_arguments(opt.up_conv, i, "UP")
             up_module = DenseFPModule(**args)
-            self.up_modules.append(up_module)
+            self.up_models.append(up_module)
 
         final_layer_modules = [
             module for module in [
@@ -127,9 +127,9 @@ class PointBaseModel(nn.Module):
         if contains_global:
             inners = self._create_inner_modules(opt.innermost, modules_lib)
             for inner in inners:
-                self.inner_modules.append(inner)
+                self.inner_models.append(inner)
         else:
-            self.inner_modules.append(Identity())
+            self.inner_models.append(Identity())
 
         # Down modules
         for i in range(len(opt.down_conv.down_conv_nn)):
@@ -137,7 +137,7 @@ class PointBaseModel(nn.Module):
             # conv_cls = self._get_from_kwargs(args, "conv_cls")
             down_module = conv_cls(**args)
             # self._save_sampling_and_search(down_module)
-            self.down_modules.append(down_module)
+            self.down_models.append(down_module)
 
         # Up modules
         for i in range(len(opt.up_conv.up_conv_nn)):
@@ -145,7 +145,7 @@ class PointBaseModel(nn.Module):
             conv_cls = self._get_from_kwargs(args, "conv_cls")
             up_module = conv_cls(**args)
             self._save_upsample(up_module)
-            self.up_modules.append(up_module)
+            self.up_models.append(up_module)
 
         self.metric_loss_module, self.miner_module = BaseModel.get_metric_loss_and_miner(
             getattr(opt, "loss", None), getattr(opt, "miner", None)

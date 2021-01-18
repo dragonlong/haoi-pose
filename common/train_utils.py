@@ -64,6 +64,7 @@ def save_batch_nn(nn_name, pred_dict, input_batch, basename_list, save_dir):
         makedirs(save_dir)
     batch_size = pred_dict['partcls_per_point'].size(0)
     for b in range(batch_size):
+        # print(os.path.join(save_dir, basename_list[int(input_batch['index'][b])] + '.h5'))
         f = h5py.File(os.path.join(save_dir, basename_list[int(input_batch['index'][b])] + '.h5'), 'w')
         f.attrs['method_name'] = nn_name
         f.attrs['basename'] = basename_list[int(input_batch['index'][b])]
@@ -71,7 +72,7 @@ def save_batch_nn(nn_name, pred_dict, input_batch, basename_list, save_dir):
             f.create_dataset('{}_pred'.format(key), data=value[b].cpu().numpy())
         for key, value in input_batch.items():
             f.create_dataset('{}_gt'.format(key), data=value[b].cpu().numpy())
-
+        f.close()
     print('---saving to ', save_dir)
 
 def decide_checkpoints(cfg, keys=['point'], suffix='valid'):
@@ -93,6 +94,144 @@ def decide_checkpoints(cfg, keys=['point'], suffix='valid'):
             print(cfg[key].encoder_weights)
             print(cfg[key].decoder_weights)
             print(cfg[key].header_weights)
+
+
+def group_model_params(model, **kwargs):
+    # type: (nn.Module, ...) -> List[Dict]
+    decay_group = []
+    no_decay_group = []
+
+    for name, param in model.named_parameters():
+        if name.find("normlayer") != -1 or name.find("bias") != -1:
+            no_decay_group.append(param)
+        else:
+            decay_group.append(param)
+
+    assert len(list(model.parameters())) == len(decay_group) + len(no_decay_group)
+
+    return [
+        dict(params=decay_group, **kwargs),
+        dict(params=no_decay_group, weight_decay=0.0, **kwargs),
+    ]
+
+
+def checkpoint_state(model=None, optimizer=None, best_prec=None, epoch=None, it=None):
+    optim_state = optimizer.state_dict() if optimizer is not None else None
+    if model is not None:
+        if isinstance(model, torch.nn.DataParallel):
+            model_state = model.module.state_dict()
+        else:
+            model_state = model.state_dict()
+    else:
+        model_state = None
+
+    return {
+        "epoch": epoch,
+        "it": it,
+        "best_prec": best_prec,
+        "model_state": model_state,
+        "optimizer_state": optim_state,
+    }
+
+
+def save_checkpoint(state, is_best, filename="checkpoint", bestname="model_best"):
+    filename = "{}.pth.tar".format(filename)
+    torch.save(state, filename)
+    if is_best:
+        shutil.copyfile(filename, "{}.pth.tar".format(bestname))
+
+
+def load_checkpoint(model=None, optimizer=None, filename="checkpoint"):
+    filename = "{}.pth.tar".format(filename)
+
+    if os.path.isfile(filename):
+        print("==> Loading from checkpoint '{}'".format(filename))
+        checkpoint = torch.load(filename)
+        epoch = checkpoint["epoch"]
+        it = checkpoint.get("it", 0.0)
+        best_prec = checkpoint["best_prec"]
+        if model is not None and checkpoint["model_state"] is not None:
+            model.load_state_dict(checkpoint["model_state"])
+        if optimizer is not None and checkpoint["optimizer_state"] is not None:
+            optimizer.load_state_dict(checkpoint["optimizer_state"])
+        print("==> Done")
+        return it, epoch, best_prec
+    else:
+        print("==> Checkpoint '{}' not found".format(filename))
+        return None
+
+
+def variable_size_collate(pad_val=0, use_shared_memory=True):
+    import collections
+
+    _numpy_type_map = {
+        "float64": torch.DoubleTensor,
+        "float32": torch.FloatTensor,
+        "float16": torch.HalfTensor,
+        "int64": torch.LongTensor,
+        "int32": torch.IntTensor,
+        "int16": torch.ShortTensor,
+        "int8": torch.CharTensor,
+        "uint8": torch.ByteTensor,
+    }
+
+    def wrapped(batch):
+        "Puts each data field into a tensor with outer dimension batch size"
+
+        error_msg = "batch must contain tensors, numbers, dicts or lists; found {}"
+        elem_type = type(batch[0])
+        if torch.is_tensor(batch[0]):
+            max_len = 0
+            for b in batch:
+                max_len = max(max_len, b.size(0))
+
+            numel = sum([int(b.numel() / b.size(0) * max_len) for b in batch])
+            if use_shared_memory:
+                # If we're in a background process, concatenate directly into a
+                # shared memory tensor to avoid an extra copy
+                storage = batch[0].storage()._new_shared(numel)
+                out = batch[0].new(storage)
+            else:
+                out = batch[0].new(numel)
+
+            out = out.view(
+                len(batch),
+                max_len,
+                *[batch[0].size(i) for i in range(1, batch[0].dim())]
+            )
+            out.fill_(pad_val)
+            for i in range(len(batch)):
+                out[i, 0 : batch[i].size(0)] = batch[i]
+
+            return out
+        elif (
+            elem_type.__module__ == "numpy"
+            and elem_type.__name__ != "str_"
+            and elem_type.__name__ != "string_"
+        ):
+            elem = batch[0]
+            if elem_type.__name__ == "ndarray":
+                # array of string classes and object
+                if re.search("[SaUO]", elem.dtype.str) is not None:
+                    raise TypeError(error_msg.format(elem.dtype))
+
+                return wrapped([torch.from_numpy(b) for b in batch])
+            if elem.shape == ():  # scalars
+                py_type = float if elem.dtype.name.startswith("float") else int
+                return _numpy_type_map[elem.dtype.name](list(map(py_type, batch)))
+        elif isinstance(batch[0], int):
+            return torch.LongTensor(batch)
+        elif isinstance(batch[0], float):
+            return torch.DoubleTensor(batch)
+        elif isinstance(batch[0], collections.Mapping):
+            return {key: wrapped([d[key] for d in batch]) for key in batch[0]}
+        elif isinstance(batch[0], collections.Sequence):
+            transposed = zip(*batch)
+            return [wrapped(samples) for samples in transposed]
+
+        raise TypeError((error_msg.format(type(batch[0]))))
+
+    return wrapped
 
 def save_to_log(logdir, logger, info, epoch, img_summary=False, imgs=[]):
     # save scalars
