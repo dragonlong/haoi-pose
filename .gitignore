@@ -4,3 +4,6 @@
 /dataset/outputs
 __pycache__
 .ipynb_checkpoints
+.hydra
+.log
+/outputs
