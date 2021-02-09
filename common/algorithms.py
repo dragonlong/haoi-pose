@@ -8,10 +8,16 @@ import _init_paths
 from scipy.spatial.transform import Rotation as srot
 from scipy.optimize import least_squares
 from common.aligning import estimateSimilarityTransform, estimateSimilarityUmeyama
-from common.d3_utils import rotate_pts, scale_pts, transform_pts, rot_diff_rad, rot_diff_degree, rotate_points_with_rotvec, compose_rt, align_rotation
+from common.d3_utils import rotate_pts, scale_pts, transform_pts, rot_diff_rad, rot_diff_degree, rotate_about_axis, rotate_points_with_rotvec, compose_rt, align_rotation, transform_pcloud, transform_points
+from common.vis_utils import plot3d_pts, plot2d_img, plot_arrows, plot_arrows_list, plot_hand_w_object
+from common.debugger import *
 
-def compute_pose_ransac(nocs_gt, nocs_pred, pcloud, partidx, num_parts, basename,  r_raw_err, t_raw_err, s_raw_err, scale_gt=None, rt_gt=None, partidx_gt=None,
-            align_sym=False):
+from global_info import global_info
+infos     = global_info()
+sym_type  = infos.sym_type
+
+def compute_pose_ransac(nocs_gt, nocs_pred, pcloud, partidx, num_parts, basename, r_raw_err, t_raw_err, s_raw_err, scale_gt=None, rt_gt=None, partidx_gt=None,
+            align_sym=False, target_category=None, is_special=False, verbose=False):
     source_gt  = nocs_gt
     scale_dict = {'gt': [], 'baseline': [], 'nonlinear': []}
     r_dict     = {'gt': [], 'baseline': [], 'nonlinear': []}
@@ -25,12 +31,21 @@ def compute_pose_ransac(nocs_gt, nocs_pred, pcloud, partidx, num_parts, basename
         scale_gt = [[1]]
         for j in range(1, num_parts):
             s, r, t, rt = estimateSimilarityUmeyama(nocs_gt[partidx_gt[j], :].transpose(), pcloud[partidx_gt[j], :].transpose())
-            if align_sym:
-                RT = align_rotation(compose_rt(r, t), axis='y')
-                rt_gt.append(RT)
-            else:
-                rt_gt.append(compose_rt(r, t))
+            rt_gt.append(compose_rt(r, t))
             scale_gt.append([s])
+    # if in cellphone or remote, find the closest NOCS prediction, not is_special means it has limited symmetry
+    if not is_special:
+        candidates = []
+        mean_errs  = []
+        for key, M in sym_type[target_category].items():
+            for k in range(M):
+                rmat = rotate_about_axis(2 * np.pi * k / M, axis=key)
+                nocs_aligned = np.matmul(rmat, nocs_pred[:, 3:6].T-0.5) + 0.5
+                candidates.append(nocs_aligned.T)
+                mean_errs.append(np.linalg.norm(candidates[-1][partidx_gt[j], :] - nocs_gt[partidx_gt[1], :], axis=1).mean())
+        best_ind = np.argmin(np.array(mean_errs))
+        print(f'---best ind is {best_ind}')
+        nocs_pred[:, 3:6] = candidates[best_ind]
 
     # single model estimation
     for j in range(1, num_parts):
@@ -38,7 +53,7 @@ def compute_pose_ransac(nocs_gt, nocs_pred, pcloud, partidx, num_parts, basename
         target0 = pcloud[partidx[j], :]
         print('source has shape: ', source0.shape)
 
-        niter = 200
+        niter = 300
         inlier_th = 0.1
 
         dataset = dict()
@@ -46,13 +61,19 @@ def compute_pose_ransac(nocs_gt, nocs_pred, pcloud, partidx, num_parts, basename
         dataset['target'] = target0
         dataset['nsource'] = source0.shape[0]
         best_model, best_inliers = ransac(dataset, single_transformation_estimator, single_transformation_verifier, inlier_th, niter)
-        # try to remove y axis rotation
-        if align_sym:
-            updated_R = align_rotation(best_model['rotation'])
-            best_model['rotation'] = updated_R[:3, :3]
-        rdiff = rot_diff_degree(best_model['rotation'], rt_gt[j][:3, :3])
+        tv1, tv2, rdiff = rot_diff_degree(best_model['rotation'], rt_gt[j][:3, :3], up=is_special)
         tdiff = np.linalg.norm(best_model['translation']-rt_gt[j][:3, 3])
         sdiff = np.linalg.norm(best_model['scale']-scale_gt[j][0])
+
+        gt_canon      = np.concatenate([nocs_gt[partidx_gt[j], :], np.array([[0.5, 0.5, 0.5]])], axis=0)
+        gt_pcloud     = transform_pcloud(gt_canon, compose_rt(rt_gt[j][:3, :3].T, rt_gt[j][:3, 3], s=scale_gt[j][0]))
+        fitted_pcloud = transform_pcloud(np.concatenate([nocs_gt[partidx_gt[j], :], np.array([[0.5, 0.5, 0.5]])], axis=0), compose_rt(best_model['rotation'].T, best_model['translation'], s=best_model['scale']))
+        tdiff = np.linalg.norm(gt_pcloud[-1] - fitted_pcloud[-1])
+        if verbose:
+            print('---visualizing pose predictions')
+            gt_vect= {'p': gt_pcloud[-1], 'v': tv2}
+            fitted_vect = {'p': fitted_pcloud[-1], 'v': tv1}
+            plot3d_pts([[gt_pcloud, fitted_pcloud]], [['GT', 'pred']], s=3**2, arrows=[[fitted_vect, gt_vect]], title_name=['Check Pose'], limits = [[-0.5, 0.5], [-0.5, 0.5], [-0.5, 1.5]])
         print('part %d -- rdiff: %f degree, tdiff: %f, sdiff %f, ninliers: %f, npoint: %f' % (j, rdiff, tdiff, sdiff, np.sum(best_inliers), best_inliers.shape[0]))
         target0_fit = best_model['scale'] * np.matmul(best_model['rotation'], source0.T) + best_model['translation'].reshape((3, 1))
         target0_fit = target0_fit.T

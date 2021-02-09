@@ -11,7 +11,6 @@ import logging
 from omegaconf import DictConfig, ListConfig, OmegaConf
 
 # custom
-
 import __init__
 from global_info import global_info
 from dataset.obman_parser import ObmanParser
@@ -117,7 +116,7 @@ def main(cfg):
         pointcloud_tgt = data['pointcloud_chamfer'].squeeze(0).numpy()
         normals_tgt = data['pointcloud_chamfer.normals'].squeeze(0).numpy()
         points_tgt = data['points_iou'].squeeze(0).numpy()
-        occ_tgt = data['points_iou.occ'].squeeze(0).numpy()
+        occ_tgt    = data['points_iou.occ'].squeeze(0).numpy()
         # Evaluating mesh and pointcloud
         # Start row and put basic informatin inside
         eval_dict = {
@@ -132,13 +131,13 @@ def main(cfg):
         if cfg['test']['eval_mesh']:
             mesh_file = os.path.join(mesh_dir, '%s.off' % modelname)
             if os.path.exists(mesh_file):
-                # try:
-                mesh = trimesh.load(mesh_file, process=False)
-                eval_dict_mesh = evaluator.eval_mesh(mesh, pointcloud_tgt, normals_tgt, points_tgt, occ_tgt, remove_wall=cfg['test']['remove_wall'])
-                for k, v in eval_dict_mesh.items():
-                    eval_dict[k + ' (mesh)'] = v
-                # except Exception as e:
-                #     print("Error: Could not evaluate mesh: %s" % mesh_file)
+                try:
+                    mesh = trimesh.load(mesh_file, process=False)
+                    eval_dict_mesh = evaluator.eval_mesh(mesh, pointcloud_tgt, normals_tgt, points_tgt, occ_tgt, remove_wall=cfg['test']['remove_wall'])
+                    for k, v in eval_dict_mesh.items():
+                        eval_dict[k + ' (mesh)'] = v
+                except Exception as e:
+                    print("Error: Could not evaluate mesh: %s" % mesh_file)
             else:
                 print('Warning: mesh does not exist: %s' % mesh_file)
 

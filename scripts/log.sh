@@ -1,7 +1,29 @@
+Day
+Day 80:
+- HO3D, ContactPose real dataset;
+  object: (bowl, bottle, jar, camera, mug)
+  hands : different kinds of hands; with 3D joints locations
+  contacts: contacts region;
+  Todos:
+  - back-project camera points to canonical space;
+  - collect mask;
+  - get pose GT;
+- GAN training: same space
+  - evaluation metrics;
+  - understand the loss;
+  - check the predictions; use val_func;
+  -
+
+1. A better evaluated pose per category, check knife case? camera case!!
+
+2. application on real data; contactpose;
+
+3. evaluation on mesh with ONet, and GRNet;
+
 Day 67:
   - we want to better monitor the training, and code synchronization;
   -
-  
+
 Day 53: single-view, muli-object interaction, and multi-category:<>
   - check training + add SDF training;
   - in canonical space, train for hand and object at the same time;

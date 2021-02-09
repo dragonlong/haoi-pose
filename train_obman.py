@@ -18,7 +18,7 @@ from omegaconf import DictConfig, ListConfig, OmegaConf
 
 #
 import dataset
-from utils.checkpoints import CheckpointIO
+from common.train_utils import CheckpointIO
 from dataset.obman_parser import ObmanParser
 from utils import config
 from collections import defaultdict
@@ -69,8 +69,11 @@ def main(cfg):
     # copy the whole project codes into log_dir
     # only need to do this for models
     if not cfg.debug:
+        if not os.path.isdir(f'{cfg.log_dir}/code'):
+            os.makedirs(f'{cfg.log_dir}/code')
+            os.makedirs(f'{cfg.log_dir}/code/dataset')
         os.system('cp -r ./models {}/code'.format(cfg.log_dir))
-
+        os.system('cp ./dataset/*py {}/code/dataset'.format(cfg.log_dir))
     # Shorthands
     out_dir    = cfg.log_dir
     print('Saving to ', out_dir)
@@ -105,7 +108,6 @@ def main(cfg):
             val_dataset, batch_size=1, num_workers=cfg['training']['n_workers_val'], shuffle=False,
         collate_fn=dataset.collate_remove_none,
         worker_init_fn=dataset.worker_init_fn)
-
     # For visualizations
     vis_loader = torch.utils.data.DataLoader(
         val_dataset, batch_size=1, shuffle=False,

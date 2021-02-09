@@ -9,6 +9,8 @@ import fnmatch
 import numpy as np
 import cv2
 import h5py
+import shutil
+import csv
 
 import torch.optim.lr_scheduler as toptim
 import tensorflow as tf
@@ -19,45 +21,353 @@ try:
 except ImportError:
   from io import BytesIO         # Python 3.x
 
-def breakpoint():
+def bp():
     import pdb;pdb.set_trace()
 
 import itertools
+import urllib
+import torch
 from torch.utils.data import Subset
+from torch.utils import model_zoo
+"""
+class
+    TrainClock:
+    Table:
+    CheckpointIO:
+    Logger:
+    WorklogLogger:
+    warmupLR (optimizer, lr, warmup_steps, momentum, decay):
+    AverageMeter:
+    AverageMeter_gr:
+function:
+    count_parameters(network):
+    init_weights(m): model weights initialization;
+    group_model_params(model)
+    decide_checkpoints(cfg)
+    checkpoint_state()
+    save_batch_nn(nn_name, pred_dict, input_batch, basename_list, save_dir): save predictions
+    save_checkpoint(state, is_best)
+    load_checkpoint()
+"""
 
-class ConcatDataloader:
-    def __init__(self, dataloaders):
-        self.loaders = dataloaders
+def var_or_cuda(x):
+    if torch.cuda.is_available():
+        x = x.cuda(non_blocking=True)
 
-    def __iter__(self):
-        self.iters = [iter(loader) for loader in self.loaders]
-        self.idx_cycle = itertools.cycle(list(range(len(self.loaders))))
-        return self
+    return x
 
-    def __next__(self):
-        loader_idx = next(self.idx_cycle)
-        loader = self.iters[loader_idx]
-        batch = next(loader)
-        if isinstance(loader.dataset, Subset):
-            dataset = loader.dataset.dataset
+
+class TrainClock(object):
+    """ Clock object to track epoch and step during training
+    """
+    def __init__(self):
+        self.epoch = 1
+        self.minibatch = 0
+        self.step = 0
+
+    def tick(self):
+        self.minibatch += 1
+        self.step += 1
+
+    def tock(self):
+        self.epoch += 1
+        self.minibatch = 0
+
+    def make_checkpoint(self):
+        return {
+            'epoch': self.epoch,
+            'minibatch': self.minibatch,
+            'step': self.step
+        }
+
+    def restore_checkpoint(self, clock_dict):
+        self.epoch = clock_dict['epoch']
+        self.minibatch = clock_dict['minibatch']
+        self.step = clock_dict['step']
+
+
+class Table(object):
+    def __init__(self, filename):
+        '''
+        create a table to record experiment results that can be opened by excel
+        :param filename: using '.csv' as postfix
+        '''
+        assert '.csv' in filename
+        self.filename = filename
+
+    @staticmethod
+    def merge_headers(header1, header2):
+        #return list(set(header1 + header2))
+        if len(header1) > len(header2):
+            return header1
         else:
-            dataset = loader.dataset
-        dat_name = dataset.pose_dataset.name
-        batch["dataset"] = dat_name
-        if dat_name == "stereohands" or dat_name == "zimsynth":
-            batch["root"] = "palm"
-        else:
-            batch["root"] = "wrist"
-        if dat_name == "stereohands":
-            batch["use_stereohands"] = True
-        else:
-            batch["use_stereohands"] = False
-        batch["split"] = dataset.pose_dataset.split
+            return header2
 
-        return batch
+    def write(self, ordered_dict):
+        '''
+        write an entry
+        :param ordered_dict: something like {'name':'exp1', 'acc':90.5, 'epoch':50}
+        :return:
+        '''
+        if os.path.exists(self.filename) == False:
+            headers = list(ordered_dict.keys())
+            prev_rec = None
+        else:
+            with open(self.filename) as f:
+                reader = csv.DictReader(f)
+                headers = reader.fieldnames
+                prev_rec = [row for row in reader]
+            headers = self.merge_headers(headers, list(ordered_dict.keys()))
 
-    def __len__(self):
-        return min(len(loader) for loader in self.loaders) * len(self.loaders)
+        with open(self.filename, 'w', newline='') as f:
+            writer = csv.DictWriter(f, headers)
+            writer.writeheader()
+            if not prev_rec == None:
+                writer.writerows(prev_rec)
+            writer.writerow(ordered_dict)
+
+
+class WorklogLogger:
+    def __init__(self, log_file):
+        logging.basicConfig(filename=log_file,
+                            level=logging.DEBUG,
+                            format='%(asctime)s - %(threadName)s -  %(levelname)s - %(message)s')
+
+        self.logger = logging.getLogger()
+
+    def put_line(self, line):
+        self.logger.info(line)
+
+class CheckpointIO(object):
+    ''' CheckpointIO class.
+
+    It handles saving and loading checkpoints.
+
+    Args:
+        checkpoint_dir (str): path where checkpoints are saved
+    '''
+    def __init__(self, checkpoint_dir='./chkpts', **kwargs):
+        self.module_dict = kwargs
+        self.checkpoint_dir = checkpoint_dir
+        if not os.path.exists(checkpoint_dir):
+            os.makedirs(checkpoint_dir)
+
+    def register_modules(self, **kwargs):
+        ''' Registers modules in current module dictionary.
+        '''
+        self.module_dict.update(kwargs)
+
+    def save(self, filename, **kwargs):
+        ''' Saves the current module dictionary.
+
+        Args:
+            filename (str): name of output file
+        '''
+        if not os.path.isabs(filename):
+            filename = os.path.join(self.checkpoint_dir, filename)
+
+        outdict = kwargs
+        for k, v in self.module_dict.items():
+            outdict[k] = v.state_dict()
+        torch.save(outdict, filename)
+
+    def load(self, filename):
+        '''Loads a module dictionary from local file or url.
+
+        Args:
+            filename (str): name of saved module dictionary
+        '''
+        if is_url(filename):
+            return self.load_url(filename)
+        else:
+            return self.load_file(filename)
+
+    def load_file(self, filename):
+        '''Loads a module dictionary from file.
+
+        Args:
+            filename (str): name of saved module dictionary
+        '''
+
+        if not os.path.isabs(filename):
+            filename = os.path.join(self.checkpoint_dir, filename)
+
+        if os.path.exists(filename):
+            print(filename)
+            print('=> Loading checkpoint from local file...')
+            state_dict = torch.load(filename)
+            scalars = self.parse_state_dict(state_dict)
+            return scalars
+        else:
+            raise FileExistsError
+
+    def load_url(self, url):
+        '''Load a module dictionary from url.
+
+        Args:
+            url (str): url to saved model
+        '''
+        print(url)
+        print('=> Loading checkpoint from url...')
+        state_dict = model_zoo.load_url(url, progress=True)
+        scalars = self.parse_state_dict(state_dict)
+        return scalars
+
+    def parse_state_dict(self, state_dict):
+        '''Parse state_dict of model and return scalars.
+
+        Args:
+            state_dict (dict): State dict of model
+    '''
+
+        for k, v in self.module_dict.items():
+            if k in state_dict:
+                v.load_state_dict(state_dict[k])
+            else:
+                print('Warning: Could not find %s in checkpoint!' % k)
+        scalars = {k: v for k, v in state_dict.items()
+                    if k not in self.module_dict}
+        return scalars
+
+
+class warmupLR(toptim._LRScheduler):
+  """ Warmup learning rate scheduler.
+      Initially, increases the learning rate from 0 to the final value, in a
+      certain number of steps. After this number of steps, each step decreases
+      LR exponentially.
+  """
+  def __init__(self, optimizer, lr, warmup_steps, momentum, decay):
+    # cyclic params
+    self.optimizer = optimizer
+    self.lr = lr
+    self.warmup_steps = warmup_steps
+    self.momentum = momentum
+    self.decay = decay
+
+    # cap to one
+    if self.warmup_steps < 1:
+      self.warmup_steps = 1
+
+    # cyclic lr
+    self.initial_scheduler = toptim.CyclicLR(self.optimizer,
+                                             base_lr=0,
+                                             max_lr=self.lr,
+                                             step_size_up=self.warmup_steps,
+                                             step_size_down=self.warmup_steps,
+                                             cycle_momentum=False,
+                                             base_momentum=self.momentum,
+                                             max_momentum=self.momentum)
+
+    # our params
+    self.last_epoch = -1  # fix for pytorch 1.1 and below
+    self.finished = False  # am i done
+    super().__init__(optimizer)
+
+  def get_lr(self):
+    return [self.lr * (self.decay ** self.last_epoch) for lr in self.base_lrs]
+
+  def step(self, epoch=None):
+    if self.finished or self.initial_scheduler.last_epoch >= self.warmup_steps:
+      if not self.finished:
+        self.base_lrs = [self.lr for lr in self.base_lrs]
+        self.finished = True
+      return super(warmupLR, self).step(epoch)
+    else:
+      return self.initial_scheduler.step(epoch)
+
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+    def __init__(self):
+        self.initialized = False
+        self.val = None
+        self.avg = None
+        self.sum = None
+        self.count = None
+
+    def initialize(self, val, weight):
+        self.val = val
+        self.avg = val
+        self.sum = val * weight
+        self.count = weight
+        self.initialized = True
+
+    def update(self, val, weight=1):
+        if not self.initialized:
+            self.initialize(val, weight)
+        else:
+            self.add(val, weight)
+
+    def add(self, val, weight):
+        self.val = val
+        self.sum += val * weight
+        self.count += weight
+        self.avg = self.sum / self.count
+
+    def value(self):
+        return self.val
+
+    def average(self):
+        return self.avg
+
+class AverageMeter_gr(object):
+    """Computes and stores the average and current value"""
+    def __init__(self, items=None):
+        self.items = items
+        self.n_items = 1 if items is None else len(items)
+        self.reset()
+
+    def reset(self):
+        self._val = [0] * self.n_items
+        self._sum = [0] * self.n_items
+        self._count = [0] * self.n_items
+
+    def update(self, values):
+        if type(values).__name__ == 'list':
+            for idx, v in enumerate(values):
+                self._val[idx] = v
+                self._sum[idx] += v
+                self._count[idx] += 1
+        else:
+            self._val[0] = values
+            self._sum[0] += values
+            self._count[0] += 1
+
+    def val(self, idx=None):
+        if idx is None:
+            return self._val[0] if self.items is None else [self._val[i] for i in range(self.n_items)]
+        else:
+            return self._val[idx]
+
+    def count(self, idx=None):
+        if idx is None:
+            return self._count[0] if self.items is None else [self._count[i] for i in range(self.n_items)]
+        else:
+            return self._count[idx]
+
+    def avg(self, idx=None):
+        if idx is None:
+            return self._sum[0] / self._count[0] if self.items is None else [
+                self._sum[i] / self._count[i] for i in range(self.n_items)
+            ]
+        else:
+            return self._sum[idx] / self._count[idx]
+
+def init_weights(m):
+    if type(m) == torch.nn.Conv2d or type(m) == torch.nn.ConvTranspose2d or \
+       type(m) == torch.nn.Conv3d or type(m) == torch.nn.ConvTranspose3d:
+        torch.nn.init.kaiming_normal_(m.weight)
+        if m.bias is not None:
+            torch.nn.init.constant_(m.bias, 0)
+    elif type(m) == torch.nn.BatchNorm2d or type(m) == torch.nn.BatchNorm3d:
+        torch.nn.init.constant_(m.weight, 1)
+        torch.nn.init.constant_(m.bias, 0)
+    elif type(m) == torch.nn.Linear:
+        torch.nn.init.normal_(m.weight, 0, 0.01)
+        torch.nn.init.constant_(m.bias, 0)
+
+
+def count_parameters(network):
+    return sum(p.numel() for p in network.parameters())
 
 def save_batch_nn(nn_name, pred_dict, input_batch, basename_list, save_dir):
     if not exists(save_dir):
@@ -80,11 +390,11 @@ def decide_checkpoints(cfg, keys=['point'], suffix='valid'):
         if (cfg.use_pretrain or cfg.eval):
             if len(cfg.pretrained_path)>0:
                 cfg[key].encoder_weights = cfg.pretrained_path + f'/encoder_best_{key}_{suffix}.pth'
-                cfg[key].decoder_weights = cfg.pretrained_path + f'/encoder_best_{key}_{suffix}.pth'
+                cfg[key].decoder_weights = cfg.pretrained_path + f'/decoder_best_{key}_{suffix}.pth'
                 cfg[key].header_weights  = cfg.pretrained_path + f'/head_best_{key}_{suffix}.pth'
             else:
                 cfg[key].encoder_weights = cfg.log_dir + f'/encoder_best_{key}_{suffix}.pth'
-                cfg[key].decoder_weights = cfg.log_dir + f'/encoder_best_{key}_{suffix}.pth'
+                cfg[key].decoder_weights = cfg.log_dir + f'/decoder_best_{key}_{suffix}.pth'
                 cfg[key].header_weights  = cfg.log_dir + f'/head_best_{key}_{suffix}.pth'
         else:
             cfg[key].encoder_weights = ''
@@ -329,87 +639,6 @@ class Logger(object):
     self.writer.add_summary(summary, step)
     self.writer.flush()
 
-class warmupLR(toptim._LRScheduler):
-  """ Warmup learning rate scheduler.
-      Initially, increases the learning rate from 0 to the final value, in a
-      certain number of steps. After this number of steps, each step decreases
-      LR exponentially.
-  """
-  def __init__(self, optimizer, lr, warmup_steps, momentum, decay):
-    # cyclic params
-    self.optimizer = optimizer
-    self.lr = lr
-    self.warmup_steps = warmup_steps
-    self.momentum = momentum
-    self.decay = decay
-
-    # cap to one
-    if self.warmup_steps < 1:
-      self.warmup_steps = 1
-
-    # cyclic lr
-    self.initial_scheduler = toptim.CyclicLR(self.optimizer,
-                                             base_lr=0,
-                                             max_lr=self.lr,
-                                             step_size_up=self.warmup_steps,
-                                             step_size_down=self.warmup_steps,
-                                             cycle_momentum=False,
-                                             base_momentum=self.momentum,
-                                             max_momentum=self.momentum)
-
-    # our params
-    self.last_epoch = -1  # fix for pytorch 1.1 and below
-    self.finished = False  # am i done
-    super().__init__(optimizer)
-
-  def get_lr(self):
-    return [self.lr * (self.decay ** self.last_epoch) for lr in self.base_lrs]
-
-  def step(self, epoch=None):
-    if self.finished or self.initial_scheduler.last_epoch >= self.warmup_steps:
-      if not self.finished:
-        self.base_lrs = [self.lr for lr in self.base_lrs]
-        self.finished = True
-      return super(warmupLR, self).step(epoch)
-    else:
-      return self.initial_scheduler.step(epoch)
-
-
-class AverageMeter(object):
-    """Computes and stores the average and current value"""
-    def __init__(self):
-        self.initialized = False
-        self.val = None
-        self.avg = None
-        self.sum = None
-        self.count = None
-
-    def initialize(self, val, weight):
-        self.val = val
-        self.avg = val
-        self.sum = val * weight
-        self.count = weight
-        self.initialized = True
-
-    def update(self, val, weight=1):
-        if not self.initialized:
-            self.initialize(val, weight)
-        else:
-            self.add(val, weight)
-
-    def add(self, val, weight):
-        self.val = val
-        self.sum += val * weight
-        self.count += weight
-        self.avg = self.sum / self.count
-
-    def value(self):
-        return self.val
-
-    def average(self):
-        return self.avg
-
-
 def unique(ar, return_index=False, return_inverse=False, return_counts=False):
     ar = np.asanyarray(ar).flatten()
 
@@ -565,3 +794,54 @@ def parse_devices(input_devices):
             raise NotSupportedCliException(
                 'Can not recognize device: "{}"'.format(d))
     return ret
+
+def is_url(url):
+    scheme = urllib.parse.urlparse(url).scheme
+    return scheme in ('http', 'https')
+
+
+def save_args(args, save_dir):
+    param_path = os.path.join(save_dir, 'params.json')
+
+    with open(param_path, 'w') as fp:
+        json.dump(args.__dict__, fp, indent=4, sort_keys=True)
+
+
+def ensure_dir(path):
+    """
+    create path by first checking its existence,
+    :param paths: path
+    :return:
+    """
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+
+def ensure_dirs(paths):
+    """
+    create paths by first checking their existence
+    :param paths: list of path
+    :return:
+    """
+    if isinstance(paths, list) and not isinstance(paths, str):
+        for path in paths:
+            ensure_dir(path)
+    else:
+        ensure_dir(paths)
+
+
+def remkdir(path):
+    """
+    if dir exists, remove it and create a new one
+    :param path:
+    :return:
+    """
+    if os.path.exists(path):
+        shutil.rmtree(path)
+    os.makedirs(path)
+
+
+def cycle(iterable):
+    while True:
+        for x in iterable:
+            yield x

@@ -5,13 +5,14 @@ exp_num: '0'
 process_index: 1
 process_num: 8
 task: semantic_seg
+dataset_class: 'HandDataset'
 model_name: kpconv # Name of the specific model to load
 labels: './config/labels/semantic-kitti.yaml'
 root_dataset: "/groups/CESCA-CV/dataset/"
 log_dir: '/work/cascades/lxiaol9/4DSeg/log/point/${exp_name}/${model_name}_${exp_num}'
-pretrained_path: '/work/cascades/lxiaol9/4DSeg/model/point/single_r4' 
+pretrained_path: '/work/cascades/lxiaol9/4DSeg/model/point/single_r4'
 # root_dataset: "/data2/datasets/tmp/kitti/dataset/"
-# pretrained_path: '/homes/xili/log/semantic_seg_kpconv_1' 
+# pretrained_path: '/homes/xili/log/semantic_seg_kpconv_1'
 # log_dir: '/homes/xili/log/${exp_name}/${task}_${model_name}_${exp_num}'
 use_pretrain: False
 dataset: 'SemanticKitti'

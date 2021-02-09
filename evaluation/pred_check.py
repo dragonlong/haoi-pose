@@ -17,8 +17,8 @@ from pytransform3d.rotations import *
 import torch
 
 import _init_paths
-from common.vis_utils import plot3d_pts, plot2d_img, plot_arrows, plot_arrows_list, plot_hand_w_object
-from common.data_utils import get_demo_h5, get_full_test, save_objmesh, fast_load_obj, get_obj_mesh
+from common.vis_utils import plot3d_pts, plot2d_img, plot_arrows, plot_arrows_list, plot_hand_w_object, hist_show
+from common.data_utils import get_demo_h5, get_full_test, save_objmesh, fast_load_obj, get_obj_mesh, load_pickle
 from common.aligning import estimateSimilarityTransform, estimateSimilarityUmeyama
 from common.debugger import *
 from common.handutils import *
@@ -210,13 +210,44 @@ def prepare_pose_eval(save_exp, args):
         s_raw_err   = {'baseline': [[], [], [], []], 'nonlinear': [[], [], [], []]}
     return all_rts, file_name, mean_err, r_raw_err, t_raw_err, s_raw_err
 
+def post_summary(all_rts, file_name, args, r_raw_err=None, t_raw_err=None):
+    if args.save:
+        print('saving to ', file_name)
+        with open(file_name, 'wb') as f:
+            pickle.dump(all_rts, f)
+
+    # evaluate per category as well
+    xyz_err_dict = {}
+    rpy_err_dict = {}
+    for key, value_dict in all_rts.items():
+        category_name = key.split('_')[-1]
+        if category_name not in xyz_err_dict:
+            xyz_err_dict[category_name] = []
+            rpy_err_dict[category_name] = []
+        rpy_err_dict[category_name].append(value_dict['rpy_err']['baseline'])
+        xyz_err_dict[category_name].append(value_dict['xyz_err']['baseline'])
+
+    # in total
+    if r_raw_err is not None:
+        for j in range(1, num_parts):
+            print('mean rotation err of part {}: \n'.format(j), 'baseline: {}'.format(np.array(r_raw_err['baseline'][j]).mean()))
+            print('mean translation err of part {}: \n'.format(j), 'baseline: {}'.format(np.array(t_raw_err['baseline'][j]).mean()))
+    all_categorys = xyz_err_dict.keys()
+    print('category\trotation error\ttranslation error')
+    for category in all_categorys:
+        print(f'{categories_id[category]}\t{np.array(rpy_err_dict[category]).mean():0.4f}\t{np.array(xyz_err_dict[category]).mean():0.4f}')
+
+    values, bins = np.histogram(rpy_err_dict[category_name], bins=np.arange(0, 180, 10), density=True)
+    hist_show([values], bins[:-1], tick_label='default', axes_label=['rotation error', 'ratio'], title_name='rotation analysis', total_width=0.5, dpi=200, save_fig=False, sub_name='unseen')
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--item', default='eyeglasses', help='object category for benchmarking')
+    parser.add_argument('--target_category', default='', help='exact object category')
     parser.add_argument('--domain', default='seen', help='which sub test set to choose')
     parser.add_argument('--exp_num', default='0.8', required=False) # default is 0.3
     parser.add_argument('--nocs', default='part', help='which sub test set to choose')
-
+    #
     parser.add_argument('--hand', action='store_true', help='whether to visualize hand')
     parser.add_argument('--contact', action='store_true', help='whether to visualize hand')
     parser.add_argument('--vote', action='store_true', help='whether to vote hand joints')
@@ -225,6 +256,7 @@ if __name__ == '__main__':
     parser.add_argument('--save_fig', action='store_true', help='save err to pickles')
     parser.add_argument('--show_fig', action='store_true', help='save err to pickles')
     parser.add_argument('--viz', action='store_true', help='whether to viz')
+    parser.add_argument('--is_special', action='store_true', help='whether a 360 symmetric object')
     parser.add_argument('--verbose', action='store_true', help='whether to viz')
 
     args = parser.parse_args()
@@ -251,16 +283,18 @@ if __name__ == '__main__':
 
     exp_nums = fetch_exp_nums(args) # contacts, mano, translation
     all_rts, file_name, mean_err, r_raw_err, t_raw_err, s_raw_err = prepare_pose_eval(main_exp, args)
+    # if os.path.exists(file_name):
+    #     all_rts = load_pickle(file_name)
+    #     post_summary(all_rts, file_name, args, r_raw_err=None, t_raw_err=None)
 
-    # get_val_dataset():
-    cache_folder = os.path.join(project_path, "haoi-pose/dataset/data", "cache", 'obman')
-    cache_path = os.path.join(cache_folder, "{}_{}_mode_{}.pkl".format('train', '1.0', 'all'))
-    with open(cache_path, "rb") as cache_f:
-        annotations = pickle.load(cache_f)
-    meta_infos = annotations["meta_infos"]
-    bp()
-    for i in range(len(test_group)):
+    # # get_val_dataset():
+    # cache_folder = os.path.join(project_path, "haoi-pose/dataset/data", "cache", 'obman')
+    # cache_path = os.path.join(cache_folder, "{}_{}_mode_{}.pkl".format('train', '1.0', 'all'))
+    # with open(cache_path, "rb") as cache_f:
+    #     annotations = pickle.load(cache_f)
+    # meta_infos = annotations["meta_infos"]
     # for i in range(10):
+    for i in range(len(test_group)):
         h5_files   = []
         hf_list    = []
         h5_file    =  test_h5_path + '/' + test_group[i]
@@ -280,16 +314,17 @@ if __name__ == '__main__':
         instance, art_index, grasp_ind, frame_order = split_basename(basename, args)
         part_idx_list_gt, part_idx_list_pred = get_parts_ind(hf, num_parts=num_parts)
         print('---get_parts_pcloud')
-        input_pts, gt_parts, pred_parts      = get_parts_pcloud(hf, part_idx_list_gt, part_idx_list_pred, num_parts=num_parts, verbose=False)
+        input_pts, gt_parts, pred_parts      = get_parts_pcloud(hf, part_idx_list_gt, part_idx_list_pred, num_parts=num_parts, verbose=True)
 
         #>>>>>>>>>>>>>>>>>>>>>>>>>>>>> optional <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<#
         print('---get_parts_nocs')
-        nocs_gt, nocs_pred                   = get_parts_nocs(hf, part_idx_list_gt, part_idx_list_pred, num_parts=num_parts, verbose=False)
+        nocs_gt, nocs_pred                   = get_parts_nocs(hf, part_idx_list_gt, part_idx_list_pred, num_parts=num_parts, verbose=True)
         # nocs_noisy = nocs_gt['pn'] + np.random.rand(nocs_gt['pn'].shape[0], 3) * 1.0
         # nocs_noisy = np.concatenate([nocs_noisy, nocs_noisy], axis=1)
         try:
-            rts_dict = compute_pose_ransac(nocs_gt['pn'], nocs_pred['pn'], input_pts, part_idx_list_pred, num_parts, basename, r_raw_err, t_raw_err, s_raw_err, partidx_gt=part_idx_list_gt, align_sym=False)
-            # rts_dict = compute_pose_ransac(nocs_gt['pn'], nocs_pred['pn'], input_pts, part_idx_list_pred, num_parts, basename, r_raw_err, t_raw_err, s_raw_err, partidx_gt=part_idx_list_gt)
+            rts_dict = compute_pose_ransac(nocs_gt['pn'], nocs_pred['pn'], input_pts, part_idx_list_pred, num_parts, basename, r_raw_err, t_raw_err, s_raw_err, \
+                    partidx_gt=part_idx_list_gt, target_category=args.target_category, is_special=args.is_special, verbose=False)
+
             all_rts[basename]  = rts_dict
         except:
             continue
@@ -341,9 +376,6 @@ if __name__ == '__main__':
             #     for part_name in name_list:
             #         part_vertices, part_faces = get_obj_mesh(basename, full_path=refer_path.format(instance, part_name), verbose=True)
 
-            # compute object pose
-            RTS = get_object_pose(hf, basename, [nocs_gt, nocs_pred], [gt_parts, pred_parts])
-
             # contacts visualization
             if args.verbose:
             #     # hand
@@ -368,29 +400,6 @@ if __name__ == '__main__':
         print('experiment: ', args.exp_num)
         for j, err in enumerate(error_norm):
             print(err)
-
-    print('saving to ', file_name)
-    with open(file_name, 'wb') as f:
-        pickle.dump(all_rts, f)
-
-    # evaluate per category as well
-    xyz_err_dict = {}
-    rpy_err_dict = {}
-    for key, value_dict in all_rts.items():
-        category_name = key.split('_')[-1]
-        if category_name not in xyz_err_dict:
-            xyz_err_dict[category_name] = []
-            rpy_err_dict[category_name] = []
-        rpy_err_dict[category_name].append(value_dict['rpy_err']['baseline'])
-        xyz_err_dict[category_name].append(value_dict['xyz_err']['baseline'])
-
-    # in total
-    for j in range(1, num_parts):
-        print('mean rotation err of part {}: \n'.format(j), 'baseline: {}'.format(np.array(r_raw_err['baseline'][j]).mean()))
-        print('mean translation err of part {}: \n'.format(j), 'baseline: {}'.format(np.array(t_raw_err['baseline'][j]).mean()))
-    all_categorys = xyz_err_dict.keys()
-    print('category\trotation error\ttranslation error')
-    for category in all_categorys:
-        print(f'{categories_id[category]}\t{np.array(rpy_err_dict[category]).mean():0.4f}\t{np.array(xyz_err_dict[category]).mean():0.4f}')
+    post_summary(all_rts, file_name, args, r_raw_err=None, t_raw_err=None)
     end_time = time.time()
     print(f'---it takes {end_time-start_time} seconds')

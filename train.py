@@ -4,7 +4,10 @@ import time
 import math
 import random
 import yaml
+
+# new tools
 import GPUtil
+import wandb
 import hydra
 from hydra import utils
 import logging
@@ -52,6 +55,8 @@ def main_worker(gpu, cfg):
 
     # >>>>>>>>>>>>>>>>> 2. create model
     model = Network(gpu, cfg)
+    if cfg.use_wandb:
+        wandb.watch(model)
     best_train_iou = 0 #
     best_valid_iou = 0 #
     # >>>>>>>>>>>>>>>>>>3. start train & evaluation
@@ -63,7 +68,8 @@ def main_worker(gpu, cfg):
             test_miou, test_loss    = model.valid_epoch(gpu, test_loader, model.modules['point'], epoch, cfg, prefix='unseen', save_pred=epoch%2==0)
         valid_miou, valid_loss  = model.valid_epoch(gpu, valid_loader, model.modules['point'], epoch, cfg, prefix='unseen', save_pred=epoch%2==0)
         train_miou, train_loss  = model.train_epoch(gpu, train_loader, model.modules['point'], epoch, cfg)
-
+        if cfg.use_wandb:
+            wandb.log({"train/loss": train_loss, 'valid/loss': valid_loss})
         #>>>>>>>>>>>> save checkpoints <<<<<<<<<<<<<<<<<<#
         # if best_train_iou < train_miou:
         for key, nets in model.nets_dict.items():
@@ -104,6 +110,16 @@ def main(cfg):
     print(f' item: {cfg.item} , \n root_data: {cfg.root_data}, \
         \n, log_dir: {cfg.log_dir}')
     #>>>>>>>>>>>>>>>>>>>> setting ends here <<<<<<<<<< #
+    if cfg.use_wandb:
+        wandb.init(project="haoi-pose", entity="teamname")
+        wandb.init(config=cfg)
+
+    if not cfg.debug:
+        if not os.path.isdir(f'{cfg.log_dir}/code'):
+            os.makedirs(f'{cfg.log_dir}/code')
+            os.makedirs(f'{cfg.log_dir}/code/dataset')
+        os.system('cp -r ./models {}/code'.format(cfg.log_dir))
+        os.system('cp ./dataset/*py {}/code/dataset'.format(cfg.log_dir))
 
     #>>>>>>>>>>>>>>>>>> decide gpu, model weights <<<<<< #
     if cfg.TRAIN.start_epoch > 0:

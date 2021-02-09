@@ -721,7 +721,7 @@ class ObMan:
 
         return trans_points.astype(np.float32) * 1000, canon_pts
 
-    def get_nocs(self, idx, points, boundary_pts, symmetry_factor=False):
+    def get_nocs(self, idx, points, boundary_pts, sym_aligned_nocs=False):
         # cam2world
         # boundary_pts = [np.min(canon_pts, axis=0), np.max(canon_pts, axis=0)]
         c2w_mat = np.linalg.pinv(self.cam_extr[:3, :3])
@@ -735,9 +735,8 @@ class ObMan:
         class_id      = self.meta_infos[idx]['obj_class_id']
         category_name = categories_id[class_id]
         instance_id   = self.meta_infos[idx]['obj_sample_id']
-        # print(class_id, category_name)
-        # and category_name in ['bottle', 'can', 'bowl']
-        if symmetry_factor and symmetry_dict[f'{class_id}_{instance_id}']: # : # remove any y rotation
+
+        if sym_aligned_nocs and symmetry_dict[f'{class_id}_{instance_id}']: # : # remove any y rotation
             # print('---', class_id, ' transformed!!')
             obj_transform = align_rotation(obj_transform)
 

@@ -7,9 +7,7 @@ import csv
 import pickle
 import yaml
 import json
-import pandas
 import re
-import argparse
 import os.path
 import sys
 import struct
@@ -17,26 +15,14 @@ import trimesh
 from numba import njit
 from numpy.linalg import inv
 from pytransform3d.rotations import *
-import torch
+import cv2
+import open3d
+from io import BytesIO
 
 import glob
 import platform
 import xml.etree.ElementTree as ET
 from xml.etree.ElementTree import Element, tostring, SubElement, Comment, ElementTree, XML
-import xml.dom.minidom
-import math
-
-import matplotlib
-from matplotlib.collections import LineCollection
-from matplotlib import cm
-from matplotlib.patches import Circle, Wedge, Polygon
-from matplotlib.collections import PatchCollection
-from descartes import PolygonPatch
-
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-plt.ioff()
-
 from oiio import OpenImageIO as oiio
 
 import __init__
@@ -44,6 +30,8 @@ from common.transformations import euler_matrix, quaternion_matrix, quaternion_f
 from common.vis_utils import plot_arrows, plot_arrows_list, plot_arrows_list_threshold, plot3d_pts, plot_lines, plot_hand_w_object
 from global_info import global_info
 import torchvision
+
+mc_client = None
 
 """
 mesh: fast_load_obj, get_obj_mesh(R correct)
@@ -68,6 +56,115 @@ obj_urdf  = infos.obj_urdf
 
 def breakpoint():
     import pdb;pdb.set_trace()
+
+
+class IO:
+    @classmethod
+    def get(cls, file_path):
+        _, file_extension = os.path.splitext(file_path)
+
+        if file_extension in ['.png', '.jpg']:
+            return cls._read_img(file_path)
+        elif file_extension in ['.npy']:
+            return cls._read_npy(file_path)
+        elif file_extension in ['.exr']:
+            return cls._read_exr(file_path)
+        elif file_extension in ['.pcd']:
+            return cls._read_pcd(file_path)
+        elif file_extension in ['.h5']:
+            return cls._read_h5(file_path)
+        elif file_extension in ['.txt']:
+            return cls._read_txt(file_path)
+        else:
+            raise Exception('Unsupported file extension: %s' % file_extension)
+
+    @classmethod
+    def put(cls, file_path, file_content):
+        _, file_extension = os.path.splitext(file_path)
+
+        if file_extension in ['.pcd']:
+            return cls._write_pcd(file_path, file_content)
+        elif file_extension in ['.h5']:
+            return cls._write_h5(file_path, file_content)
+        else:
+            raise Exception('Unsupported file extension: %s' % file_extension)
+
+    @classmethod
+    def _read_img(cls, file_path):
+        if mc_client is None:
+            return cv2.imread(file_path, cv2.IMREAD_UNCHANGED) / 255.
+        else:
+            pyvector = mc.pyvector()
+            mc_client.Get(file_path, pyvector)
+            buf = mc.ConvertBuffer(pyvector)
+            img_array = np.frombuffer(buf, np.uint8)
+            img = cv2.imdecode(img_array, cv2.IMREAD_UNCHANGED)
+            return img / 255.
+
+    # References: https://github.com/numpy/numpy/blob/master/numpy/lib/format.py
+    @classmethod
+    def _read_npy(cls, file_path):
+        if mc_client is None:
+            return np.load(file_path)
+        else:
+            pyvector = mc.pyvector()
+            mc_client.Get(file_path, pyvector)
+            buf = mc.ConvertBuffer(pyvector)
+            buf_bytes = buf.tobytes()
+            if not buf_bytes[:6] == b'\x93NUMPY':
+                raise Exception('Invalid npy file format.')
+
+            header_size = int.from_bytes(buf_bytes[8:10], byteorder='little')
+            header = eval(buf_bytes[10:header_size + 10])
+            dtype = np.dtype(header['descr'])
+            nd_array = np.frombuffer(buf[header_size + 10:], dtype).reshape(header['shape'])
+
+            return nd_array
+
+    # References: https://github.com/dimatura/pypcd/blob/master/pypcd/pypcd.py#L275
+    # Support PCD files without compression ONLY!
+    @classmethod
+    def _read_pcd(cls, file_path):
+        if mc_client is None:
+            pc = open3d.io.read_point_cloud(file_path)
+            ptcloud = np.array(pc.points)
+        else:
+            pyvector = mc.pyvector()
+            mc_client.Get(file_path, pyvector)
+            text = mc.ConvertString(pyvector).split('\n')
+            start_line_idx = len(text) - 1
+            for idx, line in enumerate(text):
+                if line == 'DATA ascii':
+                    start_line_idx = idx + 1
+                    break
+
+            ptcloud = text[start_line_idx:]
+            ptcloud = np.genfromtxt(BytesIO('\n'.join(ptcloud).encode()), dtype=np.float32)
+
+        # ptcloud = np.concatenate((ptcloud, np.array([[0, 0, 0]])), axis=0)
+        return ptcloud
+
+    @classmethod
+    def _read_h5(cls, file_path):
+        f = h5py.File(file_path, 'r')
+        # Avoid overflow while gridding
+        return f['data'][()] * 0.9
+
+    @classmethod
+    def _read_txt(cls, file_path):
+        return np.loadtxt(file_path)
+
+    @classmethod
+    def _write_pcd(cls, file_path, file_content):
+        pc = open3d.geometry.PointCloud()
+        pc.points = open3d.utility.Vector3dVector(file_content)
+        open3d.io.write_point_cloud(file_path, pc)
+
+    @classmethod
+    def _write_h5(cls, file_path, file_content):
+        with h5py.File(file_path, 'w') as f:
+            f.create_dataset('data', data=file_content)
+
 
 def get_color_params(brightness=0, contrast=0, saturation=0, hue=0):
     if brightness > 0:
@@ -488,24 +585,24 @@ def points_from_mesh(faces, vertices, vertex_nb=600, show_cloud=False):
     points = rand_tris[:, 0] + u * (rand_tris[:, 1] - rand_tris[:, 0]) + v * (
         rand_tris[:, 2] - rand_tris[:, 0])
 
-    if show_cloud:
-        fig = plt.figure()
-        ax = fig.add_subplot(111, projection='3d')
-        ax.scatter(
-            points[:, 0],
-            points[:, 1],
-            points[:, 2],
-            s=2,
-            c='b')
-        ax.scatter(
-            vertices[:, 0],
-            vertices[:, 1],
-            vertices[:, 2],
-            s=2,
-            c='r')
-        ax._axis3don = False
-        plt.show()
-    return points
+    # if show_cloud:
+    #     fig = plt.figure()
+    #     ax = fig.add_subplot(111, projection='3d')
+    #     ax.scatter(
+    #         points[:, 0],
+    #         points[:, 1],
+    #         points[:, 2],
+    #         s=2,
+    #         c='b')
+    #     ax.scatter(
+    #         vertices[:, 0],
+    #         vertices[:, 1],
+    #         vertices[:, 2],
+    #         s=2,
+    #         c='r')
+    #     ax._axis3don = False
+    #     plt.show()
+    # return points
 
 def write_pointcloud(filename,xyz_points,rgb_points=None):
     assert xyz_points.shape[1] == 3,'Input XYZ points should be Nx3 float array'

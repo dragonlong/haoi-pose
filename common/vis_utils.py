@@ -50,6 +50,75 @@ class bcolors:
     UNDERLINE = '\033[4m'
 
 
+def get_ptcloud_img(ptcloud):
+    fig = plt.figure(figsize=(8, 8))
+
+    x, z, y = ptcloud.transpose(1, 0)
+    ax = fig.gca(projection=Axes3D.name, adjustable='box')
+    ax.axis('off')
+    # ax.axis('scaled')
+    ax.view_init(30, 45)
+
+    max, min = np.max(ptcloud), np.min(ptcloud)
+    ax.set_xbound(min, max)
+    ax.set_ybound(min, max)
+    ax.set_zbound(min, max)
+    ax.scatter(x, y, z, zdir='z', c=x, cmap='jet')
+
+    fig.canvas.draw()
+    img = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+    img = img.reshape(fig.canvas.get_width_height()[::-1] + (3, ))
+    return img
+
+
+def visualize_data(data, data_type, out_file):
+    r''' Visualizes the data with regard to its type.
+
+    Args:
+        data (tensor): batch of data
+        data_type (string): data type (img, voxels or pointcloud)
+        out_file (string): output file
+    '''
+    if data_type == 'img':
+        if data.dim() == 3:
+            data = data.unsqueeze(0)
+        save_image(data, out_file, nrow=4)
+    elif data_type == 'voxels':
+        visualize_voxels(data, out_file=out_file)
+    elif data_type == 'pointcloud':
+        visualize_pointcloud(data, out_file=out_file)
+    elif data_type is None or data_type == 'idx':
+        pass
+    else:
+        raise ValueError('Invalid data_type "%s"' % data_type)
+
+
+def visualize_voxels(voxels, out_file=None, show=False):
+    r''' Visualizes voxel data.
+
+    Args:
+        voxels (tensor): voxel data
+        out_file (string): output file
+        show (bool): whether the plot should be shown
+    '''
+    # Use numpy
+    voxels = np.asarray(voxels)
+    # Create plot
+    fig = plt.figure()
+    ax = fig.gca(projection=Axes3D.name)
+    voxels = voxels.transpose(2, 0, 1)
+    ax.voxels(voxels, edgecolor='k')
+    ax.set_xlabel('Z')
+    ax.set_ylabel('X')
+    ax.set_zlabel('Y')
+    ax.view_init(elev=30, azim=45)
+    if out_file is not None:
+        plt.savefig(out_file)
+    if show:
+        plt.show()
+    plt.close(fig)
+
+
 def visualize_2d(img,
                  hand_joints=None,
                  hand_verts=None,
@@ -69,7 +138,6 @@ def visualize_2d(img,
         ax.scatter(hand_verts[:, 0], hand_verts[:, 1], alpha=0.1, c='b')
     plt.show()
 
-
 def visualize_3d(img,
                  hand_verts=None,
                  hand_faces=None,
@@ -84,7 +152,6 @@ def visualize_3d(img,
     add_mesh(ax, obj_verts, obj_faces, c='r')
     cam_equal_aspect_3d(ax, hand_verts)
     plt.show()
-
 
 def visualize_pointcloud(points, normals=None, labels=None,
                          title_name='0', out_file=None, backend='matplotlib', show=False):
@@ -212,13 +279,9 @@ def visualize_mesh(input, pts=None, labels=None, ax=None, mode='mesh', backend='
                 m = pyrender.Mesh.from_trimesh(sm, poses=tfs)
                 scene.add(m)
         if viz_mesh:
-            if not isinstance(input, list):
-                mesh_list = [input]
-            else:
-                mesh_list = input
-            for mesh in mesh_list:
-                mesh_vis = pyrender.Mesh.from_trimesh(mesh)
-                scene.add(mesh_vis)
+            print('viz mesh', mesh)
+            mesh_vis = pyrender.Mesh.from_trimesh(mesh)
+            scene.add(mesh_vis)
         else:
             sm = trimesh.creation.uv_sphere(radius=0.01)
             sm.visual.vertex_colors = [1.0, 0.0, 0.0]
@@ -428,7 +491,7 @@ def plot_skeleton(hand_joints, line_ids):
       #   l.paint_uniform_color(bone_color)
       #   l.compute_vertex_normals()
       #   geoms.append(l)
-def plot3d_pts(pts, pts_name, s=1, dpi=350, title_name=None, sub_name='default', \
+def plot3d_pts(pts, pts_name, s=1, dpi=350, title_name=None, sub_name='default', arrows=None, \
                     color_channel=None, colorbar=False, limits=None,\
                     bcm=None, puttext=None, view_angle=None,\
                     save_fig=False, save_path=None, flip=True,\
@@ -450,7 +513,7 @@ def plot3d_pts(pts, pts_name, s=1, dpi=350, title_name=None, sub_name='default',
     # colors  = cmap(np.linspace(0., 1., 5))
     # '.', '.', '.',
     all_poss=['o', 'o', 'o', 'o','o', '*', '.','o', 'v','^','>','<','s','p','*','h','H','D','d','1','','']
-
+    c_set   = ['r', 'b', 'g', 'k', 'm']
     num     = len(pts)
     for m in range(num):
         ax = plt.subplot(1, num, m+1, projection='3d')
@@ -475,7 +538,14 @@ def plot3d_pts(pts, pts_name, s=1, dpi=350, title_name=None, sub_name='default',
                     p = ax.scatter(pts[m][n][:, 0],  pts[m][n][:, 1], pts[m][n][:, 2],  marker=all_poss[n], s=ss[n], c=rgb_encoded, label=pts_name[m][n], depthshade=False)
                 if colorbar:
                     fig.colorbar(p)
-
+            if arrows is not None:
+                points, offset_sub = arrows[m][n]['p'], arrows[m][n]['v']
+                offset_sub = offset_sub * 0.2
+                if len(points.shape) < 2:
+                    points = points.reshape(-1, 3)
+                if len(offset_sub.shape) < 2:
+                    offset_sub = offset_sub.reshape(-1, 3)
+                ax.quiver(points[:, 0], points[:, 1], points[:, 2], offset_sub[:, 0], offset_sub[:, 1], offset_sub[:, 2], color=c_set[n], linewidth=4)
         ax.set_xlabel('X Label')
         ax.set_ylabel('Y Label')
         ax.set_zlabel('Z Label')
@@ -1030,6 +1100,9 @@ def plot_arrows_list_threshold(points_list, offset_list, joint_list, title_name=
 
 
 def hist_show(values, labels, tick_label, axes_label, title_name, total_width=0.5, dpi=300, save_fig=False, sub_name='seen'):
+    """
+    labels:
+    """
     x     = list(range(len(values[0])))
     n     = len(labels)
     width = total_width / n

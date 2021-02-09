@@ -1,14 +1,34 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
-# 
+#
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
 import numpy as np
-from pc_util import bbox_corner_dist_measure
+def bbox_corner_dist_measure(crnr1, crnr2):
+    """ compute distance between box corners to replace iou
+    Args:
+        crnr1, crnr2: Nx3 points of box corners in camera axis (y points down)
+        output is a scalar between 0 and 1
+    """
+
+    dist = sys.maxsize
+    for y in range(4):
+        rows = ([(x+y)%4 for x in range(4)] + [4+(x+y)%4 for x in range(4)])
+        d_ = np.linalg.norm(crnr2[rows, :] - crnr1, axis=1).sum() / 8.0
+        if d_ < dist:
+            dist = d_
+
+    u = sum([np.linalg.norm(x[0,:] - x[6,:]) for x in [crnr1, crnr2]])/2.0
+
+    measure = max(1.0 - dist/u, 0)
+    print(measure)
+
+
+    return measure
 
 # boxes are axis aigned 2D boxes of shape (n,5) in FLOAT numbers with (x1,y1,x2,y2,score)
 ''' Ref: https://www.pyimagesearch.com/2015/02/16/faster-non-maximum-suppression-python/
-Ref: https://github.com/vickyboy47/nms-python/blob/master/nms.py 
+Ref: https://github.com/vickyboy47/nms-python/blob/master/nms.py
 '''
 def nms_2d(boxes, overlap_threshold):
     x1 = boxes[:,0]
@@ -156,14 +176,14 @@ def nms_3d_faster_samecls(boxes, overlap_threshold, old_type=False):
 
 
 def nms_crnr_dist(boxes, conf, overlap_threshold):
-        
+
     I = np.argsort(conf)
     pick = []
     while (I.size!=0):
         last = I.size
         i = I[-1]
-        pick.append(i)        
-        
+        pick.append(i)
+
         scores = []
         for ind in I[:-1]:
             scores.append(bbox_corner_dist_measure(boxes[i,:], boxes[ind, :]))

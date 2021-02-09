@@ -116,23 +116,47 @@ for i in 5 6 7 8 9
 do
 python obman_samplepoints.py idx=$i num=10 &
 done
+
 #>>>>>>>>>> for evaluation
 # viz
 # scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/eyeglasses/1/viz/* /home/dragon/Documents/ICML2021/model/eyeglasses/1/viz/
-EXP=1.4
+# 1.46
+EXP=1.48
 item='obman'
 domain='unseen'
 mkdir -p /home/dragon/Documents/ICML2021/model/${item}/${EXP}/preds/${domain}/
 scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/${item}/${EXP}/preds/${domain}/* /home/dragon/Documents/ICML2021/model/${item}/${EXP}/preds/${domain}/
 mv ~/Downloads/0000*.h5 /home/dragon/Documents/ICML2021/model/${item}/${EXP}/preds/${domain}/
 
-# log
-for EXP in 1.35
-do
-cd /home/dragon/Documents/ICML2021/log
+# cd /home/dragon/Documents/ICML2021/log
 # EXP=1.35
+# log
+# 2.41 2.42
+for EXP in 2.6 2.7 2.71
+do
+cd /home/dragon/Documents/ICML2021/new_log/ae_gan
 item='obman'
-scp -r lxiaol9@newriver2.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/${item}/${EXP}/tb/ ${EXP}
+mkdir ${EXP}
+scp -r lxiaol9@newriver2.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/${item}/${EXP}/train.events/ ${EXP} &
+scp -r lxiaol9@newriver2.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/${item}/${EXP}/val.events/ ${EXP} &
+done
+
+for EXP in 2.6 2.7 2.71
+do
+cd /home/dragon/Documents/ICML2021/new_log/ae_gan
+item='obman'
+mkdir ${EXP}
+scp -r lxiaol9@newriver2.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/${item}/${EXP}/tb/ ${EXP} &
+done
+
+# for EXP in 1.42 1.43 1.44
+# for EXP in 1.451 1.452 1.453 1.471 1.49
+# for EXP in 2.07 2.071 2.072 2.073 2.3
+for EXP in 2.31 2.32
+do
+cd /home/dragon/Documents/ICML2021/new_log
+item='obman'
+scp -r lxiaol9@newriver2.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/${item}/${EXP}/logs/ ${EXP}
 done
 
 cd /home/dragon/Documents/ICML2021/log
@@ -148,12 +172,13 @@ mkdir -p /home/dragon/Documents/ICML2021/model/${item}/${EXP}/
 scp -r lxiaol9@newriver2.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/obman/2.1/vis/ /home/dragon/Documents/ICML2021/model/${item}/${EXP}/
 
 #>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> for evluation <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< #
-# mesh eval
-EXP=2.03
+# mesh eval, 2.03, 2.07
+EXP=2.07
 item='obman'
 domain='unseen'
-mkdir -p /home/dragon/Documents/ICML2021/model/${item}/${EXP}/generation/${domain}/
+mkdir -p /home/dragon/Documents/ICML2021/model/${item}/${EXP}/
 scp -r lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/${item}/${EXP}/generation/ /home/dragon/Documents/ICML2021/model/${item}/${EXP}/
+
 
 #
 scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/eyeglasses/1/viz/* /home/dragon/Documents/ICML2021/model/eyeglasses/1/viz/
@@ -168,7 +193,7 @@ scp -r lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/obman/${EXP}
 
 scp -r lxiaol9@newriver1.arc.vt.edu:/home/lxiaol9/3DGenNet2019/haoi-pose/out/pointcloud/2.01/vis /home/dragon/Documents/ICML2021/results/val_pred/2.01/
 # Press Enter, ~, . one after the other to disconnect from a frozen session.
-
+#
 for i in 0.1  0.2  0.3  0.4  0.5  3.9  3.91  5.9  5.91  8.12  8.14  pointnet2_charlesmsg_0  pointnet2_charlesmsg_1  pointnet2_charlesssg_1  pointnet2_meteornet_1
 do
  echo $i
@@ -180,18 +205,19 @@ done
 #
 # # scp lxiaol9@newriver1.arc.vt.edu:/home/lxiaol9/3DGenNet2019/haoi-pose/out/pointcloud/2.01/vis/800* /home/dragon/Documents/ICML2021/results/val_pred/2.01/
 # scp -r lxiaol9@newriver1.arc.vt.edu:/home/lxiaol9/3DGenNet2019/haoi-pose/outputs/media /home/dragon/Dropbox/ICML2021/code/haoi-pose/outputs
-# # local
-# python viz_helper.py
-#
 
+# viz input occupancy points
+python viz_helper.py
 
-# how to get faster SDF value from mesh!!
-1. create watertight mesh with;
-
-2. Sample points near the surface, and use libigl to get SDF value;
-
-3. Use's occupancy's methods for decide whether points belong to volume or others;
-
-4. Trimesh's code;
-
-5. Use Pyrender to visualize the points;
+# obman sample
+python obman_samplepoints.py
+  # # how to get faster SDF value from mesh!!
+  # 1. create watertight mesh with;
+  #
+  # 2. Sample points near the surface, and use libigl to get SDF value;
+  #
+  # 3. Use's occupancy's methods for decide whether points belong to volume or others;
+  #
+  # 4. Trimesh's code;
+  #
+  # 5. Use Pyrender to visualize the points;

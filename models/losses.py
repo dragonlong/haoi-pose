@@ -17,10 +17,9 @@ LS_L2_REGULARIZER = 1e-8
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
-sys.path.append(os.path.join(ROOT_DIR, 'utils'))
-from nn_distance import nn_distance, huber_loss
 sys.path.append(os.path.join(ROOT_DIR, 'common'))
 from common.debugger import *
+from common.d3_utils import rotate_about_axis
 
 # 0.94
 FAR_THRESHOLD  = 0.3
@@ -53,8 +52,11 @@ OBJECTNESS_CLS_WEIGHTS = [0.2,0.8] # put larger weights on positive objectness
 # OBJECTNESS_CLS_WEIGHTS = [0.2,0.8] # put larger weights on positive objectness
 
 import __init__
+from global_info import global_info
 from common.d3_utils import compute_rotation_matrix_from_ortho6d, compute_geodesic_distance_from_two_matrices
-
+# global variables
+infos           = global_info()
+sym_type        = infos.sym_type
 """
 loss_geodesic(predict_rmat, gt_rmat): [B, 3, 3]
 FocalLoss(nn.Module):
@@ -71,8 +73,56 @@ compute_objectness_loss(end_points): Compute objectness loss for the proposals.
 compute_box_and_sem_cls_loss(end_points, config=None): Compute 3D bounding box and semantic classification loss.
 """
 
-def breakpoint():
+def bp():
     import pdb;pdb.set_trace()
+
+def huber_loss(error, delta=1.0):
+    """
+    Args:
+        error: Torch tensor (d1,d2,...,dk)
+    Returns:
+        loss: Torch tensor (d1,d2,...,dk)
+
+    x = error = pred - gt or dist(pred,gt)
+    0.5 * |x|^2                 if |x|<=d
+    0.5 * d^2 + d * (|x|-d)     if |x|>d
+    Ref: https://github.com/charlesq34/frustum-pointnets/blob/master/models/model_util.py
+    """
+    abs_error = torch.abs(error)
+    #quadratic = torch.min(abs_error, torch.FloatTensor([delta]))
+    quadratic = torch.clamp(abs_error, max=delta)
+    linear = (abs_error - quadratic)
+    loss = 0.5 * quadratic**2 + delta * linear
+    return loss
+
+def nn_distance(pc1, pc2, l1smooth=False, delta=1.0, l1=False):
+    """
+    Input:
+        pc1: (B,N,C) torch tensor
+        pc2: (B,M,C) torch tensor
+        l1smooth: bool, whether to use l1smooth loss
+        delta: scalar, the delta used in l1smooth loss
+    Output:
+        dist1: (B,N) torch float32 tensor
+        idx1: (B,N) torch int64 tensor
+        dist2: (B,M) torch float32 tensor
+        idx2: (B,M) torch int64 tensor
+    """
+    N = pc1.shape[1]
+    M = pc2.shape[1]
+    pc1_expand_tile = pc1.unsqueeze(2).repeat(1,1,M,1)
+    pc2_expand_tile = pc2.unsqueeze(1).repeat(1,N,1,1)
+    pc_diff = pc1_expand_tile - pc2_expand_tile
+
+    if l1smooth:
+        pc_dist = torch.sum(huber_loss(pc_diff, delta), dim=-1) # (B,N,M)
+    elif l1:
+        pc_dist = torch.sum(torch.abs(pc_diff), dim=-1) # (B,N,M)
+    else:
+        pc_dist = torch.sum(pc_diff**2, dim=-1) # (B,N,M)
+    dist1, idx1 = torch.min(pc_dist, dim=2) # (B,N)
+    dist2, idx2 = torch.min(pc_dist, dim=1) # (B,M)
+    return dist1, idx1, dist2, idx2
 
 def hungarian_matching(cost, n_instance_gt):
     # cost is BxNxM
@@ -138,7 +188,7 @@ def compute_nocs_loss(nocs, nocs_gt, confidence, \
             diff_l2 = torch.norm(nocs_splits[i] - nocs_gt, dim=1) # BxN
             diff_abs= torch.sum(torch.abs(nocs_splits[i] - nocs_gt), dim=1) # B*N
             if TYPE_LOSS=='L2':
-                loss_nocs += torch.mean(mask_splits[i][:, 0, :]  * diff_l2, dim=1)
+                loss_nocs += torch.sum(mask_splits[i][:, 0, :]  * diff_l2, dim=1)/(torch.sum(mask_splits[i][:, 0, :], dim=1) + 1)
     else:
         diff_l2 = torch.norm(nocs - nocs_gt, dim=1) # ([B, 3, N], [B, 3, N]) --> BxN
         diff_abs= torch.sum(torch.abs(nocs - nocs_gt), dim=1) # B*N
@@ -147,6 +197,47 @@ def compute_nocs_loss(nocs, nocs_gt, confidence, \
 
     return loss_nocs
 
+def compute_1vN_nocs_loss(nocs, nocs_gt, confidence, target_category='remote', class_array=None,\
+                        num_parts=2, mask_array=None, \
+                        TYPE_LOSS='L2',
+                        SELF_SU=False):
+    """
+    return [B]
+    nocs:       [B, 3K, N]
+    nocs_gt:    [B, 3, N] -> [B, 3 * K, N], with basic Y matrix,
+    confidence: [B, 1, N]
+    mask_array: [B, K, N]
+
+    if class_array is not None, then we map it to rotation interval;
+
+    get possible M base, R= [3, 3]
+    apply to GT, get M of them;
+    from [B, 3, N] to [B, M, 3, N] --> B, M --> find the minimum loss out of M candidates per;
+    sum together
+    """
+    loss_nocs   = 0
+    nocs_splits = torch.split(nocs, 3, dim=1)
+    mask_splits = torch.split(mask_array, 1, dim=1)
+
+    # augment GT with category infos
+    all_rmats = []
+    for key, M in sym_type[target_category].items():
+        for k in range(M):
+            rmat = rotate_about_axis(2 * np.pi * k / M, axis=key)
+            all_rmats.append(rmat)
+    # reshape all_rmats into tensor array,
+    rmats = torch.from_numpy(np.array(all_rmats).astype(np.float32)).cuda()
+
+    # we get the updated [M, 3, 3] * [B, 1, 3, N] --> B, M, 3, N
+    nocs_gt_aug = torch.matmul(rmats, torch.unsqueeze(nocs_gt, 1)-0.5) + 0.5
+    for i in range(1, num_parts):
+        diff_l2 = torch.norm(nocs_splits[i].unsqueeze(1) - nocs_gt_aug, dim=2) # BxMxN
+        # diff_abs= torch.sum(torch.abs(nocs_splits[i] - nocs_gt), dim=1)        # BxMxN
+        loss_part = torch.sum(mask_splits[i][:, 0:1, :]  * diff_l2, dim=-1)/(torch.sum(mask_splits[i][:, 0:1, :], dim=-1) + 1)   # [B, M, N] * [B, 1, N] -> B, M
+        loss_part, _ =  torch.min(loss_part, dim=-1)
+        loss_nocs += loss_part
+
+    return loss_nocs
 
 def compute_vect_loss(vect, vect_gt, confidence=None, num_parts=2, mask_array=None, \
         TYPE_LOSS='L2'):

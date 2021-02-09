@@ -4,9 +4,12 @@ from torchvision import transforms
 import __init__
 import dataset as data
 from models import conv_onet
+from models import onet
+from common.debugger import *
 
 method_dict = {
-    'conv_onet': conv_onet
+    'conv_onet': conv_onet,
+    'onet': onet
 }
 def breakpoint():
     import pdb;pdb.set_trace()
@@ -202,3 +205,31 @@ def get_inputs_field(mode, cfg):
         raise ValueError(
             'Invalid input type (%s)' % input_type)
     return inputs_field
+
+
+def get_preprocessor(cfg, dataset=None, device=None):
+    ''' Returns preprocessor instance.
+
+    Args:
+        cfg (dict): config dictionary
+        dataset (dataset): dataset
+        device (device): pytorch device
+    '''
+    p_type = cfg['preprocessor']['type']
+    cfg_path = cfg['preprocessor']['config']
+    model_file = cfg['preprocessor']['model_file']
+
+    if p_type == 'psgn':
+        preprocessor = preprocess.PSGNPreprocessor(
+            cfg_path=cfg_path,
+            pointcloud_n=cfg['data']['pointcloud_n'],
+            dataset=dataset,
+            device=device,
+            model_file=model_file,
+        )
+    elif p_type is None:
+        preprocessor = None
+    else:
+        raise ValueError('Invalid Preprocessor %s' % p_type)
+
+    return preprocessor

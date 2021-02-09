@@ -44,8 +44,8 @@ from common.queries import BaseQueries, TransQueries
 from common import bp
 from utils.external.libmesh import check_mesh_contains
 
-infos     = global_info()
-my_dir    = infos.base_path
+infos       = global_info()
+my_dir      = infos.base_path
 second_path = infos.second_path
 render_path = infos.render_path
 platform_name = infos.platform_name

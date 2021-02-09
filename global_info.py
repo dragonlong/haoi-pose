@@ -293,7 +293,7 @@ class global_info(object):
             # mano_path = '/home/dragon/Downloads/ICML2021/YCB_Affordance/data/mano'
             mano_path = '/home/dragon/Dropbox/ICML2021/code/manopth/mano/models'
         else:
-            base_path = '/work/cascades/lxiaol9/6DPOSE'
+            base_path = '/groups/CESCA-CV/ICML2021'
             group_path= '/groups/CESCA-CV'
             second_path = '/groups/CESCA-CV/ICML2021'
             mano_path = '/home/lxiaol9/3DGenNet2019/manopth/mano/models'
@@ -335,8 +335,41 @@ class global_info(object):
                             '02992529': 'cellphone' ,# 831
                             '02942699': 'camera', # 113,
                             '04074963': 'remote', # 66
-                            }
+                            } # need further classification
         self.symmetry_dict = np.load(f'{self.project_path}/haoi-pose/dataset/data/symmetry.npy', allow_pickle=True).item()
+        sym_type = {}
+        sym_type['bottle'] = {'y': 36}
+        sym_type['bowl']   = {'y': 36}
+        sym_type['can']    = {'y': 36, 'x': 2, 'z': 2}
+        sym_type['jar']    = {'y': 36}
+        sym_type['mug']    = {'y': 1}
+        sym_type['knife']  = {'y': 2}
+        sym_type['camera'] = {'y': 1}
+        sym_type['remote'] = {'y': 2, 'x': 2}
+        sym_type['cellphone'] = {'y': 2, 'x': 2}
+        self.sym_type = sym_type
+
+        # bottle 33278
+        # mug 0
+        # bowl 10301
+        # can 5921
+        # jar 37828
+        # knife 9558
+        # cellphone 34109
+        # camera 7208
+        # remote 3347
+        # Final dataset size: 141550
+        # >>>>> validation
+        # bottle 1541
+        # mug 0
+        # bowl 432
+        # can 242
+        # jar 1728
+        # knife 461
+        # cellphone 1659
+        # camera 244
+        # remote 156
+
         # num = 0
         # for key, value in self.symmetry_dict.items():
         #     if value:

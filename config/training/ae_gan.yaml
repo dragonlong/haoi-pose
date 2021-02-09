@@ -1,0 +1,40 @@
+# @package _global_
+proj_dir: proj_log
+exp_name: mpc-3depn-chair
+gpu_ids: 0
+module: ae # ['ae', 'vae', 'gan']
+batch_size: 200
+category: chair
+num_workers: 8
+n_pts: 2048
+# network
+enc_filters: (64, 128, 128, 256)
+latent_dim: 128
+dec_features: (256, 256)
+enc_bn: True
+dec_bn: False
+z_dim: 64 # dimension for mode condition vector z
+# GAN
+zEnc_features: (256, 512)
+G_features: (256, 512)
+D_features: (256, 512)
+pretrain_ae_path: None
+pretrain_vae_path: None
+nr_epochs: 2000
+lr: 0.0005       # initial learning rate
+lr_decay: 0.9995 # step size for learning rate decay
+beta1_gan: 0.5 # beta1 for Adam Optimizer when training gan
+parallel: False
+multimodal: True
+cont: False
+ckpt: latest
+vis: False
+save_frequency: 500
+val_frequency: 10
+vis_frequency: 1000
+weight_kl_vae: 10.0   # weight factor for kl loss
+weight_z_L1: 7.5      # weight factor for latent reconstruction loss
+weight_partial_rec: 6 # weight factor for partial reconstruction loss
+# testing
+num_sample: 10
+num_z: 5

@@ -1,0 +1,60 @@
+# @package _global_
+defaults:
+  - training: grnet # Task performed (segmentation, classification etc...)
+    optional: True
+  - models: se3_transformer
+    optional: True
+  - datasets: obman
+    optional: True
+
+eval: False
+set: 'val'
+exp_num: '1'
+exp_name: 'default'
+task: 'pcloud_completion' # hand_regression, obj_reconstruction, hand_reconstruction, contacts_vote
+name_dset: 'obman'
+dataset_class: 'HandDataset'
+item: 'obman'
+n_max_parts : 2
+num_points: 2048
+nocs_type: 'A'
+num_expr: 0.01
+target_category: ''
+name_model: grnet # Name of the specific model to load
+root_data: "/groups/CESCA-CV/ICML2021/data"
+log_dir: '/model/${item}/${exp_num}'      #
+
+# control
+augment: False
+use_wandb: False
+use_wgan: False
+verbose: False
+use_pretrain: False
+is_debug: False
+is_gen: False
+use_noisy_nocs: True
+pretrained_path: ''
+is_testing: False
+pred_hand: True
+pred_joint: False
+pred_mano: False
+rot_align: False
+hand_only: False
+use_hand_occupancy: False
+use_1vN_nocs: False
+sym_aligned_nocs: False
+pred_sym_axis: False
+#
+pred_joint_ind: False
+pretty_print: False
+distributed: False
+port: '8803'
+num_gpus: 1
+gpu: '0'
+num_workers: 8
+nframe: 1
+f: aa
+
+# visualizatio
+show_fig: True
+save_fig: False

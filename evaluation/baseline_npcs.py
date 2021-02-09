@@ -166,7 +166,7 @@ if __name__ == '__main__':
     my_dir          = infos.base_path
     directory       = my_dir + '/results/pickle/{}'.format(main_exp)
     rts_all = pickle.load( open( directory + '/{}_{}_{}_rt.pkl'.format(args.domain, args.nocs, args.item), 'rb' ))
-    
+
     all_test_h5     = os.listdir(my_dir + '/results/test_pred/{}/'.format(args.num_exp))
     test_group      = get_test_group(all_test_h5, unseen_instances, domain=args.domain, spec_instances=special_ins)
 

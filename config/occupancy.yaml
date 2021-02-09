@@ -12,8 +12,12 @@ use_noisy_nocs: True
 use_category_code: False
 use_transform_hand: False
 use_hand_occupancy: False
+use_1vN_nocs: False
+aligned_nocs: False
+pred_sym_axis: False
 use_wandb: False
 task: 'obj_reconstruction'  # hand_regression, obj_reconstruction, hand_reconstruction, contacts_vote
+dataset_class: 'HandDataset'
 target_category: ''
 exp_num: 'default'
 exp_name: 'default'
@@ -106,3 +110,7 @@ generation:
   latent_nx: 2
   latent_repeat: true
   sliding_window: False # added for crop generation
+preprocessor:
+  type: null
+  config: ""
+  model_file: null

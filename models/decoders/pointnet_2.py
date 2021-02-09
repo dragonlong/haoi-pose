@@ -210,7 +210,7 @@ class PointNet2Segmenter(nn.Module):
                     self.feature_propagators[-1].get_num_features_out(), 128, 1),
                 nn.BatchNorm1d(128) if batchnorm else None,
                 nn.ReLU(),
-                nn.Dropout(0.5),
+                nn.Dropout(0.25),
                 # nn.Conv1d(128, num_classes, 1) # commented by XL, 1.17, 2021
             ] if module is not None
         ]

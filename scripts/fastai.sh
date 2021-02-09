@@ -1,8 +1,11 @@
 how to enable fast iteration
 https://docs.wandb.ai/library/log
 https://docs.wandb.ai/integrations/tensorboard
+https://github.com/wandb/examples/blob/master/examples/pytorch/pytorch-intro/intro.ipynb
 wandb sync /groups/CESCA-CV/ICML2021/model/obman/2.05/logs/
-#
+
+https://colab.research.google.com/drive/15MJ9nLDIXRvy_lCwAou6C2XN3nppIeEK#scrollTo=XzZKD0Usap2S
+
 # (merl) [lxiaol9@ca210 tools]$ wandb sync /groups/CESCA-CV/ICML2021/model/obman/2.06/logs/
 # wandb: Syncing /groups/CESCA-CV/ICML2021/model/obman/2.06/logs/ to:
 # wandb: earthy-resonance-1 https://app.wandb.ai/lxiaol9/haoi-pose/runs/2fqpgiot

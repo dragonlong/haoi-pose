@@ -12,14 +12,15 @@ eval: False
 exp_num: '1'
 exp_name: 'default'
 task: 'category_pose' # hand_regression, obj_reconstruction, hand_reconstruction, contacts_vote
-name_dset: 'shape2motion'
-item: 'eyeglasses'
-n_max_parts : 4
+name_dset: 'obman'
+dataset_class: 'HandDataset'
+item: 'obman'
+n_max_parts : 2
 num_points: 2048
 nocs_type: 'A'
 num_expr: 0.01
 target_category: ''
-name_model: pointnet2_charlesmsg # Name of the specific model to load
+name_model: pointnet2_kaolin # Name of the specific model to load
 root_data: "/groups/CESCA-CV/ICML2021/data"
 log_dir: '/model/${item}/${exp_num}'      #
 
@@ -28,9 +29,9 @@ verbose: False
 use_pretrain: False
 is_debug: False
 is_gen: False
-eval: False
 use_noisy_nocs: True
 pretrained_path: ''
+use_wandb: False
 is_testing: False
 pred_hand: True
 pred_joint: False
@@ -38,6 +39,9 @@ pred_mano: False
 rot_align: False
 hand_only: False
 use_hand_occupancy: False
+use_1vN_nocs: False
+sym_aligned_nocs: False
+pred_sym_axis: False
 #
 pred_joint_ind: False
 pretty_print: False

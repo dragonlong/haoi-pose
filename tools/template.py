@@ -16,7 +16,7 @@ import torch
 import __init__
 from global_info import global_info
 from dataset.obman_parser import ObmanParser
-from utils.checkpoints import CheckpointIO
+from common.train_utils import CheckpointIO
 from common import bp
 
 # try using custom packages

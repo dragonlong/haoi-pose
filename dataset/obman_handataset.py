@@ -8,6 +8,7 @@ import numpy as np
 from PIL import Image, ImageFilter
 import pickle
 from tqdm import tqdm
+from multiprocessing import Manager
 import os
 from os import makedirs, remove
 from os.path import exists, join
@@ -17,7 +18,7 @@ from torchvision.transforms import functional as func_transforms
 import __init__
 from global_info import global_info
 from common import data_utils, handutils, vis_utils, bp
-from common.d3_utils import align_rotation # 4 * 4
+from common.d3_utils import align_rotation #4 * 4
 from common.queries import (
     BaseQueries,
     TransQueries,
@@ -30,6 +31,7 @@ def bp():
 infos           = global_info()
 my_dir          = infos.base_path
 project_path    = infos.project_path
+categories_id   = infos.categories_id
 
 def bbox_from_joints(joints):
     x_min, y_min = joints.min(0)
@@ -88,6 +90,7 @@ class HandDataset(Dataset):
         sides: if both, don't flip hands, if 'right' flip all left hands to
             right hands, if 'left', do the opposite
         """
+        Dataset.__init__(self)
         # Dataset attributes
         self.num_points   = cfg.num_points # fixed for category with < 5 parts
         self.J_num        = 21
@@ -168,6 +171,8 @@ class HandDataset(Dataset):
         self.ids_per_category = {}
         for ind, category in enumerate(self.categories):
             self.ids_per_category[category] = np.where(self.arr_category==ind)[0].tolist()
+        for category, value in self.ids_per_category.items():
+            print(categories_id[category], len(value))
         self.basename_list = ['{}_{}'.format(self.list_frame[j], self.list_instance[j]) for j in range(len(self.list_frame))]
         if len(cfg.target_category) > 0:
             # target_categorys = ['camera', 'knife', 'jar', 'cellphone', 'mug', 'remote']
@@ -183,6 +188,9 @@ class HandDataset(Dataset):
             self.all_ids = self.ids_per_category[target_category]
         else:
             self.all_ids = np.arange(0, len(self.pose_dataset)) # add one more level of packaging to change choice base;
+        # create NOCS dict
+        manager = Manager()
+        self.nocs_dict = manager.dict()
     def get_model_dict(self, idx):
         return self.models[idx]
 
@@ -549,7 +557,7 @@ class HandDataset(Dataset):
                 nocs = (canon_pts - center_pt.reshape(1, 3)) / length_bb + 0.5
             else:
                 boundary_pts = [np.min(canon_pts, axis=0), np.max(canon_pts, axis=0)]
-                nocs = self.pose_dataset.get_nocs(idx, pcloud, boundary_pts)
+                nocs = self.pose_dataset.get_nocs(idx, pcloud, boundary_pts, sym_aligned_nocs=self.cfg.sym_aligned_nocs)
                 if debug:
                     sample[BaseQueries.nocs] = nocs
             inds = np.random.choice(nocs.shape[0], 1024)
@@ -612,7 +620,7 @@ class HandDataset(Dataset):
 
         pts_arr = cloud[np.where(segm>0)[0], np.where(segm>0)[1], :]
         cls_arr = obj_segm[np.where(segm>0)[0], np.where(segm>0)[1]] # hand is 0, obj =1
-        nocs    = self.pose_dataset.get_nocs(idx, pts_arr, boundary_pts)
+        nocs    = self.pose_dataset.get_nocs(idx, pts_arr, boundary_pts, sym_aligned_nocs=self.cfg.sym_aligned_nocs)
         n_total_points = pts_arr.shape[0]
         output_arr     = [pts_arr, cls_arr, nocs]
         if self.hand_only:
@@ -641,7 +649,7 @@ class HandDataset(Dataset):
         p_arr         = p_arr[perm][sample_ind]   # norm
         mask_array    = np.zeros([self.num_points, n_parts], dtype=np.float32)
         mask_array[np.arange(self.num_points), cls_arr.astype(np.int8)] = 1.00 #
-        mask_array[np.arange(self.num_points), 0] = 0.0
+        mask_array[np.arange(self.num_points), 0] = 0.0 # will not consider hands
         # mask_array[np.arange(self.num_points), n_parts-1] = 0.0 # ignore hand points for nocs prediction
         if not self.is_testing:
             pts_arr = torch.from_numpy(pts_arr.astype(np.float32).transpose(1, 0))

@@ -247,11 +247,13 @@ def make_3d_grid(bb_min, bb_max, shape):
 
     return p
 
-def compose_rt(rotation, translation):
+def compose_rt(rotation, translation, s=None):
     aligned_RT = np.zeros((4, 4), dtype=np.float32)
     aligned_RT[:3, :3] = rotation.transpose()
     aligned_RT[:3, 3]  = translation
     aligned_RT[3, 3]   = 1
+    if s is not None:
+        aligned_RT[:3, :3] = aligned_RT[:3, :3] * s
     return aligned_RT
 
 def transform_pcloud(pcloud, RT, inv=False, extra_R=None, verbose=False):
@@ -260,12 +262,16 @@ def transform_pcloud(pcloud, RT, inv=False, extra_R=None, verbose=False):
     """
     # if extra_R is not None:
     #     pcloud = np.dot(pcloud, extra_R[:3, :3].T)
+    if RT.shape[1] == 3:
+        T = 0
+    else:
+        T = RT[:3, 3].reshape(1, 3)
     if inv:
         inv_R     = np.linalg.pinv(RT[:3, :3])
-        pcloud_tf = np.dot(inv_R, pcloud.T  - RT[:3, 3].reshape(3, 1))
+        pcloud_tf = np.dot(inv_R, (pcloud-T).T)
         pcloud_tf = pcloud_tf.T
     else:
-        pcloud_tf = np.dot(pcloud, RT[:3, :3].T) + RT[:3, 3].reshape(1, 3)
+        pcloud_tf = np.dot(pcloud, RT[:3, :3].T) + T
     if verbose:
         print_group([RT, pcloud[:3, :], pcloud_tf[:3, :]], ['RT', 'original pts', 'transformed pts'])
         plot3d_pts([[pcloud, pcloud_tf]], [['pts', 'transformed pts']], s=1, mode='continuous',  limits = [[-0.5, 0.5], [-0.5, 0.5], [-0.5, 1.5]], title_name=['Camera + World Pts'])
@@ -899,8 +905,17 @@ def axis_diff_degree(v1, v2):
     # print(r_diff)
     return min(r_diff, 180-r_diff)
 
-def rot_diff_degree(rot1, rot2):
-    return rot_diff_rad(rot1, rot2) / np.pi * 180
+def rot_diff_degree(rot1, rot2, up=False):
+    if up:
+        y_axis = np.array([[0, 1, 0]])
+        tv1 = transform_pcloud(y_axis, rot1)
+        tv2 = transform_pcloud(y_axis, rot2)
+        return tv1, tv2, axis_diff_degree(tv1, tv2)
+    else:
+        y_axis = np.array([[0, 1, 0]])
+        tv1 = transform_pcloud(y_axis, rot1)
+        tv2 = transform_pcloud(y_axis, rot2)
+        return tv1, tv2, rot_diff_rad(rot1, rot2) / np.pi * 180
 
 def rot_diff_rad(rot1, rot2):
     return np.arccos( ( np.trace(np.matmul(rot1, rot2.T)) - 1 ) / 2 ) % (2*np.pi)

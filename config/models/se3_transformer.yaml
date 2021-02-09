@@ -1,0 +1,6 @@
+MODEL:
+  num_layers: 4
+  input_feature_size: 1
+  num_channels: 32
+  num_nlayers: 1
+  num_degrees: 2

@@ -14,7 +14,7 @@ from models.decoders.pointnet_2 import PointNet2Segmenter
 from models.encoder.pointnet2_msg_sem import PointNet2SemSegMSG
 from models.vote_net.votenet import VoteNet #
 
-from common.debugger import breakpoint
+from common.debugger import bp
 import global_info
 
 setting = global_info.setting()
@@ -112,7 +112,7 @@ class ModelBuilder:
             num_class = params.num_classes
             if params.task == 'motion':
                 num_class = 3
-            weights   = params.weights_decoder
+            # weights   = params.weights_decoder
             in_channels=params.in_channels
             stack_factor=params.stack_factor
             depth     = params.depth_decoder

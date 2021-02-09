@@ -9,7 +9,7 @@ import os
 import sys
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
-sys.path.append(os.path.join(ROOT_DIR, '../utils'))
+sys.path.append(os.path.join(ROOT_DIR, '../common'))
 import pc_util
 
 DUMP_CONF_THRESH = 0.5 # Dump boxes with obj prob larger than that.

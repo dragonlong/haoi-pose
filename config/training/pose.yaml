@@ -92,7 +92,7 @@ MODEL:
   use_xyz: True
   num_classes: 4
   arch_encoder: "identical"
-  arch_decoder: "pointnet2_single"
+  arch_decoder: "kaolin" # "pointnet2_single"
   arch_head: "segmentation"
   weights_encoder: ""
   weights_decoder: ""

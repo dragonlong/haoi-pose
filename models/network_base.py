@@ -18,19 +18,18 @@ import __init__ as booger
 from global_info import global_info
 from models.model_factory import ModelBuilder
 from common.train_utils import AverageMeter, parse_devices, warmupLR, Logger, save_to_log, make_log_img, decide_checkpoints, save_batch_nn
-from models.losses import FocalLoss, compute_miou_loss, compute_nocs_loss, compute_vect_loss, compute_multi_offsets_loss, loss_geodesic
+from models.losses import FocalLoss, compute_miou_loss, compute_nocs_loss, compute_1vN_nocs_loss, compute_vect_loss, compute_multi_offsets_loss, loss_geodesic
 from models.losses import compute_vote_loss, compute_objectness_loss, compute_box_and_sem_cls_loss
-from models.losses import get_loss
+from models.losses import get_loss, huber_loss
 from utils.ioueval import *
 from common.d3_utils import compute_rotation_matrix_from_euler, compute_euler_angles_from_rotation_matrices, compute_rotation_matrix_from_ortho6d
-from utils.nn_distance import huber_loss
 
 infos           = global_info()
 my_dir          = infos.base_path
 grasps_meta     = infos.grasps_meta
 mano_path       = infos.mano_path
 
-def breakpoint(id=0):
+def bp():
     import pdb;pdb.set_trace()
 
 class EncoderDecoder(nn.Module):
@@ -105,7 +104,6 @@ class NetworkBase():
 
         #>>>>>>>>>>>>>>>>> decide whether to use pretrained weights
         decide_checkpoints(cfg, keys=['point'])
-
         self.modules   = {}
         self.nets_dict = {}
         self.optimizers_dict = {}
@@ -132,7 +130,6 @@ class NetworkBase():
         for key in ['point']:
             net_encoder = ModelBuilder.build_encoder(params=cfg.MODEL, weights=cfg[key].encoder_weights)
             net_decoder = ModelBuilder.build_decoder(params=cfg.MODEL, options=cfg.models[cfg.name_model], weights=cfg[key].decoder_weights)
-
             net_header, head_names  = ModelBuilder.build_header(layer_specs=cfg.HEAD, weights=cfg[key].header_weights)
 
             self.modules[key] = EncoderDecoder(net_encoder, net_decoder, net_header, head_names=head_names, cfg=cfg) # 2 crit
@@ -411,8 +408,11 @@ class NetworkBase():
             elif 'cls' in key:
                 loss_dict[key] = compute_miou_loss(pred_dict[key], gt_dict[key], loss_type=cfg.TRAIN.loss)
             elif 'nocs' in key:
-                loss_dict[key] = compute_nocs_loss(pred_dict[key], gt_dict[key], confidence=None, \
-                                                num_parts=n_max_parts, mask_array=gt_dict['part_mask'], MULTI_HEAD=True, SELF_SU=False) # todo
+                if cfg.use_1vN_nocs:
+                    loss_dict[key] = compute_1vN_nocs_loss(pred_dict[key], gt_dict[key], confidence=None, target_category=cfg.target_category, num_parts=n_max_parts, mask_array=gt_dict['part_mask'])
+                else:
+                    loss_dict[key] = compute_nocs_loss(pred_dict[key], gt_dict[key], confidence=None, \
+                                                    num_parts=n_max_parts, mask_array=gt_dict['part_mask'], MULTI_HEAD=True, SELF_SU=False) # todo
             elif 'gocs' in key:
                 loss_dict[key] = compute_nocs_loss(pred_dict[key], gt_dict[key], confidence=None, \
                                         num_parts=n_max_parts, MULTI_HEAD=False, SELF_SU=False)
@@ -432,6 +432,11 @@ class NetworkBase():
     def checkpoint(self, nets, cfg, epoch, suffix):
         print('Saving checkpoints...', epoch)
         (net_encoder, net_decoder, head) = nets
+        state = {
+              'epoch': epoch,
+              'state_dict': net_decoder.state_dict(),
+              # 'optimizer': optimizer.state_dict()
+          }
         if net_encoder:
             dict_encoder = net_encoder.state_dict()
             torch.save(

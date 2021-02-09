@@ -9,9 +9,11 @@
 # cellphone,02992529,831
 # camera,02942699,113
 # remote,04074963,66
-
 EXP=2.06
 CFG="generation.copy_input=True item='obman' name_dset='obman' exp_num='2.06' target_category='bottle' use_category_code=False"
+
+EXP=2.07
+CFG="generation.copy_input=True item='obman' name_dset='obman' pointcloud='onet' exp_num='2.07' target_category='bottle' use_category_code=False"
 
 # generate mesh in .off format
 python generate_co.py ${CFG}
