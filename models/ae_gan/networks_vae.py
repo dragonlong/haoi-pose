@@ -85,6 +85,7 @@ class PointVAE(nn.Module):
         super(PointVAE, self).__init__()
         self.encoder = EncoderPointNet(eval(config.enc_filters), config.latent_dim, config.z_dim, config.enc_bn)
         self.decoder = DecoderFC(eval(config.dec_features), config.latent_dim, config.z_dim, config.n_pts, config.dec_bn)
+        # self.decoder = DecoderFC(eval(config.dec_features), config.latent_dim, config.z_dim, config.n_pts, config.dec_bn)
 
     def encode(self, x):
         return self.encoder(x)

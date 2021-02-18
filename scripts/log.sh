@@ -1,4 +1,17 @@
-Day
+Day 99:
+- type 0 + 1, averag-pooled type 1 + 2 FC;
+- only type 1, average-pooled type 1 + 2 FC;
+- your current project, depth-based object pose estimation in the wild;
+hand pose;
+hand reconstruction;
+object pose;
+object reconstruction;
+contacts estimation;
+	- try using new techniques!!!
+	- try building complete basic pipeline;
+	- try comparing to all baselines on your task;
+	- try applying to other tasks and beat others!!
+
 Day 80:
 - HO3D, ContactPose real dataset;
   object: (bowl, bottle, jar, camera, mug)

@@ -20,7 +20,7 @@ G_features: (256, 512)
 D_features: (256, 512)
 pretrain_ae_path: None
 pretrain_vae_path: None
-nr_epochs: 2000
+nr_epochs: 300
 lr: 0.0005       # initial learning rate
 lr_decay: 0.9995 # step size for learning rate decay
 beta1_gan: 0.5 # beta1 for Adam Optimizer when training gan

@@ -64,7 +64,7 @@ class MainAgent(GANzEAgent):
             vae_weights = torch.load(config.pretrain_vae_path)['model_state_dict']
         except Exception as e:
             raise ValueError("Check the path for pretrained model of point VAE. \n{}".format(e))
-        pointVAE.load_state_dict(vae_weights)
+        # pointVAE.load_state_dict(vae_weights) # TODO
         self.netE = pointVAE.encoder.eval().cuda()
         self.vaeD = pointVAE.decoder.eval().cuda()
         set_requires_grad(self.netE, False)  # netE remains fixed
@@ -86,8 +86,13 @@ class MainAgent(GANzEAgent):
         self.real_pc = data['real'].cuda()
 
         with torch.no_grad():
-            self.raw_latent = self.pointAE.encode(self.raw_pc)
-            self.real_latent = self.pointAE.encode(self.real_pc)
+            if 'Graph' in self.config.dataset_class:
+                device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+                self.raw_latent  = self.pointAE.encode(data['G_raw'].to(device))
+                self.real_latent = self.pointAE.encode(data['G_real'].to(device))
+            else:
+                self.raw_latent = self.pointAE.encode(self.raw_pc)
+                self.real_latent = self.pointAE.encode(self.real_pc)
 
         self.forward_GE()
 

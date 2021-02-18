@@ -163,7 +163,7 @@ class GANzEAgent(object):
 
         # build network
         self.build_net(config)
-
+        self.config = config
         # set loss function
         self.set_loss_function()
 

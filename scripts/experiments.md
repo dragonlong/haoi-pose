@@ -251,7 +251,7 @@ python train.py verbose=True gpu=1 name_model='votenet' exp_num='0.95' MODEL.arc
   TRAIN_OBJ=python train_aegan.py training=ae_gan name_model=ae dataset_class='HandDatasetAEGan'
   $TRAIN_OBJ target_category='bottle' exp_num='2.4' \
   eval=True ckpt='latest' \
-  set='train'
+  split='train'
 
 2.401 # bottle, AE-Graph, synthetic complete pcloud
   TRAIN_OBJ='python train_aegan.py training=ae_gan use_wandb=True vis=True n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
@@ -260,7 +260,7 @@ python train.py verbose=True gpu=1 name_model='votenet' exp_num='0.95' MODEL.arc
 
 2.41 # jar, AE, synthetic complete pcloud
   python train_aegan.py training=ae_gan name_model=ae dataset_class='HandDatasetAEGan' target_category='jar' exp_num='2.41' \
-  eval=True ckpt='latest' set='train'
+  eval=True ckpt='latest' split='train'
 
 2.411 # jar, AE-Graph, synthetic complete pcloud
   TRAIN_OBJ='python train_aegan.py training=ae_gan use_wandb=True vis=True n_pts=256 name_model=ae dataset_class=HandDatasetAEGraph'
@@ -286,7 +286,7 @@ python train.py verbose=True gpu=1 name_model='votenet' exp_num='0.95' MODEL.arc
   python train_aegan.py training=ae_gan module=gan dataset_class='HandDatasetAEGan' exp_num='2.6' lr=5e-4 nr_epochs=500 batch_size=100 save_frequency=100 task='adversarial_adaptation' target_category='bottle' num_points=1024 vis=True \
   pretrain_ae_path=/groups/CESCA-CV/ICML2021/model/obman/2.4/checkpoints/ckpt_epoch500.pth \
   pretrain_vae_path=/groups/CESCA-CV/ICML2021/model/obman/2.52/checkpoints/ckpt_epoch500.pth \
-  eval=True ckpt='100' set='val'
+  eval=True ckpt='100' split='val'
 
 2.61 #
   python train_aegan.py training=ae_gan module=gan gpu_ids=1 dataset_class='HandDatasetAEGan' exp_num='2.61' lr=5e-4 nr_epochs=500 batch_size=100 save_frequency=100 task='adversarial_adaptation' target_category='jar' num_points=1024 vis=True \
@@ -303,7 +303,7 @@ python train.py verbose=True gpu=1 name_model='votenet' exp_num='0.95' MODEL.arc
   python train_aegan.py training=ae_gan multimodal=False module=gan dataset_class='HandDatasetAEGan' exp_num='2.7' lr=5e-4 nr_epochs=500 batch_size=100 save_frequency=100 task='adversarial_adaptation' target_category='bottle' num_points=1024 vis=True \
   pretrain_ae_path=/groups/CESCA-CV/ICML2021/model/obman/2.4/checkpoints/ckpt_epoch500.pth \
   pretrain_vae_path=/groups/CESCA-CV/ICML2021/model/obman/2.52/checkpoints/ckpt_epoch500.pth \
-  eval=True ckpt='100' set='val'
+  eval=True ckpt='100' split='val'
 
 # 2.701
 python train_aegan.py training=ae_gan multimodal=False module=gan dataset_class='HandDatasetAEGan' exp_num='2.701' lr=5e-4 nr_epochs=500 batch_size=100 save_frequency=100 task='adversarial_adaptation' target_category='bottle' num_points=1024 vis=True \
@@ -321,7 +321,7 @@ use_wandb=True
 python train_aegan.py training=ae_gan gpu_ids=1 multimodal=False module=gan dataset_class='HandDatasetAEGan' exp_num='2.71' lr=5e-4 nr_epochs=500 batch_size=100 save_frequency=100 task='adversarial_adaptation' target_category='jar' num_points=1024 vis=True \
 pretrain_ae_path=/groups/CESCA-CV/ICML2021/model/obman/2.41/checkpoints/latest.pth \
 pretrain_vae_path=/groups/CESCA-CV/ICML2021/model/obman/2.51/checkpoints/ckpt_epoch500.pth \
-eval=True ckpt='100' set='val'
+eval=True ckpt='100' split='val'
 
 2.8 # training without VAE, and use raw partial depth point cloud, together with
 # 1. type 0 equivariant;

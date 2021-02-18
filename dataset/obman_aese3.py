@@ -17,6 +17,7 @@ import __init__
 from global_info import global_info
 from dataset.obman_handataset import HandDataset
 from common import data_utils, handutils, vis_utils, bp
+from common.aligning import estimateSimilarityTransform, estimateSimilarityUmeyama
 from common.d3_utils import align_rotation, rotate_about_axis, transform_pcloud
 from common.queries import (
     BaseQueries,
@@ -30,6 +31,7 @@ def bp():
 
 infos           = global_info()
 my_dir          = infos.base_path
+group_path      = infos.group_path
 project_path    = infos.project_path
 categories_id   = infos.categories_id
 
@@ -39,7 +41,7 @@ def square_distance(src, dst):
     '''
     B, N, _ = src.shape
     _, M, _ = dst.shape
-    dist = -2 * torch.matmul(src, dst.permute(0, 2, 1))
+    dist = -2 * torch.matmul(src, dst.permute(0, 2, 1).contiguous())
     dist += torch.sum(src ** 2, -1).view(B, N, 1)
     dist += torch.sum(dst ** 2, -1).view(B, 1, M)
     return dist #
@@ -62,10 +64,11 @@ class FixedRadiusNearNeighbors(nn.Module):
     '''
     Ball Query - Find the neighbors with-in a fixed radius
     '''
-    def __init__(self, radius, n_neighbor):
+    def __init__(self, radius, n_neighbor, knn=False):
         super(FixedRadiusNearNeighbors, self).__init__()
         self.radius = radius
         self.n_neighbor = n_neighbor
+        self.knn = knn
 
     def forward(self, pos, centroids):
         '''
@@ -73,15 +76,21 @@ class FixedRadiusNearNeighbors(nn.Module):
         '''
         device = pos.device
         B, N, _ = pos.shape
-        center_pos = index_points(pos, centroids)
+        # center_pos = index_points(pos, centroids)
+        center_pos = pos
         _, S, _ = center_pos.shape
         group_idx = torch.arange(N, dtype=torch.long).to(device).view(1, 1, N).repeat([B, S, 1])
+        # print('before square_distance ', center_pos.shape, pos.shape)
         sqrdists = square_distance(center_pos, pos)
-        group_idx[sqrdists > self.radius ** 2] = N
-        group_idx = group_idx.sort(dim=-1)[0][:, :, :self.n_neighbor]
-        group_first = group_idx[:, :, 0].view(B, S, 1).repeat([1, 1, self.n_neighbor])
-        mask = group_idx == N
-        group_idx[mask] = group_first[mask]
+        if self.knn:
+            _, group_idx = torch.topk(sqrdists, self.n_neighbor+1, dim=-1, largest=False, sorted=True)
+            group_idx = group_idx[:, :, 1:self.n_neighbor+1]
+        else:
+            group_idx[sqrdists > self.radius ** 2] = N
+            group_idx = group_idx.sort(dim=-1)[0][:, :, :self.n_neighbor]
+            group_first = group_idx[:, :, 0].view(B, S, 1).repeat([1, 1, self.n_neighbor])
+            mask = group_idx == N
+            group_idx[mask] = group_first[mask]
         return group_idx
 
 class HandDatasetAEGraph(HandDataset):
@@ -163,79 +172,116 @@ class HandDatasetAEGraph(HandDataset):
         self.radius = 0.1
         self.num_samples = 10 # default to be 10
         self.augment = cfg.augment
+        self.fetch_cache = cfg.fetch_cache
         # find all unique files
         target = [pose_dataset.obj_paths[id] for id in self.all_ids]
         self.unique_objs = list(set(target))
         print(f'---we have {len(self.unique_objs)} unique instances')
-        self.frnn  = FixedRadiusNearNeighbors(self.radius, self.num_samples)
+        self.frnn  = FixedRadiusNearNeighbors(self.radius, self.num_samples, knn=True)
+        if self.cfg.use_preprocess:
+            preprocessed_file = f"{group_path}/external/obman/obman/preprocessed/full_{split}_1024.npy"
+            print('loading ', preprocessed_file)
+            self.data_dict = np.load(preprocessed_file, allow_pickle=True).item()
+            self.all_keys  = list(self.data_dict.keys())
 
     def get_sample_mine(self, idx, verbose=False):
         """used only for points data"""
-        if verbose:
-            print(idx)
-        if self.augment:
-            # idx = random.randint(0, 3)
-            idx = 1
-        model_path = self.unique_objs[idx].replace(
-            "model_normalized.pkl", "surface_points.pkl"
-        )
-        with open(model_path, "rb") as obj_f:
-            canon_pts = pickle.load(obj_f)
-
-        boundary_pts = [np.min(canon_pts, axis=0), np.max(canon_pts, axis=0)]
-        center_pt = (boundary_pts[0] + boundary_pts[1])/2
-        length_bb = np.linalg.norm(boundary_pts[0] - boundary_pts[1])
-
-        # we care about the nomralized shape in NOCS
-        gt_points = (canon_pts - center_pt.reshape(1, 3)) / length_bb + 0.5
-        gt_points = np.random.permutation(gt_points)
-        gt_points = gt_points[:self.num_gt, :]
-
-        # also get category, instance_id
-        model_path    = self.pose_dataset.obj_paths[idx]
-        category_name = model_path.split('/')[-4]
-        instance_name = model_path.split('/')[-3]
-        theta_x = 0
-        if self.augment:
+        if self.augment and idx!=0:
             theta_x = random.randint(0, 180)
             Rx = rotate_about_axis(theta_x / 180 * np.pi, axis='x')
-            gt_points = transform_pcloud(gt_points - 0.5, Rx) + 0.5
-        gt_points = torch.from_numpy(gt_points.astype(np.float32)[:, :])
+            theta_z = random.randint(0, 180)
+            Rz = rotate_about_axis(theta_z / 180 * np.pi, axis='z')
+            RR = torch.from_numpy(np.matmul(Rx, Rz).astype(np.float32))
+            TT = torch.from_numpy(np.random.rand(1,3).astype(np.float32))
+            # print(f'---{theta_x}x + {theta_z}z rotation')
+        else:
+            # print('---0 rotation')
+            RR = torch.from_numpy(rotate_about_axis(0, axis='x').astype(np.float32))
+            TT = 0
+        if self.cfg.single_instance:
+            # print('using same idx')
+            idx = 2
+        model_path    = self.unique_objs[idx]
+        category_name = model_path.split('/')[-4]
+        instance_name = model_path.split('/')[-3]
 
-        # create graph
-        pos = gt_points.unsqueeze(0)
-        centroids = torch.from_numpy(np.arange(gt_points.shape[0]).reshape(1, -1))
-        if verbose:
-            print(pos.shape, centroids.shape)
-        feat      = np.ones((pos.shape[0], pos.shape[1], 1))
-        group_idx = self.frnn(pos, centroids)
+        # preprocess
+        if self.fetch_cache and idx in self.g_dict:
+            # print('using cache!!!')
+            gt_points, src, dst = self.g_dict[idx]
+            pos = gt_points.clone().detach().unsqueeze(0)
+            feat= torch.from_numpy(np.ones((pos.shape[0], pos.shape[1], 1)).astype(np.float32))
+        else:
+            if self.cfg.use_preprocess: # 2. use disk saved results
+                gt_points = self.data_dict[instance_name][0]
+                group_idx = torch.from_numpy(self.data_dict[instance_name][1].astype(np.int)[:, 1:self.num_samples+1])
+                gt_points = torch.from_numpy(gt_points.astype(np.float32)[:, :]) # keep N, 3
 
-        i = 0
-        N = pos.shape[1]
-        center = torch.zeros((N))#.to(dev)
-        center[centroids[i]] = 1 # find the chosen query
-        src = group_idx[i].contiguous().view(-1) # real pair
-        dst = centroids[i].view(-1, 1).repeat(1, self.num_samples).view(-1) # real pair
+                pos = gt_points.clone().detach().unsqueeze(0)
+                feat= torch.from_numpy(np.ones((pos.shape[0], pos.shape[1], 1)).astype(np.float32))
+                src = group_idx.contiguous().view(-1)
+                centroids = torch.from_numpy(np.arange(gt_points.shape[0]).reshape(1, -1))
+                dst = centroids[0].view(-1, 1).repeat(1, self.num_samples).view(-1)
+            else:
+                model_path = self.unique_objs[idx].replace(
+                    "model_normalized.pkl", "surface_points.pkl"
+                )
+                with open(model_path, "rb") as obj_f:
+                    canon_pts = pickle.load(obj_f) #
 
+                boundary_pts = [np.min(canon_pts, axis=0), np.max(canon_pts, axis=0)]
+                center_pt = (boundary_pts[0] + boundary_pts[1])/2
+                length_bb = np.linalg.norm(boundary_pts[0] - boundary_pts[1])
+
+                # we care about the nomralized shape in NOCS
+                gt_points = (canon_pts - center_pt.reshape(1, 3)) / length_bb + 0.5
+                gt_points = np.random.permutation(gt_points)
+                gt_points = gt_points[:self.num_gt, :]
+                gt_points = torch.from_numpy(gt_points.astype(np.float32)[:, :])
+
+                pos = gt_points.clone().detach().unsqueeze(0)
+                centroids = torch.from_numpy(np.arange(gt_points.shape[0]).reshape(1, -1))
+                group_idx = self.frnn(pos, centroids)
+
+                src = group_idx[0].contiguous().view(-1)
+                dst = centroids[0].view(-1, 1).repeat(1, self.num_samples).view(-1) # real pair
+                feat      = torch.from_numpy(np.ones((pos.shape[0], pos.shape[1], 1)).astype(np.float32))
+
+            if self.fetch_cache and idx not in self.g_dict:
+                # print('caching!!!')
+                self.g_dict[idx] = [gt_points, src, dst]
+        center_offset = pos[0].clone().detach()-0.5
+        if self.augment:
+            pos[0] = torch.matmul(pos[0]-0.5, RR) + 0.5 # to have random rotation
+            pos[0] = pos[0] + TT
+            center_offset = torch.matmul(center_offset, RR) # N, 3
+
+        # construct a graph for input
         unified = torch.cat([src, dst])
         uniq, inv_idx = torch.unique(unified, return_inverse=True)
         src_idx = inv_idx[:src.shape[0]]
         dst_idx = inv_idx[src.shape[0]:]
         if verbose:
             print('src_idx.shape', src_idx.shape, '\n', src_idx[0:100], '\n', 'dst_idx.shape', dst_idx.shape, '\n', dst_idx[0:100])
-
         g = dgl.DGLGraph((src_idx, dst_idx))
-        g.ndata['x'] = pos[i][uniq]
-        g.ndata['f'] = torch.from_numpy(feat[i][uniq].astype(np.float32)[:, :, np.newaxis])
-        g.edata['d'] = pos[i][dst_idx] - pos[i][src_idx] #[num_atoms,3]
-        if self.augment:
-            instance_name = f'{instance_name}_x{theta_x}'
-        return g, gt_points.transpose(1, 0), instance_name
+        g.ndata['x'] = pos[0][uniq]
+        g.ndata['f'] = feat[0][uniq].unsqueeze(-1)
+        g.edata['d'] = pos[0][dst_idx] - pos[0][src_idx] #[num_atoms,3] but we only supervise the half
+        #
+        up_axis = torch.matmul(torch.tensor([[0.0, 1.0, 0.0]]).float(), RR)
 
-    def get_sample_pair(self, idx, debug=False):
+        # return g, gt_points.transpose(1, 0), instance_name, RR # 3*3
+        return g, gt_points.transpose(1, 0), instance_name, up_axis, center_offset #up_axis,
+
+    def get_sample_pair(self, idx, verbose=False):
+        if self.cfg.single_instance:
+            idx = 2
+        # idx Corresponds original full dataset
         model_path = self.pose_dataset.obj_paths[idx].replace("model_normalized.pkl", "surface_points.pkl")
         category_name = model_path.split('/')[-4]
         instance_name = model_path.split('/')[-3]
+
+        # fetch GT canonical points  NOCS, input pts_arr
         if idx not in self.nocs_dict:
             n_parts = self.n_max_parts
             assert n_parts == 2
@@ -248,7 +294,7 @@ class HandDatasetAEGraph(HandDataset):
             segm = obj_hand_segm[:, :, 0] | obj_hand_segm[:, :, 1]
 
             with open(model_path, "rb") as obj_f:
-                canon_pts = pickle.load(obj_f)
+                canon_pts = pickle.load(obj_f) #
 
             boundary_pts = [np.min(canon_pts, axis=0), np.max(canon_pts, axis=0)]
 
@@ -274,39 +320,14 @@ class HandDatasetAEGraph(HandDataset):
             for j in range(len(output_arr)):
                 arr_tiled = np.concatenate([np.copy(output_arr[j])] * tile_n, axis=0)
                 output_arr[j] = arr_tiled
+
         n_arr      = output_arr[0]
         p_arr      = output_arr[1]
         perm       = np.random.permutation(n_total_points)
         n_arr      = n_arr[perm][:self.num_points] # nocs in canonical space, for partial reconstruction only
         p_arr      = p_arr[perm][:self.num_points] # point cloud in camera space
 
-        # create graph
-        pos = p_arr.unsqueeze(0)
-        centroids = torch.from_numpy(np.arange(p_arr.shape[0]).reshape(1, -1))
-        if verbose:
-            print(pos.shape, centroids.shape)
-        feat      = np.ones((pos.shape[0], pos.shape[1], 1))
-        group_idx = self.frnn(pos, centroids)
-
-        i = 0
-        N = pos.shape[1]
-        center = torch.zeros((N))#.to(dev)
-        center[centroids[i]] = 1 # find the chosen query
-        src = group_idx[i].contiguous().view(-1) # real pair
-        dst = centroids[i].view(-1, 1).repeat(1, self.num_samples).view(-1) # real pair
-
-        unified = torch.cat([src, dst])
-        uniq, inv_idx = torch.unique(unified, return_inverse=True)
-        src_idx = inv_idx[:src.shape[0]]
-        dst_idx = inv_idx[src.shape[0]:]
-        if verbose:
-            print('src_idx.shape', src_idx.shape, '\n', src_idx[0:100], '\n', 'dst_idx.shape', dst_idx.shape, '\n', dst_idx[0:100])
-        g = dgl.DGLGraph((src_idx, dst_idx))
-        g.ndata['x'] = pos[i][uniq]
-        g.ndata['f'] = torch.from_numpy(feat[i][uniq].astype(np.float32)[:, :, np.newaxis])
-        g.edata['d'] = pos[i][dst_idx] - pos[i][src_idx] #[num_atoms,3]
-
-        # 2048 full pts
+        # 2048 full pts, random picking one for adversarial training
         idx1 = self.all_ids[random.randint(0, len(self)-1)]
         model_path = self.pose_dataset.obj_paths[idx1].replace("model_normalized.pkl", "surface_points.pkl")
         category_name1 = model_path.split('/')[-4]
@@ -322,38 +343,80 @@ class HandDatasetAEGraph(HandDataset):
         gt_points = np.random.permutation(gt_points)
         gt_points = gt_points[:self.num_gt, :]
 
+        g_sets = []
+        for target_pts in [p_arr, gt_points]:
+            # create graph
+            pos = torch.from_numpy(target_pts.astype(np.float32)).unsqueeze(0)
+            centroids = torch.from_numpy(np.arange(target_pts.shape[0]).reshape(1, -1))
+            # print(pos.shape, centroids.shape)
+            feat      = np.ones((pos.shape[0], pos.shape[1], 1))
+            group_idx = self.frnn(pos, centroids)
 
+            i = 0
+            N = pos.shape[1]
+            center = torch.zeros((N))#.to(dev)
+            center[centroids[0]] = 1 # find the chosen query
+            src = group_idx[0].contiguous().view(-1) # real pair
+            dst = centroids[0].view(-1, 1).repeat(1, self.num_samples).view(-1) # real pair
+
+            unified = torch.cat([src, dst])
+            uniq, inv_idx = torch.unique(unified, return_inverse=True)
+            src_idx = inv_idx[:src.shape[0]]
+            dst_idx = inv_idx[src.shape[0]:]
+            if verbose:
+                print('src_idx.shape', src_idx.shape, '\n', src_idx[0:100], '\n', 'dst_idx.shape', dst_idx.shape, '\n', dst_idx[0:100])
+            g = dgl.DGLGraph((src_idx, dst_idx))
+            g.ndata['x'] = pos[0][uniq]
+            g.ndata['f'] = torch.from_numpy(feat[0][uniq].astype(np.float32)[:, :, np.newaxis])
+            g.edata['d'] = pos[0][dst_idx] - pos[0][src_idx] #[num_atoms,3]
+            g_sets.append(g)
+
+        g_raw, g_real = g_sets
+        _, r, t, _= estimateSimilarityUmeyama(n_arr, p_arr) # get GT Pose
+        center_offset = np.matmul(n_arr - 0.5, r)
         # create sub-graph
         if not self.is_testing:
             n_arr = torch.from_numpy(n_arr.astype(np.float32).transpose(1, 0))
             gt_points = torch.from_numpy(gt_points.astype(np.float32).transpose(1, 0))
+            center_offset = torch.from_numpy(center_offset).float()
         else:
             return n_arr, gt_points, instance_name, instance_name1
 
+        if idx not in self.r_dict:
+            RR = torch.from_numpy(r.astype(np.float32))
+            self.r_dict[idx] = RR
+        else:
+            RR = self.r_dict[idx]
+        up_axis = torch.matmul(torch.tensor([[0.0, 1.0, 0.0]]).float(), RR)
 
-        return g, n_arr, gt_points, instance_name, instance_name1
+        return g_raw, g_real, n_arr, gt_points, instance_name, instance_name1, up_axis, center_offset
 
     def __len__(self):
-        if self.task == 'pcloud_completion':
-            return len(self.unique_objs)
-        else:
+        if 'adversarial' in self.task or 'partial' in self.task:
             return len(self.all_ids)
+        else:
+            return len(self.unique_objs)
 
     def __getitem__(self, idx):
         try:
-            if self.task == 'pcloud_completion':
-                sample = self.get_sample_mine(idx)
-            else:
+            if 'adversarial' in self.task or 'partial' in self.task:
                 idx = self.all_ids[idx]
                 sample = self.get_sample_pair(idx)
+            else:
+                sample = self.get_sample_mine(idx)
         except Exception:
             traceback.print_exc()
             print("Encountered error processing sample {}".format(idx))
             random_idx = random.randint(0, len(self)-1)
-            idx = self.all_ids[random_idx]
-            if self.task == 'pcloud_completion':
-                sample = self.get_sample_mine(idx)
-            else:
+            if 'adversarial' in self.task or 'partial' in self.task:
+                idx        = self.all_ids[random_idx]
                 sample = self.get_sample_pair(idx)
-
+            else:
+                sample = self.get_sample_mine(idx)
         return sample
+
+def main():
+    pass
+
+if __name__ == '__main__':
+    main()

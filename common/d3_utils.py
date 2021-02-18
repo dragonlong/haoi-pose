@@ -602,7 +602,6 @@ def compute_geodesic_distance_from_two_matrices(m1, m2):
     cos = torch.min(cos, torch.autograd.Variable(torch.ones(batch).cuda()) )
     cos = torch.max(cos, torch.autograd.Variable(torch.ones(batch).cuda())*-1 )
 
-
     theta = torch.acos(cos)
 
     #theta = torch.min(theta, 2*np.pi - theta)

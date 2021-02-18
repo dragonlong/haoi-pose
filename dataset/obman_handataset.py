@@ -191,6 +191,9 @@ class HandDataset(Dataset):
         # create NOCS dict
         manager = Manager()
         self.nocs_dict = manager.dict()
+        self.cloud_dict = manager.dict()
+        self.g_dict    = manager.dict()
+        self.r_dict    = manager.dict()
     def get_model_dict(self, idx):
         return self.models[idx]
 

@@ -8,6 +8,7 @@ from omegaconf import DictConfig, ListConfig, OmegaConf
 import pickle
 import wandb
 import torch
+import dgl
 
 from collections import OrderedDict
 from tqdm import tqdm
@@ -47,7 +48,11 @@ def main(cfg):
         )
 
     if cfg.use_wandb:
-        wandb.init(project="haoi-pose", name=f'{cfg.exp_num}_{cfg.target_category}')
+        if cfg.eval:
+            run_name = f'{cfg.exp_num}_{cfg.target_category}_eval'
+        else:
+            run_name = f'{cfg.exp_num}_{cfg.target_category}'
+        wandb.init(project="haoi-pose", name=run_name)
         wandb.init(config=cfg)
     # copy the project codes into log_dir
     if not cfg.debug:
@@ -77,13 +82,14 @@ def main(cfg):
     parser = ObmanParser(cfg)
     train_loader = parser.trainloader
     val_loader   = parser.validloader
-    val_loader   = cycle(val_loader)
+    dset         = parser.valid_dataset
+    dp = dset.__getitem__(0)
+
     # start training
     clock = tr_agent.clock #
-
     if cfg.eval:
         # data = next(val_loader)
-        if cfg.set == 'val':
+        if cfg.split == 'val':
             pbar = tqdm(val_loader)
         else:
             pbar = tqdm(train_loader)
@@ -91,22 +97,25 @@ def main(cfg):
             tr_agent.val_func(data)
             # if cfg.vis and clock.step % cfg.vis_frequency == 0:
             #     tr_agent.visualize_batch(data, "validation")
-            save_offline =True
+            save_offline =False
             if save_offline:
                 if cfg.task == 'adversarial_adaptation':
                     outputs = tr_agent.fake_pc
                     for m in range(data["raw"].shape[0]):
                         model_id  = data["raw_id"][m]
                         taxonomy_id = categories[cfg.target_category]
-                        save_name = f'{cfg.log_dir}/generation/{cfg.set}/input_{taxonomy_id}_{model_id}.npy'
+                        save_name = f'{cfg.log_dir}/generation/{cfg.split}/input_{taxonomy_id}_{model_id}.npy'
                         save_for_viz(['points', 'labels'], [data["raw"][m].cpu().numpy().T, np.ones((data["raw"][m].shape[1]))], save_name, type='np')
-                        save_name = f'{cfg.log_dir}/generation/{cfg.set}/{cfg.module}_{taxonomy_id}_{model_id}.npy'
+                        save_name = f'{cfg.log_dir}/generation/{cfg.split}/{cfg.module}_{taxonomy_id}_{model_id}.npy'
                         save_for_viz(['points', 'labels'], [outputs[m].cpu().numpy().T, np.ones((outputs[m].cpu().numpy().shape[1]))], save_name, type='np')
                 else:
                     outputs = tr_agent.output_pts
+                    latent_vect = tr_agent.latent_vect
+                    graphs = dgl.unbatch(data["G"])
                     if cfg.use_wandb:
                         for m in range(data["points"].shape[0]):
-                            target_pts  = data["points"][m].cpu().numpy().T
+                            # target_pts  = data["points"][m].cpu().numpy().T
+                            target_pts  = graphs[m].ndata['x'].cpu().numpy()
                             outputs_pts = outputs[m].cpu().numpy().T
                             outputs_pts = outputs_pts + np.array([0, 1, 0]).reshape(1, -1)
                             pts = np.concatenate([target_pts, outputs_pts], axis=0)
@@ -115,12 +124,14 @@ def main(cfg):
                     for m in range(data["points"].shape[0]):
                         model_id  = data['id'][m]
                         taxonomy_id = categories[cfg.target_category]
-                        save_name = f'{cfg.log_dir}/generation/{cfg.set}/input_{taxonomy_id}_{model_id}.npy'
+                        save_name = f'{cfg.log_dir}/generation/{cfg.split}/input_{taxonomy_id}_{model_id}.npy'
                         save_for_viz(['points', 'labels'], [data["points"][m].cpu().numpy().T, np.ones((data["points"][m].shape[1]))], save_name, type='np')
-                        save_name = f'{cfg.log_dir}/generation/{cfg.set}/{cfg.module}_{taxonomy_id}_{model_id}.npy'
+                        save_name = f'{cfg.log_dir}/generation/{cfg.split}/{cfg.module}_{taxonomy_id}_{model_id}.npy'
                         save_for_viz(['points', 'labels'], [outputs[m].cpu().numpy().T, np.ones((outputs[m].cpu().numpy().shape[1]))], save_name, type='np')
+
         return
 
+    val_loader   = cycle(val_loader)
     for e in range(clock.epoch, cfg.nr_epochs):
         # begin iteration
         pbar = tqdm(train_loader)

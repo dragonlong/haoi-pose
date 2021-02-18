@@ -1,0 +1,23 @@
+# @package _global_
+MODEL:
+  use_xyz: True
+  num_classes: 4
+  arch_encoder: "identical"
+  arch_decoder: "kaolin" # "pointnet2_single"
+  arch_head: "segmentation"
+  weights_encoder: ""
+  weights_decoder: ""
+
+HEAD:
+  R: [128, 128, 3, 'softmax']
+  T: [128, 128, 3, 'sigmoid']
+  # nocs_per_point : [128, 64, None, 'sigmoid']
+  # gocs_per_point : [128, 3, 'sigmoid']
+  # handheatmap_per_point :  [128, 128, 21, 'sigmoid']
+  # handunitvec_per_point :  [128, 128, 63, 'tanh']
+  # confidence_per_point : [128, 1, 'sigmoid']
+  # heatmap_per_point :  [128, 128, 1, 'sigmoid']
+  # unitvec_per_point :  [128, 128, 3, 'tanh']
+  # orient_per_point : [128, 128, 3, 'tanh']
+  # jointcls_per_point : [128, 128, 3, 'softmax']
+  # regression_params: [1024, 1024, 512, 54] #[1024, 1024, 512, 63]

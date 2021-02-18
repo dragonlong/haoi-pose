@@ -1,6 +1,7 @@
 MODEL:
-  num_layers: 4
+  num_layers: 3
   input_feature_size: 1
   num_channels: 32
+  num_channels_R: 3 # or 1
   num_nlayers: 1
   num_degrees: 2

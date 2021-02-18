@@ -7,11 +7,10 @@ defaults:
   - datasets: obman
     optional: True
 
-eval: False
-set: 'val'
 exp_num: '1'
 exp_name: 'default'
 task: 'pcloud_completion' # hand_regression, obj_reconstruction, hand_reconstruction, contacts_vote
+name_model: grnet # Name of the specific model to load
 name_dset: 'obman'
 dataset_class: 'HandDataset'
 item: 'obman'
@@ -20,31 +19,42 @@ num_points: 2048
 nocs_type: 'A'
 num_expr: 0.01
 target_category: ''
-name_model: grnet # Name of the specific model to load
 root_data: "/groups/CESCA-CV/ICML2021/data"
 log_dir: '/model/${item}/${exp_num}'      #
+use_pretrain: False
+eval: False
+split: 'val'
+pretrained_path: ''
+is_testing: False
 
-# control
-augment: False
+# training
 use_wandb: False
 use_wgan: False
+
+# data control
+fetch_cache: False
+use_preprocess: False
+preprocess: False
+augment: False
+single_instance: False
 verbose: False
-use_pretrain: False
 is_debug: False
 is_gen: False
 use_noisy_nocs: True
-pretrained_path: ''
-is_testing: False
-pred_hand: True
-pred_joint: False
-pred_mano: False
+
+rotation_loss_type: 0
+rotation_use_dense: False
 rot_align: False
 hand_only: False
 use_hand_occupancy: False
 use_1vN_nocs: False
 sym_aligned_nocs: False
 pred_sym_axis: False
-#
+
+# pred objective
+pred_hand: True
+pred_joint: False
+pred_mano: False
 pred_joint_ind: False
 pretty_print: False
 distributed: False

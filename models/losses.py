@@ -14,6 +14,7 @@ from collections import OrderedDict
 DIVISION_EPS = 1e-10
 SQRT_EPS = 1e-10
 LS_L2_REGULARIZER = 1e-8
+epsilon = 1e-10
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
@@ -140,9 +141,17 @@ def loss_geodesic(predict_rmat, gt_rmat):
     """
 
     theta = compute_geodesic_distance_from_two_matrices(gt_rmat, predict_rmat)
-    error = theta.mean()/np.pi * 180 # to degrees
+    error = theta/np.pi * 180 # to degrees
     return error
 
+def loss_vectors(v1, v2):
+    """
+    input: [B, N, 3]
+    [B, N, 3]
+    """
+    r_diff = torch.acos( torch.sum(v1*v2, axis=-1) / (torch.norm(v1, dim=-1) * torch.norm(v2, dim=-1) + epsilon) ) * 180 / np.pi
+    error = r_diff.mean()
+    return error
 
 def compute_reconstruction_loss(mano_pred, mano_gt, loss_type='L2'):
     """
@@ -255,6 +264,8 @@ def compute_vect_loss(vect, vect_gt, confidence=None, num_parts=2, mask_array=No
             return torch.mean(diff_l2 * confidence , dim=1)
         elif TYPE_LOSS=='L1':
             return torch.mean(diff_avg * confidence, dim=1)
+        elif TYPE_LOSS=='SOFT_L1':
+            return huber_loss(vect - vect_gt)
 
 def compute_multi_offsets_loss(vect, vect_gt, confidence=None):
     """
@@ -748,9 +759,7 @@ def get_loss(end_points, config=None):
         loss: pytorch scalar tensor
         end_points: dict
     """
-
     # Vote loss
-
     vote_loss = compute_vote_loss(end_points)
     end_points['vote_loss'] = vote_loss
 
