@@ -11,9 +11,6 @@ from typing import Dict, Tuple, List
 from equivariant_attention.modules import GConvSE3, GNormSE3, get_basis_and_r, GSE3Res, GMaxPooling, GAvgPooling
 from equivariant_attention.fibers import Fiber
 
-# from common.debugger import *
-# from models.model_factory import ModelBuilder
-# from models.decoders.pointnet_2 import PointNet2Segmenter
 from kaolin.models.PointNet2 import furthest_point_sampling
 from kaolin.models.PointNet2 import fps_gather_by_index
 from kaolin.models.PointNet2 import ball_query
@@ -21,6 +18,7 @@ from kaolin.models.PointNet2 import three_nn
 from kaolin.models.PointNet2 import group_gather_by_index
 from omegaconf import DictConfig, ListConfig
 import dgl
+
 def bp():
     import pdb;pdb.set_trace()
 def is_list(entity):
@@ -31,9 +29,23 @@ def is_iterable(entity):
 
 def is_dict(entity):
     return isinstance(entity, dict) or isinstance(entity, DictConfig)
+
 SPECIAL_NAMES = ["radius", "max_num_neighbors", "block_names", "num_degrees"]
 
+"""
+class InterDownGraph()
+class SE3TBlock(): downsampling block
+class
+
+
+"""
 class InterDownGraph(nn.Module): #
+    """
+    func: given input graph G with N points, downsample to N1 points, output two graphs;
+          Gmid:  neighborhoods come from N pts for all N1 pts;
+          Gout:  neighborhoods come from N1 pts for all N1 pts;
+          xyz_ind: original index of N1 points in N points;
+    """
     def __init__(self, npoint=256, num_samples=[20], r=0.1, knn=True):
         super().__init__()
         self.num_samples = num_samples[0]
@@ -42,6 +54,10 @@ class InterDownGraph(nn.Module): #
         self.e_sampler   = SampleNeighbors(r, self.num_samples, knn=knn)
 
     def forward(self, G, BS=2):
+        """
+        G: input Graph
+        BS: batch size
+        """
         glist = []
         pos = G.ndata['x'].view(BS, -1, 3).contiguous()
         B, N, _ = pos.shape
@@ -79,14 +95,10 @@ class InterDownGraph(nn.Module): #
 
         return Gmid, Gout, xyz_ind
 
-# center = torch.ones((N)).to(pos.device)
-# center[xyz_ind.long()] = 0
-# remove_list.append(torch.nonzero(center))
-
-# glist    = dgl.unbatch(G)
-# for i in range(len(glist)):
-#     glist[i].remove_nodes(remove_list[i].squeeze().long())
 class BuildGraph(nn.Module):
+    """
+    GPU-based graph builder, given input points, output/update a graph
+    """
     def __init__(self, num_samples=20, r=0.1, npoint=256, downsample=False):
         super().__init__()
         self.downsample=downsample
@@ -99,6 +111,8 @@ class BuildGraph(nn.Module):
     def forward(self, xyz=None, G=None, h=None, BS=2):
         """
         xyz: B, N, 3
+        G and h are not necessary here(only add them when we want to downsample a graph)
+        BS: batch size
         """
         glist = []
         if xyz is None:
@@ -139,7 +153,7 @@ def pdist2squared(x, y):
     dist = torch.clamp(dist, 0.0, np.inf)
     return dist
 
-# Simply sample num_points points
+# class for fps sampling of points
 class Sample(nn.Module):
     def __init__(self, num_points):
         super(Sample, self).__init__()
@@ -154,6 +168,7 @@ class Sample(nn.Module):
         xyz1     = fps_gather_by_index(points.permute(0, 2, 1).contiguous(), xyz1_ind)                # batch_size, channel2, nsample
         return xyz1_ind, xyz1.permute(0, 2, 1).contiguous()
 
+# class for neighborhoods sampling of points
 class SampleNeighbors(nn.Module):
     def __init__(self, radius, num_samples, knn=False):
         super(SampleNeighbors, self).__init__()
@@ -172,11 +187,12 @@ class SampleNeighbors(nn.Module):
             dist= pdist2squared(xyz2.permute(0, 2, 1).contiguous(), xyz1.permute(0, 2, 1).contiguous())
             ind = dist.topk(self.num_samples+1, dim=1, largest=False)[1].int().permute(0, 2, 1).contiguous()[:, :, 1:]
         else:
+            # TODO: need to remove self from neighborhood index
             ind = ball_query(self.radius, self.num_samples+1, xyz2, xyz1, False)
-            #
 
         return ind
 
+# PointNet++ as Encoder
 class PointNetplusplus(nn.Module):
     """PointNet++ with multiple heads"""
     def __init__(self, cfg):
@@ -199,7 +215,7 @@ class PointNetplusplus(nn.Module):
 
         return pred_dict
 
-# PointNet AutoEncoder
+# PointNet as Encoder
 ##############################################################################
 class EncoderPointNet(nn.Module):
     def __init__(self, n_filters=(64, 128, 128, 256), latent_dim=128, bn=True):
@@ -283,54 +299,13 @@ class DecoderFC(nn.Module):
         x = x.view((-1, 3, self.output_pts))
         return x
 
-class PointAE(nn.Module):
-    def __init__(self, cfg):
-        super(PointAE, self).__init__()
-        self.encoder_type = cfg.encoder_type
-        if 'se3' in self.encoder_type:
-             self.encoder = SE3Transformer(cfg=cfg, edge_dim=0, pooling='avg')
-            # self.encoder = SE3Transformer(num_layers=cfg.MODEL.num_layers, \
-            #                                 input_feature_size=cfg.MODEL.input_feature_size, \
-            #                                 num_channels=cfg.MODEL.num_channels, \
-            #                                 num_channels_R=cfg.MODEL.num_channels_R, \
-            #                                 num_nlayers=cfg.MODEL.num_nlayers, \
-            #                                 num_degrees=cfg.MODEL.num_degrees,
-            #                                 edge_dim=0,
-            #                                 latent_dim=cfg.latent_dim,
-            #                                 pooling='avg')
-        elif 'plus' in self.encoder_type:
-            self.encoder = PointNetplusplus(cfg)
-        else:
-            self.encoder = EncoderPointNet(eval(cfg.enc_filters), cfg.latent_dim, cfg.enc_bn)
-
-        if 'pose' in cfg.task:
-            self.regressor = RegressorFC(cfg.MODEL.num_channels, bn=cfg.dec_bn)
-            if cfg.pred_nocs:
-                self.regressor_nocs = RegressorC1D(list(cfg.nocs_features), cfg.latent_dim)
-        self.decoder = DecoderFC(eval(cfg.dec_features), cfg.latent_dim, cfg.n_pts, cfg.dec_bn)
-
-    def encode(self, x):
-        return self.encoder(x)
-
-    def decode(self, x):
-        return self.decoder(x)
-
-    def regress(self, x):
-        return self.regressor(x)
-
-    def forward(self, x):
-        # print('---PointAE forwarding---')
-        z = self.encoder(x)
-        if 'se3' in self.encoder_type:
-            x = self.decoder(z['0'])   # shape recontruction
-            p = self.regressor(z['1']) # R
-            pred_dict = {'S':x, 'R': p, 'T': z['T']}
-        elif 'plusplus' in self.encoder_type:
-            pred_dict = z
-        return pred_dict
-
 class SE3Transformer(nn.Module):
     """SE(3) equivariant GCN with attention"""
+    """Defines the Unet submodule with skip connection.
+        X -------------------identity----------------------
+        |-- downsampling -- |submodule| -- upsampling --|
+
+    """
     def __init__(self, cfg, latent_dim: int=128, div: float=4, pooling: str='avg', n_heads: int=1, **kwargs):
         super().__init__()
         # Build the network
@@ -347,11 +322,11 @@ class SE3Transformer(nn.Module):
         self.latent_dim = latent_dim
 
         self.fibers = {'in': Fiber(1, self.num_in_channels),
-                       'mid': Fiber(self.num_degrees, self.num_mid_channels),         # match with first layer encoder
-                       'out': Fiber(self.num_degrees, self.num_out_channels),    # num_channels matches last layer decoder
-                       'out_type0': Fiber(1, self.latent_dim),# latent_dim matches with
+                       'mid': Fiber(self.num_degrees, self.num_mid_channels),         # should match with first downsample layer input
+                       'out': Fiber(self.num_degrees, self.num_out_channels),         # should matche last upsampling layer ouput
+                       'out_type0': Fiber(1, self.latent_dim),                        # latent_dim matches with Decoder
                        'out_type1': Fiber(self.num_degrees, self.num_channels_R),
-                       'out_type1_T': Fiber(self.num_degrees, 1)}            # control output channels, TODO
+                       'out_type1_T': Fiber(self.num_degrees, 1)}                     # additional type 1 for center voting;
 
         self._build_gcn(cfg.MODEL)
         print(self.Gblock)
@@ -365,6 +340,7 @@ class SE3Transformer(nn.Module):
         self.pre_modules.append( GSE3Res(fibers['in'], fibers['mid'], edge_dim=self.edge_dim, div=self.div, n_heads=self.n_heads) )
         self.pre_modules.append( GNormSE3(fibers['mid']) )
 
+        # Down modules
         for i in range(len(opt.down_conv.down_conv_nn)):
             args = self._fetch_arguments(opt.down_conv, i, "DOWN")
             down_module = SE3TBlock(**args)
@@ -380,98 +356,60 @@ class SE3Transformer(nn.Module):
             for i in range(len(self.up_modules)):
                 print(f'-up{i} GraphFP: ', self.up_modules[i].Tblock[0].f_in.structure, self.up_modules[i].Tblock[0].f_out.structure)
 
-        # out
-        Gblock = []
-        # Gblock.append(GConvSE3(fibers['mid'], fibers['out'], self_interaction=True, edge_dim=self.edge_dim))
         Oblock = [GConvSE3(fibers['out'], fibers['out_type0'], self_interaction=True, edge_dim=self.edge_dim),
                   GConvSE3(fibers['out'], fibers['out_type1'], self_interaction=True, edge_dim=self.edge_dim),
                   GConvSE3(fibers['out'], fibers['out_type1_T'], self_interaction=True, edge_dim=self.edge_dim)]
+
+
+        self.Oblock = nn.ModuleList(Oblock)
+
         # Pooling
         if self.pooling == 'avg':
             self.Pblock = GAvgPooling(type='1')
         elif self.pooling == 'max':
             self.Pblock = GMaxPooling()
 
-        self.Gblock = nn.ModuleList(Gblock)
-        self.Oblock = nn.ModuleList(Oblock)
-
         return
 
     def forward(self, G, verbose=False):
+        """
+        input graph
+        """
         # Compute equivariant weight basis from relative positions
         basis, r = get_basis_and_r(G, self.num_degrees-1)
         h0 = {'0': G.ndata['f']}
         G0 = G
-        # 1024, 32, 10 @ npoint, nchannels, nsamples,
+        # first layer for pre-computing usage
         for i in range(len(self.pre_modules)):
             h0 = self.pre_modules[i](h0, G=G, r=r, basis=basis)
 
         # encoding
-        if verbose:
-            print('>>>>>>>>> encoding!!!')
-        h1, G1, r1, basis1 = self.down_modules[0](h0, Gin=G0) # 1024, a single layer
-        h2, G2, r2, basis2 = self.down_modules[1](h1, Gin=G1) # 1024-512
-        h3, G3, r3, basis3 = self.down_modules[2](h2, Gin=G2) # 512-128
-        h4, G4, r4, basis4 = self.down_modules[3](h3, Gin=G3) # 128-64
+        h1, G1, r1, basis1 = self.down_modules[0](h0, Gin=G0) # 512-256
+        h2, G2, r2, basis2 = self.down_modules[1](h1, Gin=G1) # 256-128
+        h3, G3, r3, basis3 = self.down_modules[2](h2, Gin=G2) # 128-64
+        h4, G4, r4, basis4 = self.down_modules[3](h3, Gin=G3) # 64-32
 
         # decoding
-        h3 = self.up_modules[0](h3, G=G3, r=r3, basis=basis3, uph=h4, upG=G4) # first 64->128, concat 128 feature, use G3
-        h2 = self.up_modules[1](h2, G=G2, r=r2, basis=basis2, uph=h3, upG=G3) # 512
-        # if verbose:
-        #     print('>>>>>>>>>> decoding!!!')
-        # if verbose:
-        #     i = 0
-        #     print(f'--up{i} GraphFP: ', self.up_modules[i].Tblock[0].f_in.structure, self.up_modules[i].Tblock[0].f_out.structure)
-        #     print('--input ', h1['0'].shape, 'to upsample', h2['0'].shape)
-        h1 = self.up_modules[2](h1, G=G1, r=r1, basis=basis1, uph=h2, upG=G2) # 1024
-        # if verbose:
-        #     i = 1
-        #     print(f'--up{i} GraphFP: ', self.up_modules[i].Tblock[0].f_in.structure, self.up_modules[i].Tblock[0].f_out.structure)
-        #     print('--input ', h0['0'].shape, 'to upsample', h1['0'].shape)
-        h = self.up_modules[3](h0, G=G0, r=r, basis=basis, uph=h1, upG=G1) # further output
+        h3 = self.up_modules[0](h3, G=G3, r=r3, basis=basis3, uph=h4, upG=G4) # 64
+        h2 = self.up_modules[1](h2, G=G2, r=r2, basis=basis2, uph=h3, upG=G3) # 128
+        h1 = self.up_modules[2](h1, G=G1, r=r1, basis=basis1, uph=h2, upG=G2) # 256
+        h = self.up_modules[3](h0, G=G0, r=r, basis=basis, uph=h1, upG=G1)    # 512
+        if verbose:
+            i = 1 # choose your interested layer
+            print(f'--up{i} GraphFP: ', self.up_modules[i].Tblock[0].f_in.structure, self.up_modules[i].Tblock[0].f_out.structure)
+            print('--input ', h0['0'].shape, 'to upsample', h1['0'].shape)
 
+        # output layers
         out = {}
         out['0'] = self.Oblock[0](h, G=G, r=r, basis=basis)['0']
         out['1'] = self.Oblock[1](h, G=G, r=r, basis=basis)['1']
         pred_T   = self.Oblock[2](h, G=G, r=r, basis=basis)['1'] # use type 1 feature
         pred_dict= {'R': out['1'], 'N': out['0'], 'T': pred_T}
-        if verbose:
-            print(pred_dict['R'].shape, pred_dict['N'].shape)
         out = self.Pblock(out, G=G, r=r, basis=basis) # pooling
-        if verbose:
-            print(pred_dict['R'].shape, pred_dict['N'].shape)
-
         pred_dict['0'] = out['0'] # for shape
         pred_dict['1'] = out['1'] # for rotation average
-
-        return pred_dict
-
-    def forward_old(self, G):
-        # Compute equivariant weight basis from relative positions
-        basis, r = get_basis_and_r(G, self.num_degrees-1)
-
-        # encoder (equivariant layers)
-        h0 = {'0': G.ndata['f']}
-        for i, layer in enumerate(self.Gblock):
-            # Graph sub-sampling: dynamic nodes(FPS) + neighbors(KNN/ball query)
-            if i in self.abstracts_index:
-                index = self.abstracts_index.index(i)
-                G, h = self.Dblock[index](G, h, BS = 2) # downsample G, h
-                # update basis, r, h
-                basis, r = get_basis_and_r(G, self.num_degrees-1)
-            # input features of type 0 and type 1 + current graph(corresponding r, basis)
-            h = layer(h, G=G, r=r, basis=basis)
-
-        out = {}
-        out['0'] = self.Oblock[0](h, G=G, r=r, basis=basis)['0']
-        out['1'] = self.Oblock[1](h, G=G, r=r, basis=basis)['1']
-        pred_dict = {'R': out['1']}
-        pred_dict = {'N': out['0']}
-        out = self.Pblock(out, G=G, r=r, basis=basis)
-        pred_dict['T'] = self.Oblock[2](h, G=G, r=r, basis=basis)['1'] # use type 1 feature
-        pred_dict['0'] = out['0'] # already has full R output
-        pred_dict['1'] = out['1'] #
-
+        if verbose:
+            print(pred_dict['R'].shape, pred_dict['N'].shape)
         return pred_dict
 
     def _fetch_arguments(self, conv_opt, index, flow):
@@ -540,6 +478,10 @@ class SE3TBlock(nn.Module):
         self.stage2 = nn.ModuleList(Tblock[2:])
 
     def forward(self, hin, Gin, BS=2):
+        """
+        hin: input feature, with type 0: [BS*N, C, 1], type 0: [BS*N, C, 1]
+        Gin: input graph
+        """
         # Compute equivariant weight basis from relative positions
         Gmid, Gout, xyz_ind = self.down_g(Gin)
         basis, r = get_basis_and_r(Gmid, self.num_degrees-1)
@@ -563,11 +505,6 @@ class SE3TBlock(nn.Module):
         return h, Gout, r, basis
 
 class GraphFPModule(nn.Module):
-    """Defines the Unet submodule with skip connection.
-        X -------------------identity----------------------
-        |-- downsampling -- |submodule| -- upsampling --|
-
-    """
     def __init__(self, up_conv_nn, num_degrees=2, edge_dim=0, div=4, n_heads=1, knn=False, use_xyz=True, module_type='mid_layer', index=0):
         super(GraphFPModule, self).__init__()
         self.module_type = module_type
@@ -593,16 +530,17 @@ class GraphFPModule(nn.Module):
 
     def forward(self, h, G, r, basis, uph=None, upG=None, BS=2):
         """
-        xyz:       current full points, [BS, 3, N0]
-        skip:      features for current current full points, [BS, C, N0]
-        xyz_prev:  points to interpolate; [BS, C, N]
-        feat_prev: features to interpolate; [BS, C, N]
+        h: input skip feature, with type 0: [BS*N, C, 1], type 0: [BS*N, C, 1]
+        G, input skip graph,
+        r: relative distance
+        basis: basis function in SE3 layer
+        upG: previous layer Graph, need upsampling;
+        uph: previous layer, need upsampling;
         """
-        # if xyz_prev is not None:
         xyz_prev = upG.ndata['x'].view(BS, -1, 3).contiguous()
         xyz = G.ndata['x'].view(BS, -1, 3).contiguous()
 
-        # fix the upsampling + concatenation
+        # upsampling + concatenation
         dist, ind = three_nn(xyz, xyz_prev)
         dist = dist * dist
         dist[dist < 1e-10] = 1e-10
@@ -622,29 +560,72 @@ class GraphFPModule(nn.Module):
             h[key] = torch.cat([new_features, h[key]], dim=1)
 
         for i, layer in enumerate(self.Tblock):
-            # print(f'{self.index}, {i}th module')
             h = layer(h, G=G, r=r, basis=basis)
 
         return h
-        # else:
-        #     new_features = torch.cat([skip, feat_prev.repeat(1, 1, skip.size(-1))], dim=1)
+
+class PointAE(nn.Module):
+    def __init__(self, cfg):
+        super(PointAE, self).__init__()
+        self.encoder_type = cfg.encoder_type
+        if 'se3' in self.encoder_type:
+             self.encoder = SE3Transformer(cfg=cfg, edge_dim=0, pooling='avg')
+        elif 'plus' in self.encoder_type:
+            # only for pointnet++ baseline
+            from common.debugger import *
+            from models.model_factory import ModelBuilder
+            from models.decoders.pointnet_2 import PointNet2Segmenter
+            self.encoder = PointNetplusplus(cfg)
+        else:
+            self.encoder = EncoderPointNet(eval(cfg.enc_filters), cfg.latent_dim, cfg.enc_bn)
+
+        if 'pose' in cfg.task:
+            self.regressor = RegressorFC(cfg.MODEL.num_channels, bn=cfg.dec_bn)
+            if cfg.pred_nocs:
+                self.regressor_nocs = RegressorC1D(list(cfg.nocs_features), cfg.latent_dim)
+        self.decoder = DecoderFC(eval(cfg.dec_features), cfg.latent_dim, cfg.n_pts, cfg.dec_bn)
+
+    def encode(self, x):
+        return self.encoder(x)
+
+    def decode(self, x):
+        return self.decoder(x)
+
+    def regress(self, x):
+        return self.regressor(x)
+
+    def forward(self, x):
+        # print('---PointAE forwarding---')
+        z = self.encoder(x)
+        if 'se3' in self.encoder_type:
+            x = self.decoder(z['0'])   # shape recontruction
+            p = self.regressor(z['1']) # R
+            pred_dict = {'S':x, 'R': p, 'T': z['T']}
+        elif 'plusplus' in self.encoder_type:
+            pred_dict = z
+        return pred_dict
 
 if __name__ == '__main__':
+    from hydra.experimental import compose, initialize
+    initialize("../../config/", strict=True)
+    cfg = compose("completion.yaml") # get config
+
     gpu = 0
     deploy_device   = torch.device('cuda:{}'.format(gpu))
     N    = 512
     xyz1  = torch.rand(2, N, 3, requires_grad=False, device=deploy_device)
-    feat1 = torch.rand(2, N, 3, requires_grad=False, device=deploy_device)
+    builder = BuildGraph()
+    G, _    = builder(xyz1)
+    encoder = SE3Transformer(cfg=cfg, edge_dim=0, pooling='avg').cuda()
+    out = encoder(G)
+    print(out)
     # n_sampler = Sample(256)
     # e_sampler = SampleNeighbors(0.1, 20, knn=True)
     #
     # xyz2 = n_sampler(xyz1)
     # ind  = e_sampler(xyz1, xyz2)
-    # print('output is ',xyz2.size())
-    builder = BuildGraph()
-    G, _    = builder(xyz1)
+    # print('output is ',xyz2.size()
     #
-    # # print(G)
     # # down_g = InterDownGraph()
     # # Gmid, Gout, xyz_ind = down_g(G)
     # # print(Gmid)
@@ -656,10 +637,3 @@ if __name__ == '__main__':
     # h1, G1, r1, basis1 = layer(G, h0)
     # print(h0, '\n', h1)
     # print(h0['0'].shape, '\n', h1['0'].shape)
-
-    from hydra.experimental import compose, initialize
-    initialize("../../config/", strict=True)
-    cfg = compose("completion.yaml")
-    encoder = SE3Transformer(cfg=cfg, edge_dim=0, pooling='avg').cuda()
-    out = encoder(G)
-    print(out)

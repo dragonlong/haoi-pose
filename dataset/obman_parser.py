@@ -302,8 +302,10 @@ def main(cfg):
                 g_raw, g_real, n_arr, gt_points, instance_name, instance_name1, up_axis, center_offset = dset.__getitem__(j)
                 input = g_raw.ndata['x'].numpy()
                 gt    = n_arr.transpose(1, 0).numpy()
+                full_pts = gt_points.transpose(1, 0).numpy()
                 print(f'input: {input.shape}, gt: {gt.shape}')
-                vis_utils.plot3d_pts([[input], [gt]], [['input'], ['gt']])
+                vis_utils.plot3d_pts([[input], [gt]], [['input'], ['gt NOCS']],  s=2**2, dpi=300, axis_off=True, color_channel=[[gt], [gt]])
+                vis_utils.plot3d_pts([[input], [full_pts]], [['input'], ['full shape']],  s=2**2, dpi=300, axis_off=True)
                 # vis_utils.visualize_pointcloud([input, gt], title_name='partial + complete', backend='pyrender')
         else:
             from models.se3net import SE3Transformer

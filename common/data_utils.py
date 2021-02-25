@@ -16,7 +16,10 @@ from numba import njit
 from numpy.linalg import inv
 from pytransform3d.rotations import *
 import cv2
-import open3d
+try:
+    import open3d
+except:
+    print('loading warning')
 from io import BytesIO
 
 import glob

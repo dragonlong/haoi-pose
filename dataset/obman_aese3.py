@@ -328,7 +328,8 @@ class HandDatasetAEGraph(HandDataset):
         p_arr      = p_arr[perm][:self.num_points] # point cloud in camera space
 
         # 2048 full pts, random picking one for adversarial training
-        idx1 = self.all_ids[random.randint(0, len(self)-1)]
+        # idx1 = self.all_ids[random.randint(0, len(self)-1)]
+        idx1 = idx
         model_path = self.pose_dataset.obj_paths[idx1].replace("model_normalized.pkl", "surface_points.pkl")
         category_name1 = model_path.split('/')[-4]
         instance_name1 = model_path.split('/')[-3]
@@ -348,7 +349,6 @@ class HandDatasetAEGraph(HandDataset):
             # create graph
             pos = torch.from_numpy(target_pts.astype(np.float32)).unsqueeze(0)
             centroids = torch.from_numpy(np.arange(target_pts.shape[0]).reshape(1, -1))
-            # print(pos.shape, centroids.shape)
             feat      = np.ones((pos.shape[0], pos.shape[1], 1))
             group_idx = self.frnn(pos, centroids)
 
