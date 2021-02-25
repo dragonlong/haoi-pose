@@ -62,6 +62,7 @@ def main(cfg):
         os.system('cp -r ./models {}/code'.format(cfg.log_dir))
         os.system('cp -r ./config {}/code'.format(cfg.log_dir))
         os.system('cp ./dataset/*py {}/code/dataset'.format(cfg.log_dir))
+
     # Shorthands
     out_dir = cfg.log_dir
     print('Saving to ', out_dir)
@@ -76,7 +77,7 @@ def main(cfg):
             wandb.watch(tr_agent.net)
 
     # load from checkpoint if provided
-    if cfg.cont or cfg.eval:
+    if cfg.use_pretrain or cfg.eval:
         tr_agent.load_ckpt(cfg.ckpt)
 
     parser = ObmanParser(cfg)

@@ -24,6 +24,7 @@ target_category: ''
 n_max_parts : 2
 num_points: 2048
 nocs_type: 'A'
+use_hand: False
 num_expr: 0.01
 
 # pred objective

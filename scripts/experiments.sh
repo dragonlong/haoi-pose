@@ -478,7 +478,7 @@ MODEL.num_channels_R=1 MODEL.num_layers=12 augment=True use_wandb=True
   $TRAIN_OBJ task='pcloud_pose' target_category='bottle' exp_num='2.4072' DATASET.train_batch=2 DATASET.test_batch=2 \
   augment=True rotation_loss_type=0 use_objective_R=True use_wandb=True
 
-    2.4073: # pointnet++, R only, type 1
+  2.4073: # pointnet++, R only, type 1
   TRAIN_OBJ='python train_aegan.py training=ae_gan models=pnet2 encoder_type='pnetplusplus' vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
   $TRAIN_OBJ task='pcloud_pose' target_category='bottle' exp_num='2.4073' DATASET.train_batch=2 DATASET.test_batch=2 \
   augment=True rotation_loss_type=1 use_objective_R=True use_wandb=True
@@ -540,9 +540,14 @@ MODEL.num_channels_R=1 MODEL.num_layers=12 augment=True rotation_loss_type=0 use
   pred_nocs=True use_objective_N=True single_instance=True rotation_loss_type=1 use_wandb=True
 
   2.4094: # use type 0 predict NOCS on complete shape
-  TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 MODEL.num_degrees=2 MODEL.num_layers=12 MODEL.num_channels=32 name_model=ae dataset_class=HandDatasetAEGraph'
+  TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 MODEL.num_degrees=2 name_model=ae dataset_class=HandDatasetAEGraph'
   $TRAIN_OBJ task='pcloud_pose' target_category='bottle' exp_num='2.4094' DATASET.train_batch=2 DATASET.test_batch=2 \
-  augment=True pred_nocs=True use_objective_N=True rotation_loss_type=0 use_wandb=True
+  augment=True pred_nocs=True use_objective_N=True use_wandb=True
+
+  2.40941: # train using new architecture
+  TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 MODEL.num_degrees=2 name_model=ae dataset_class=HandDatasetAEGraph'
+  $TRAIN_OBJ task='pcloud_pose' target_category='bottle' exp_num='2.40941' DATASET.train_batch=2 DATASET.test_batch=2 \
+  augment=True pred_nocs=True use_objective_N=True use_wandb=True
 
   2.4095: # new best model, use partial shape for R estimation, single instance, dynamic graph
   TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
@@ -558,6 +563,11 @@ MODEL.num_channels_R=1 MODEL.num_layers=12 augment=True rotation_loss_type=0 use
   TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
   $TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.4097' DATASET.train_batch=2 DATASET.test_batch=2 \
   augment=True rotation_loss_type=0 use_objective_R=True use_wandb=True
+
+  2.4098: # new best model, use partial shape for R estimation, multiple instance, dynamic graph, with hand points
+  TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+  $TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.4098' DATASET.train_batch=2 DATASET.test_batch=2 \
+  augment=True rotation_loss_type=0 use_objective_R=True use_hand=True use_wandb=True
 
 $TRAIN_OBJ task='pcloud_pose' target_category='bottle' exp_num='2.4059' DATASET.train_batch=2 DATASET.test_batch=2 \
 use_objective_R=True augment=True rotation_loss_type=0 use_wandb=True

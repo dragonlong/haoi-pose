@@ -207,7 +207,6 @@ class HandDatasetAEGraph(HandDataset):
 
         # preprocess
         if self.fetch_cache and idx in self.g_dict:
-            # print('using cache!!!')
             gt_points, src, dst = self.g_dict[idx]
             pos = gt_points.clone().detach().unsqueeze(0)
             feat= torch.from_numpy(np.ones((pos.shape[0], pos.shape[1], 1)).astype(np.float32))
@@ -267,11 +266,10 @@ class HandDatasetAEGraph(HandDataset):
         g.ndata['x'] = pos[0][uniq]
         g.ndata['f'] = feat[0][uniq].unsqueeze(-1)
         g.edata['d'] = pos[0][dst_idx] - pos[0][src_idx] #[num_atoms,3] but we only supervise the half
-        #
         up_axis = torch.matmul(torch.tensor([[0.0, 1.0, 0.0]]).float(), RR)
 
-        # return g, gt_points.transpose(1, 0), instance_name, RR # 3*3
-        return g, gt_points.transpose(1, 0), instance_name, up_axis, center_offset #up_axis,
+        # return g, gt_points.transpose(1, 0), instance_name, RR # 3*3, gt_points is complete NOCS
+        return g, gt_points.transpose(1, 0), instance_name, up_axis, center_offset
 
     def get_sample_pair(self, idx, verbose=False):
         if self.cfg.single_instance:
@@ -301,10 +299,12 @@ class HandDatasetAEGraph(HandDataset):
             pts_arr = cloud[np.where(segm>0)[0], np.where(segm>0)[1], :]
             cls_arr = obj_segm[np.where(segm>0)[0], np.where(segm>0)[1]] # hand is 0, obj =1
             nocs    = self.pose_dataset.get_nocs(idx, pts_arr, boundary_pts, sym_aligned_nocs=self.cfg.sym_aligned_nocs)
-            obj_cls    = 1
-            obj_inds   = np.where(cls_arr==obj_cls)[0]
-            nocs       = nocs[obj_inds]
-            pts_arr    = pts_arr[obj_inds]
+            if not self.cfg.use_hand:
+                obj_cls    = 1
+                obj_inds   = np.where(cls_arr==obj_cls)[0]
+                nocs       = nocs[obj_inds]
+                pts_arr    = pts_arr[obj_inds]
+                cls_arr    = cls_arr[obj_inds]
             self.nocs_dict[idx]  = nocs
             self.cloud_dict[idx] = pts_arr
         else:

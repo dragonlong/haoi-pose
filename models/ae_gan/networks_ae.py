@@ -11,6 +11,10 @@ from typing import Dict, Tuple, List
 from equivariant_attention.modules import GConvSE3, GNormSE3, get_basis_and_r, GSE3Res, GMaxPooling, GAvgPooling
 from equivariant_attention.fibers import Fiber
 
+# only for pointnet++ baseline
+# from common.debugger import *
+# from models.model_factory import ModelBuilder
+# from models.decoders.pointnet_2 import PointNet2Segmenter
 from kaolin.models.PointNet2 import furthest_point_sampling
 from kaolin.models.PointNet2 import fps_gather_by_index
 from kaolin.models.PointNet2 import ball_query
@@ -35,7 +39,7 @@ SPECIAL_NAMES = ["radius", "max_num_neighbors", "block_names", "num_degrees"]
 """
 class InterDownGraph()
 class SE3TBlock(): downsampling block
-class
+class GraphFPModule(): upsampling block
 
 
 """
@@ -329,7 +333,6 @@ class SE3Transformer(nn.Module):
                        'out_type1_T': Fiber(self.num_degrees, 1)}                     # additional type 1 for center voting;
 
         self._build_gcn(cfg.MODEL)
-        print(self.Gblock)
 
     def _build_gcn(self, opt, verbose=False):
         fibers = self.fibers
@@ -571,10 +574,6 @@ class PointAE(nn.Module):
         if 'se3' in self.encoder_type:
              self.encoder = SE3Transformer(cfg=cfg, edge_dim=0, pooling='avg')
         elif 'plus' in self.encoder_type:
-            # only for pointnet++ baseline
-            from common.debugger import *
-            from models.model_factory import ModelBuilder
-            from models.decoders.pointnet_2 import PointNet2Segmenter
             self.encoder = PointNetplusplus(cfg)
         else:
             self.encoder = EncoderPointNet(eval(cfg.enc_filters), cfg.latent_dim, cfg.enc_bn)
@@ -608,8 +607,7 @@ class PointAE(nn.Module):
 if __name__ == '__main__':
     from hydra.experimental import compose, initialize
     initialize("../../config/", strict=True)
-    cfg = compose("completion.yaml") # get config
-
+    cfg = compose("completion.yaml")
     gpu = 0
     deploy_device   = torch.device('cuda:{}'.format(gpu))
     N    = 512
@@ -619,6 +617,7 @@ if __name__ == '__main__':
     encoder = SE3Transformer(cfg=cfg, edge_dim=0, pooling='avg').cuda()
     out = encoder(G)
     print(out)
+
     # n_sampler = Sample(256)
     # e_sampler = SampleNeighbors(0.1, 20, knn=True)
     #
