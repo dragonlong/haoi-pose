@@ -1,35 +1,47 @@
 # @package _global_
 defaults:
-  - training: grnet # Task performed (segmentation, classification etc...)
+  - training: grnet # it may contain specific parameters
     optional: True
-  - models: se3_transformer
+  - models: se3_transformer # for encoder setting only
     optional: True
   - datasets: obman
     optional: True
 
 exp_num: '1'
 exp_name: 'default'
-task: 'pcloud_completion' # hand_regression, obj_reconstruction, hand_reconstruction, contacts_vote
-name_model: grnet # Name of the specific model to load
+task: 'pcloud_completion' # hand_regression, obj_reconstruction, hand_reconstruction, contacts_vote, pcloud_pose, pcloud_completion, partial_pcloud_pose
+name_model: grnet         # Name of the specific model to load
+encoder_type: 'se3_transformer'
+use_wgan: False # GAN training
+is_debug: False
+
+# datasets
 name_dset: 'obman'
+root_data: "/groups/CESCA-CV/ICML2021/data"
 dataset_class: 'HandDataset'
 item: 'obman'
+target_category: ''
 n_max_parts : 2
 num_points: 2048
 nocs_type: 'A'
 num_expr: 0.01
-target_category: ''
-root_data: "/groups/CESCA-CV/ICML2021/data"
-log_dir: '/model/${item}/${exp_num}'      #
-use_pretrain: False
-eval: False
-split: 'val'
-pretrained_path: ''
-is_testing: False
 
-# training
-use_wandb: False
-use_wgan: False
+# pred objective
+pred_hand: True
+pred_joint: False
+pred_mano: False
+pred_joint_ind: False
+pred_nocs: False
+rotation_use_dense: False
+pred_sym_axis: False
+use_hand_occupancy: False
+
+# loss
+rotation_loss_type: 0
+use_1vN_nocs: False
+use_objective_T: False
+use_objective_R: False
+use_objective_N: False
 
 # data control
 fetch_cache: False
@@ -38,33 +50,32 @@ preprocess: False
 augment: False
 single_instance: False
 verbose: False
-is_debug: False
 is_gen: False
 use_noisy_nocs: True
-
-rotation_loss_type: 0
-rotation_use_dense: False
 rot_align: False
-hand_only: False
-use_hand_occupancy: False
-use_1vN_nocs: False
 sym_aligned_nocs: False
-pred_sym_axis: False
+hand_only: False
 
-# pred objective
-pred_hand: True
-pred_joint: False
-pred_mano: False
-pred_joint_ind: False
+# eval
+log_dir: '/model/${item}/${exp_num}'
+use_pretrain: False
+eval: False
+split: 'val'
+pretrained_path: ''
+is_testing: False
+
+# general, gpu, print
+use_wandb: False
 pretty_print: False
 distributed: False
 port: '8803'
 num_gpus: 1
 gpu: '0'
+gpu_ids: 0
 num_workers: 8
 nframe: 1
 f: aa
 
-# visualizatio
+# visualization
 show_fig: True
 save_fig: False

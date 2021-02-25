@@ -176,7 +176,7 @@ class ModelBuilder:
             # hand last layer
             if 'regression' in key:
                 layers += [nn.Linear(out_channels[-2], out_channels[-1])]
-            else:
+            if out_channels[-1] in ['sigmoid', 'tanh', 'relu', 'softmax']:
                 layers +=[eval_torch_func(out_channels[-1])]
             head.append(nn.Sequential(*layers))
         head.apply(ModelBuilder.weights_init)

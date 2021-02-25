@@ -146,10 +146,10 @@ def loss_geodesic(predict_rmat, gt_rmat):
 
 def loss_vectors(v1, v2):
     """
-    input: [B, N, 3]
-    [B, N, 3]
+    input: [B, 3, N]
+    [B, 3, N]
     """
-    r_diff = torch.acos( torch.sum(v1*v2, axis=-1) / (torch.norm(v1, dim=-1) * torch.norm(v2, dim=-1) + epsilon) ) * 180 / np.pi
+    r_diff = torch.acos( torch.sum(v1*v2, dim=1) / (torch.norm(v1, dim=1) * torch.norm(v2, dim=1) + epsilon) ) * 180 / np.pi
     error = r_diff.mean()
     return error
 
@@ -206,7 +206,7 @@ def compute_nocs_loss(nocs, nocs_gt, confidence, \
 
     return loss_nocs
 
-def compute_1vN_nocs_loss(nocs, nocs_gt, confidence, target_category='remote', class_array=None,\
+def compute_1vN_nocs_loss(nocs, nocs_gt, confidence=None, target_category='remote', class_array=None,\
                         num_parts=2, mask_array=None, \
                         TYPE_LOSS='L2',
                         SELF_SU=False):
@@ -226,7 +226,8 @@ def compute_1vN_nocs_loss(nocs, nocs_gt, confidence, target_category='remote', c
     """
     loss_nocs   = 0
     nocs_splits = torch.split(nocs, 3, dim=1)
-    mask_splits = torch.split(mask_array, 1, dim=1)
+    if mask_array is not None:
+        mask_splits = torch.split(mask_array, 1, dim=1)
 
     # augment GT with category infos
     all_rmats = []
@@ -239,10 +240,13 @@ def compute_1vN_nocs_loss(nocs, nocs_gt, confidence, target_category='remote', c
 
     # we get the updated [M, 3, 3] * [B, 1, 3, N] --> B, M, 3, N
     nocs_gt_aug = torch.matmul(rmats, torch.unsqueeze(nocs_gt, 1)-0.5) + 0.5
-    for i in range(1, num_parts):
+    for i in range(num_parts): #
         diff_l2 = torch.norm(nocs_splits[i].unsqueeze(1) - nocs_gt_aug, dim=2) # BxMxN
         # diff_abs= torch.sum(torch.abs(nocs_splits[i] - nocs_gt), dim=1)        # BxMxN
-        loss_part = torch.sum(mask_splits[i][:, 0:1, :]  * diff_l2, dim=-1)/(torch.sum(mask_splits[i][:, 0:1, :], dim=-1) + 1)   # [B, M, N] * [B, 1, N] -> B, M
+        if mask_array is not None:
+            loss_part = torch.sum(mask_splits[i][:, 0:1, :]  * diff_l2, dim=-1)/(torch.sum(mask_splits[i][:, 0:1, :], dim=-1) + 1)   # [B, M, N] * [B, 1, N] -> B, M
+        else:
+            loss_part = torch.mean(diff_l2, dim=-1)
         loss_part, _ =  torch.min(loss_part, dim=-1)
         loss_nocs += loss_part
 

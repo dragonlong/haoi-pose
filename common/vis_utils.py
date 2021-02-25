@@ -575,10 +575,10 @@ def plot3d_pts(pts, pts_name, s=1, dpi=350, title_name=None, sub_name='default',
                         [bcm[j][pair[0]][2], bcm[j][pair[1]][2]], 'red')
         if puttext is not None:
             ax.text2D(0.55, 0.80, puttext, transform=ax.transAxes, color='blue', fontsize=6)
-        if limits is None:
-            limits = [[-0.5, 0.5], [-0.5, 0.5], [-0.5, 0.5]]
-        # set_axes_equal(ax, limits=limits)
-        cam_equal_aspect_3d(ax, np.concatenate(pts[0], axis=0), flip_x=flip, flip_y=flip)
+        # if limits is None:
+        #     limits = [[-0.5, 0.5], [-0.5, 0.5], [-0.5, 0.5]]
+        set_axes_equal(ax, limits=limits)
+        # cam_equal_aspect_3d(ax, np.concatenate(pts[0], axis=0), flip_x=flip, flip_y=flip)
     if show_fig:
         if mode == 'continuous':
             plt.draw()

@@ -1,3 +1,21 @@
+
+Day 100:
+- For T voting, 0.02 vs 0.05, not as good;
+- For R regression, not as good, 6 vs 30, no as good;
+- For NOCS regression, seems to have similar performance, but training loss SE3 is higher;
+
+- For NOCS regression on Obman partial pcloud, SE3_transformer performs so bad;
+- For the same, PointNet++ also seems to be struggling;
+
+- if we leverage graph-downsampling, why the performance drops so much?
+- predict invariant or equivalent representations: might need an adversarial training;
+   under the same rotation:
+	 - input randomness, neighbor randomness;
+	 - occlusion of hand could be random;
+	 - missing points;
+	 - if we introduce set obstraction;
+	 -
+
 Day 99:
 - type 0 + 1, averag-pooled type 1 + 2 FC;
 - only type 1, average-pooled type 1 + 2 FC;

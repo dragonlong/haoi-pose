@@ -277,7 +277,7 @@ class HandDatasetAEGraph(HandDataset):
         if self.cfg.single_instance:
             idx = 2
         # idx Corresponds original full dataset
-        model_path = self.pose_dataset.obj_paths[idx].replace("model_normalized.pkl", "surface_points.pkl")
+        model_path    = self.pose_dataset.obj_paths[idx].replace("model_normalized.pkl", "surface_points.pkl")
         category_name = model_path.split('/')[-4]
         instance_name = model_path.split('/')[-3]
 

@@ -269,10 +269,10 @@ class MeteorNet(nn.Module):
         self.meteor_conv4 = meteor_direct_module(npoint=64, nsample=nsample, radius_list=RADIUS4, in_channels=512+4, out_channels=[256,256,1024], knn=knn)
 
         # No innermost for global pooling
-        self.fp1 = pointnet_fp_module(1024, 512, [256, 256]) # input 1, 2
-        self.fp2 = pointnet_fp_module(256, 256, [256, 256])
-        self.fp3 = pointnet_fp_module(256, 128, [256, 128])
-        self.fp4 = pointnet_fp_module(128, 2, [128, 128]) # use reflectence + time dimension
+        self.fp1 = pointnet_fp_module(1024, 512, [256, 256]) # input 1, 2 64->128
+        self.fp2 = pointnet_fp_module(256, 256, [256, 256])  # 128-> 512
+        self.fp3 = pointnet_fp_module(256, 128, [256, 128]) # 512-> 1024
+        self.fp4 = pointnet_fp_module(128, 2, [128, 128]) # 1024->2048 use reflectence + time dimension
         print(f'-----------we have {num_class} classes')
         self.classifier = nn.Sequential(
             nn.Conv1d(128, num_class, 1, bias=True)

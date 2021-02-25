@@ -1,16 +1,11 @@
 # @package _global_
-proj_dir: proj_log
-exp_name: mpc-3depn-chair
-gpu_ids: 0
-module: ae # ['ae', 'vae', 'gan']
-batch_size: 200
-category: chair
-num_workers: 8
-n_pts: 2048
+module: ae  # ['ae', 'vae', 'gan']
+n_pts: 2048 # network output, hyper_para
 # network
 enc_filters: (64, 128, 128, 256)
 latent_dim: 128
 dec_features: (256, 256)
+nocs_features: [128, 128, 3]
 enc_bn: True
 dec_bn: False
 z_dim: 64 # dimension for mode condition vector z
@@ -26,6 +21,7 @@ lr_decay: 0.9995 # step size for learning rate decay
 beta1_gan: 0.5 # beta1 for Adam Optimizer when training gan
 parallel: False
 multimodal: True
+# additional controlling
 cont: False
 ckpt: latest
 vis: False

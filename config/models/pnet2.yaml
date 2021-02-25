@@ -7,10 +7,12 @@ MODEL:
   arch_head: "segmentation"
   weights_encoder: ""
   weights_decoder: ""
+  weights_header: ""
 
 HEAD:
-  R: [128, 128, 3, 'softmax']
-  T: [128, 128, 3, 'sigmoid']
+  R: [128, 128, 3, None]
+  T: [128, 128, 3, None]
+  N: [128, 128, 3, None]
   # nocs_per_point : [128, 64, None, 'sigmoid']
   # gocs_per_point : [128, 3, 'sigmoid']
   # handheatmap_per_point :  [128, 128, 21, 'sigmoid']
