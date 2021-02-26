@@ -49,6 +49,7 @@ def compute_pose_ransac(nocs_gt, nocs_pred, pcloud, partidx, num_parts, basename
 
     # single model estimation
     for j in range(1, num_parts):
+
         source0 = nocs_pred[partidx[j], 3*j:3*(j+1)]
         target0 = pcloud[partidx[j], :]
         print('source has shape: ', source0.shape)

@@ -33,6 +33,7 @@ pred_joint: False
 pred_mano: False
 pred_joint_ind: False
 pred_nocs: False
+pred_seg: False
 rotation_use_dense: False
 pred_sym_axis: False
 use_hand_occupancy: False
@@ -43,6 +44,7 @@ use_1vN_nocs: False
 use_objective_T: False
 use_objective_R: False
 use_objective_N: False
+use_objective_C: False
 
 # data control
 fetch_cache: False
@@ -78,5 +80,14 @@ nframe: 1
 f: aa
 
 # visualization
-show_fig: True
+domain: 'unseen'
+nocs: 'part'
+hand: False
+contact: False
+vote: False
+mano: False
+save: False
 save_fig: False
+show_fig: False
+viz: False
+is_special: True

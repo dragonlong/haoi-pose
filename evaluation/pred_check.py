@@ -189,7 +189,7 @@ def save_pose_pred(all_rts, filename):
         print('mean rotation err of part {}: \n'.format(j), 'baseline: {}'.format(np.array(r_raw_err['baseline'][j]).mean()))
         print('mean translation err of part {}: \n'.format(j), 'baseline: {}'.format(np.array(t_raw_err['baseline'][j]).mean()))
 
-def prepare_pose_eval(save_exp, args):
+def prepare_pose_eval(save_exp, args, num_parts=2):
     file_name       = my_dir + '/results/test_pred/{}/{}_{}_{}_rt_pn_general.pkl'.format(args.item, save_exp, args.domain, args.nocs)
     save_path       = my_dir + '/results/test_pred/{}/'.format(args.item)
     if not os.path.exists(save_path):
@@ -210,11 +210,11 @@ def prepare_pose_eval(save_exp, args):
         s_raw_err   = {'baseline': [[], [], [], []], 'nonlinear': [[], [], [], []]}
     return all_rts, file_name, mean_err, r_raw_err, t_raw_err, s_raw_err
 
-def post_summary(all_rts, file_name, args, r_raw_err=None, t_raw_err=None):
-    if args.save:
-        print('saving to ', file_name)
-        with open(file_name, 'wb') as f:
-            pickle.dump(all_rts, f)
+def post_summary(all_rts, file_name=None, args=None, r_raw_err=None, t_raw_err=None):
+    # if args.save:
+    #     print('saving to ', file_name)
+    #     with open(file_name, 'wb') as f:
+    #         pickle.dump(all_rts, f)
 
     # evaluate per category as well
     xyz_err_dict = {}
@@ -234,6 +234,7 @@ def post_summary(all_rts, file_name, args, r_raw_err=None, t_raw_err=None):
             print('mean translation err of part {}: \n'.format(j), 'baseline: {}'.format(np.array(t_raw_err['baseline'][j]).mean()))
     all_categorys = xyz_err_dict.keys()
     print('category\trotation error\ttranslation error')
+    bp()
     for category in all_categorys:
         print(f'{categories_id[category]}\t{np.array(rpy_err_dict[category]).mean():0.4f}\t{np.array(xyz_err_dict[category]).mean():0.4f}')
 

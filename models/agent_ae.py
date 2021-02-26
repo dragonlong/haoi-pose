@@ -6,7 +6,7 @@ import __init__
 from models.ae_gan import get_network
 from models.base import BaseAgent
 from utils.emd import earth_mover_distance
-from models.losses import loss_geodesic, loss_vectors, compute_vect_loss, compute_1vN_nocs_loss
+from models.losses import loss_geodesic, loss_vectors, compute_vect_loss, compute_1vN_nocs_loss, compute_miou_loss
 from common.d3_utils import compute_rotation_matrix_from_euler, compute_euler_angles_from_rotation_matrices, compute_rotation_matrix_from_ortho6d
 #
 def bp():
@@ -32,6 +32,10 @@ class PointAEPoseAgent(BaseAgent):
         target_pts = input_pts.clone().detach()
         target_R   = data['R'].cuda()
         target_T   = data['T'].cuda()
+        if 'C' in data:
+            target_C   = data['C'].cuda()
+        else:
+            target_C   = None
         # target_N   = input_pts.clone().detach()
 
         if 'se3' in self.config.encoder_type:
@@ -40,7 +44,7 @@ class PointAEPoseAgent(BaseAgent):
 
             if self.config.pred_nocs:
                 self.output_N = self.net.regressor_nocs(self.latent_vect['N'].squeeze().view(target_R.shape[0], -1, self.latent_vect['N'].shape[1]).contiguous().permute(0, 2, 1).contiguous()) # assume to be B*N, 128? --> 3 channel
-                self.nocs_loss= compute_1vN_nocs_loss(self.output_N, target_pts, target_category=self.config.target_category, num_parts=1)
+                self.nocs_loss= compute_1vN_nocs_loss(self.output_N, target_pts, target_category=self.config.target_category, num_parts=1, confidence=target_C)
                 self.nocs_loss= self.nocs_loss.mean()
             else:
                 if self.config.rotation_use_dense:
@@ -52,39 +56,44 @@ class PointAEPoseAgent(BaseAgent):
                     if verbose:
                         print('--Agent forward ', 'pooled latent vect: ', self.latent_vect['1'].shape, 'output R: ', self.output_R.shape)
 
-                self.output_T = self.latent_vect['T'].permute(0, 2, 1).contiguous().squeeze().unsqueeze(-1) # [2048, 1, 3]
-                target_T = target_T.view(-1, 3).contiguous().unsqueeze(-1)
-                #
+                # self.output_T = self.latent_vect['T'].permute(0, 2, 1).contiguous().squeeze().unsqueeze(-1) # [2048, 1, 3]
+                # target_T = target_T.view(-1, 3).contiguous().unsqueeze(-1)
+                self.output_T = self.latent_vect['T'].permute(0, 2, 1).contiguous().squeeze().view(target_T.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous()# [2048, 1, 3]
+                target_T = target_T.permute(0, 2, 1).contiguous()
+            if self.config.pred_seg:
+                self.output_C = self.net.classifier_seg(self.latent_vect['N'].squeeze().view(target_R.shape[0], -1, self.latent_vect['N'].shape[1]).contiguous().permute(0, 2, 1).contiguous())
+                self.seg_loss = compute_miou_loss(self.output_C, target_C).mean()
         else:
             # B, 3, N
-            input_pts = data['G'].ndata['x'].view(target_pts.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous().cuda() #
+            input_pts        = data['G'].ndata['x'].view(target_pts.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous().cuda() #
             input_pts        = input_pts - input_pts.mean(dim=-1, keepdim=True)
             self.latent_vect = self.net.encoder(input_pts)
             if self.config.pred_nocs:
                 self.output_N = self.latent_vect['N'] # assume to be B*N, 128? --> 3 channel
-                self.nocs_loss= compute_1vN_nocs_loss(self.output_N, target_pts, target_category=self.config.target_category, num_parts=1)
+                self.nocs_loss= compute_1vN_nocs_loss(self.output_N, target_pts, target_category=self.config.target_category, num_parts=1, confidence=target_C)
                 self.nocs_loss= self.nocs_loss.mean()
             else:
-                self.output_R    = self.latent_vect['R'] # 3, N,
+                self.output_R    = self.latent_vect['R'] #B, 3, N    ,
                 target_R         = target_R.repeat(1, self.config.num_points, 1).contiguous().permute(0, 2, 1).contiguous() # B, 3, N
                 self.output_T    = self.latent_vect['T'] # 3, N, no activation
                 target_T         = target_T.permute(0, 2, 1).contiguous()# 2, 3, 512
-
+            if self.config.pred_seg:
+                self.output_C = self.latent_vect['C']
+                self.seg_loss = compute_miou_loss(self.output_C, target_C).mean()
         if not self.config.pred_nocs:
             if self.output_R.shape[-1] == 3:
                 self.regressionR_loss = loss_geodesic(compute_rotation_matrix_from_ortho6d( self.output_R[:, :, :2].permute(0, 2, 1).contiguous().reshape(target_R.shape[0], -1).contiguous() ), target_R) #
                 self.regressionR_loss = self.regressionR_loss.mean()
-            else:
-                # assume input is # B, 3, N
+            else: # dense/pooled, B, 3, N
                 self.output_R = self.output_R/(torch.norm(self.output_R, dim=1, keepdim=True) + epsilon)
                 if self.config.rotation_loss_type == 0: # error in degrees
                     self.regressionR_loss = loss_vectors(self.output_R, target_R)
                 elif self.config.rotation_loss_type == 1:
-                    self.regressionR_loss = compute_vect_loss(self.output_R, target_R) #
+                    self.regressionR_loss = compute_vect_loss(self.output_R, target_R, confidence=target_C) #
                     self.regressionR_loss = self.regressionR_loss.mean()
 
             if target_T is not None and self.config.use_objective_T:
-                self.regressionT_loss = compute_vect_loss(self.output_T, target_T).mean() # TYPE_LOSS='SOFT_L1'
+                self.regressionT_loss = compute_vect_loss(self.output_T, target_T, confidence=target_C).mean() # TYPE_LOSS='SOFT_L1'
 
         if 'completion' in self.config.task:
             if isinstance(self.latent_vect, dict):
@@ -105,6 +114,8 @@ class PointAEPoseAgent(BaseAgent):
                 loss_dict["regressionR"]= self.regressionR_loss
             if self.config.use_objective_N:
                 loss_dict["nocs"]= self.nocs_loss
+            if self.config.use_objective_C:
+                loss_dict["seg"]= self.seg_loss
         if 'completion' in self.config.task:
             loss_dict["emd"]=self.emd_loss
         return loss_dict

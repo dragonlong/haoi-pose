@@ -79,14 +79,16 @@ def collate_graph(samples):
     return {'G': batched_graph, "points": gt_points, "id": instance_names, 'R': Rx, 'T':Tx}
 
 def collate_graph_partial(samples):
-    graphs_raw, graphs_real, n_arr, gt_points, instance_name, instance_name1, RR, center_offsets = map(list, zip(*samples))
+    graphs_raw, graphs_real, n_arr, c_arr, m_arr, gt_points, instance_name, instance_name1, RR, center_offsets = map(list, zip(*samples))
     batched_graph_raw = dgl.batch(graphs_raw)
     batched_graph_real = dgl.batch(graphs_real)
     gt_points = torch.stack(gt_points, 0)
     n_arr     = torch.stack(n_arr, 0)
+    c_arr     = torch.stack(c_arr, 0)
+    m_arr     = torch.stack(m_arr, 0)
     Rx        = torch.stack(RR, 0)
     Tx        = torch.stack(center_offsets, 0)
-    return {'G': batched_graph_raw, "points": n_arr, "id": instance_name, 'R': Rx, 'T':Tx}
+    return {'G': batched_graph_raw, "points": n_arr, "C": c_arr, "id": instance_name, 'R': Rx, 'T':Tx}
 
 def collate_graph_gan(samples):
     # g, n_arr, gt_points, instance_name, instance_name1
@@ -299,13 +301,17 @@ def main(cfg):
         # data = next(val_loader)
         if 'partial' in cfg.task:
             for j in range(10):
-                g_raw, g_real, n_arr, gt_points, instance_name, instance_name1, up_axis, center_offset = dset.__getitem__(j)
+                g_raw, g_real, n_arr, c_arr, m_arr, gt_points, instance_name, instance_name1, up_axis, center_offset = dset.__getitem__(j)
                 input = g_raw.ndata['x'].numpy()
                 gt    = n_arr.transpose(1, 0).numpy()
+                c_arr = c_arr.cpu().numpy()
+                m_arr = m_arr.cpu().numpy().T
                 full_pts = gt_points.transpose(1, 0).numpy()
                 print(f'input: {input.shape}, gt: {gt.shape}')
-                vis_utils.plot3d_pts([[input], [gt]], [['input'], ['gt NOCS']],  s=2**2, dpi=300, axis_off=True, color_channel=[[gt], [gt]])
-                vis_utils.plot3d_pts([[input], [full_pts]], [['input'], ['full shape']],  s=2**2, dpi=300, axis_off=True)
+                inds = [np.where(m_arr[:, 1]==0)[0], np.where(m_arr[:, 1]>0)[0]]
+                vis_utils.plot3d_pts([[input[inds[0]], input[inds[0]]], [gt]], [['input hand', 'hand'], ['gt NOCS']],  s=2**2, dpi=300, axis_off=False)
+                vis_utils.plot3d_pts([[input], [gt]], [['input'], ['gt NOCS']],  s=2**2, dpi=300, axis_off=False, color_channel=[[gt], [gt]])
+                vis_utils.plot3d_pts([[input], [full_pts]], [['input'], ['full shape']],  s=2**2, dpi=300, axis_off=False)
                 # vis_utils.visualize_pointcloud([input, gt], title_name='partial + complete', backend='pyrender')
         else:
             from models.se3net import SE3Transformer

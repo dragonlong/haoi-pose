@@ -292,7 +292,7 @@ class HandDatasetAEGraph(HandDataset):
             segm = obj_hand_segm[:, :, 0] | obj_hand_segm[:, :, 1]
 
             with open(model_path, "rb") as obj_f:
-                canon_pts = pickle.load(obj_f) #
+                canon_pts = pickle.load(obj_f)
 
             boundary_pts = [np.min(canon_pts, axis=0), np.max(canon_pts, axis=0)]
 
@@ -307,11 +307,13 @@ class HandDatasetAEGraph(HandDataset):
                 cls_arr    = cls_arr[obj_inds]
             self.nocs_dict[idx]  = nocs
             self.cloud_dict[idx] = pts_arr
+            self.cls_dict[idx]   = cls_arr
         else:
             nocs    = self.nocs_dict[idx]
             pts_arr = self.cloud_dict[idx]
+            cls_arr = self.cls_dict[idx]
 
-        output_arr     = [nocs, pts_arr]
+        output_arr       = [nocs, pts_arr, cls_arr]
         n_total_points   = nocs.shape[0]
 
         if n_total_points < self.num_points:
@@ -323,13 +325,18 @@ class HandDatasetAEGraph(HandDataset):
 
         n_arr      = output_arr[0]
         p_arr      = output_arr[1]
+        c_arr      = output_arr[2]
         perm       = np.random.permutation(n_total_points)
         n_arr      = n_arr[perm][:self.num_points] # nocs in canonical space, for partial reconstruction only
         p_arr      = p_arr[perm][:self.num_points] # point cloud in camera space
+        c_arr      = c_arr[perm][:self.num_points] # cls arr
+        m_arr      = np.zeros([self.num_points, 2], dtype=np.float32)
+        m_arr[np.arange(self.num_points), c_arr.astype(np.int8)] = 1.00 #
+        m_arr[:, 0]= 0.0                           # will not consider hands during NOCS
 
         # 2048 full pts, random picking one for adversarial training
-        # idx1 = self.all_ids[random.randint(0, len(self)-1)]
-        idx1 = idx
+        idx1 = self.all_ids[random.randint(0, len(self)-1)]
+        # idx1 = idx
         model_path = self.pose_dataset.obj_paths[idx1].replace("model_normalized.pkl", "surface_points.pkl")
         category_name1 = model_path.split('/')[-4]
         instance_name1 = model_path.split('/')[-3]
@@ -377,7 +384,9 @@ class HandDatasetAEGraph(HandDataset):
         # create sub-graph
         if not self.is_testing:
             n_arr = torch.from_numpy(n_arr.astype(np.float32).transpose(1, 0))
-            gt_points = torch.from_numpy(gt_points.astype(np.float32).transpose(1, 0))
+            m_arr = torch.from_numpy(m_arr.astype(np.float32).transpose(1, 0)) #
+            c_arr = torch.from_numpy(c_arr.astype(np.float32)) # class
+            gt_points  = torch.from_numpy(gt_points.transpose(1, 0))
             center_offset = torch.from_numpy(center_offset).float()
         else:
             return n_arr, gt_points, instance_name, instance_name1
@@ -389,7 +398,7 @@ class HandDatasetAEGraph(HandDataset):
             RR = self.r_dict[idx]
         up_axis = torch.matmul(torch.tensor([[0.0, 1.0, 0.0]]).float(), RR)
 
-        return g_raw, g_real, n_arr, gt_points, instance_name, instance_name1, up_axis, center_offset
+        return g_raw, g_real, n_arr, c_arr, m_arr, gt_points, instance_name, instance_name1, up_axis, center_offset
 
     def __len__(self):
         if 'adversarial' in self.task or 'partial' in self.task:

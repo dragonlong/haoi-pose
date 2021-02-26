@@ -40,9 +40,18 @@ SPECIAL_NAMES = ["radius", "max_num_neighbors", "block_names", "num_degrees"]
 class InterDownGraph()
 class SE3TBlock(): downsampling block
 class GraphFPModule(): upsampling block
-
-
 """
+
+def eval_torch_func(key):
+    if key == 'sigmoid':
+        return nn.Sigmoid()
+    elif key == 'tanh':
+        return nn.Tanh()
+    elif key == 'softmax':
+        return nn.Softmax(1)
+    else:
+        return NotImplementedError
+
 class InterDownGraph(nn.Module): #
     """
     func: given input graph G with N points, downsample to N1 points, output two graphs;
@@ -582,6 +591,8 @@ class PointAE(nn.Module):
             self.regressor = RegressorFC(cfg.MODEL.num_channels, bn=cfg.dec_bn)
             if cfg.pred_nocs:
                 self.regressor_nocs = RegressorC1D(list(cfg.nocs_features), cfg.latent_dim)
+            if cfg.pred_seg:
+                self.classifier_seg = RegressorC1D(list(cfg.seg_features), cfg.latent_dim)
         self.decoder = DecoderFC(eval(cfg.dec_features), cfg.latent_dim, cfg.n_pts, cfg.dec_bn)
 
     def encode(self, x):

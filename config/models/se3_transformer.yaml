@@ -15,7 +15,7 @@ MODEL:
       num_degrees: 2
       npoint: [256, 128, 64, 32]
       radius: [[0.1], [0.2], [0.4], [0.8]]
-      nsamples: [[10], [16], [16], [16]] # 
+      nsamples: [[10], [16], [16], [16]] #
       down_conv_nn:
           [
               [
