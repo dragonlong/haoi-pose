@@ -333,15 +333,15 @@ MODEL.num_channels_R=1 MODEL.num_layers=12 augment=True use_wandb=True
   use_objective_R=True fetch_cache=True augment=True rotation_loss_type=1 use_wandb=True
 
   # 2.4058 multiple instance, dynamic graph, with augmentation, L2
-  TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
-  $TRAIN_OBJ task='pcloud_pose' target_category='bottle' exp_num='2.4058' DATASET.train_batch=2 DATASET.test_batch=2 \
-  use_objective_R=True augment=True rotation_loss_type=1 use_wandb=True
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='pcloud_pose' target_category='bottle' exp_num='2.4058' DATASET.train_batch=2 DATASET.test_batch=2 \
+use_objective_R=True augment=True rotation_loss_type=1 eval=True
+  use_wandb=True
 
 # # new architecture 4 layers
 # TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
 # $TRAIN_OBJ task='pcloud_pose' target_category='bottle' exp_num='2.40581' DATASET.train_batch=2 DATASET.test_batch=2 \
 # use_objective_R=True augment=True rotation_loss_type=1 use_wandb=True
-
 
   # 2.4059 multiple instance, dynamic graph, with augmentation, angle
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
@@ -457,7 +457,8 @@ use_objective_T=True augment=True use_wandb=True
 
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
 $TRAIN_OBJ task='pcloud_pose' target_category='bottle' exp_num='2.406971' DATASET.train_batch=2 DATASET.test_batch=2 \
-use_objective_T=True augment=True use_wandb=True
+use_objective_T=True augment=True eval=True
+use_wandb=True
   # TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 MODEL.num_degrees=2 MODEL.num_channels=32 name_model=ae dataset_class=HandDatasetAEGraph'
   # $TRAIN_OBJ task='pcloud_pose' target_category='bottle' exp_num='2.40691' DATASET.train_batch=2 DATASET.test_batch=2 \
   # MODEL.num_channels_R=1 MODEL.num_layers=12 augment=True use_wandb=True

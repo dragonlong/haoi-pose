@@ -274,7 +274,7 @@ def compute_vect_loss(vect, vect_gt, confidence=None, num_parts=2, mask_array=No
                 return huber_loss(vect - vect_gt)
         else:
             if TYPE_LOSS=='L2':
-                return torch.mean(diff_l2 * confidence , dim=1)
+                return torch.mean(diff_l2 , dim=1)
             elif TYPE_LOSS=='L1':
                 return torch.mean(diff_avg, dim=1)
             elif TYPE_LOSS=='SOFT_L1':

@@ -234,7 +234,6 @@ def post_summary(all_rts, file_name=None, args=None, r_raw_err=None, t_raw_err=N
             print('mean translation err of part {}: \n'.format(j), 'baseline: {}'.format(np.array(t_raw_err['baseline'][j]).mean()))
     all_categorys = xyz_err_dict.keys()
     print('category\trotation error\ttranslation error')
-    bp()
     for category in all_categorys:
         print(f'{categories_id[category]}\t{np.array(rpy_err_dict[category]).mean():0.4f}\t{np.array(xyz_err_dict[category]).mean():0.4f}')
 

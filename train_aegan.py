@@ -19,6 +19,7 @@ from models import get_agent
 from common.debugger import *
 from evaluation.pred_check import post_summary, prepare_pose_eval
 from common.algorithms import compute_pose_ransac
+from common.d3_utils import axis_diff_degree
 from global_info import global_info
 
 infos           = global_info()
@@ -131,11 +132,36 @@ def main(cfg):
 
                     all_rts[basename]  = rts_dict
                 else:
-                    pred_dict['R'] = tr_agent.output_R
-                    pred_dict['T'] = tr_agent.output_T
-                    
+                    pred_dict['R'] = tr_agent.output_R.cpu().detach().numpy()
+                    pred_dict['T'] = tr_agent.output_T.cpu().detach().numpy().transpose(0, 2, 1)
 
+                    # voting to get the final predictions
+                    for m in range(2):
+                        scale_dict = {'gt': [], 'baseline': [], 'nonlinear': []}
+                        r_dict     = {'gt': [], 'baseline': [], 'nonlinear': []}
+                        t_dict     = {'gt': [], 'baseline': [], 'nonlinear': []}
+                        xyz_err    = {'baseline': [], 'nonlinear': []}
+                        rpy_err    = {'baseline': [], 'nonlinear': []}
+                        scale_err  = {'baseline': [], 'nonlinear': []}
+                        basename  =  data['id'][m] + '_' + categories[cfg.target_category]
+                        rpy_err['baseline'] = axis_diff_degree(pred_dict['R'][m], target_R[m])
+                        pred_center= input_pts[m] - pred_dict['T'][m]
+                        gt_center  = input_pts[m] - target_T[m]
+                        xyz_err['baseline'] = np.mean(pred_center, axis=0) - np.mean(gt_center, axis=0)
+                        r_dict['baseline'].append(pred_dict['R'][m])
+                        t_dict['baseline'].append(pred_center)
+                        scale_dict['gt'].append(1)
 
+                        rts_dict = {}
+                        rts_dict['scale']   = scale_dict
+                        rts_dict['rotation']      = r_dict
+                        rts_dict['translation']   = t_dict
+                        rts_dict['xyz_err']   = xyz_err
+                        rts_dict['rpy_err']   = rpy_err
+                        rts_dict['scale_err'] = scale_err
+                        # print()
+                    # choose the
+                        all_rts[basename]  = rts_dict
             save_offline =False
             if save_offline:
                 if cfg.task == 'adversarial_adaptation':

@@ -23,6 +23,59 @@ from kaolin.models.PointNet2 import group_gather_by_index
 from omegaconf import DictConfig, ListConfig
 import dgl
 
+#
+# class GAvgPooling(nn.Module):
+#     """Graph Average Pooling module."""
+#     def __init__(self, type='0'):
+#         super().__init__()
+#         self.pool = AvgPooling()
+#         self.type = type
+#
+#     @profile
+#     def forward(self, features, G, **kwargs):
+#         if self.type == '0':
+#             h = features['0'][...,-1]
+#             pooled = self.pool(G, h)
+#         elif self.type == '1':
+#             pooled = []
+#             for i in range(3):
+#                 h_i = features['1'][..., i]
+#                 pooled.append(self.pool(G, h_i).unsqueeze(-1))
+#             pooled = torch.cat(pooled, axis=-1)
+#             pooled = {'1': pooled}
+#             pooled['0'] = self.pool(G, features['0'][...,-1])
+#         else:
+#             print('GAvgPooling for type > 0 not implemented')
+#             exit()
+#         return pooled
+#
+#
+# class GMaxPooling(nn.Module):
+#     """Graph Max Pooling module."""
+#     def __init__(self, type='0'):
+#         super().__init__()
+#         self.pool = MaxPooling()
+#         self.type = type
+#
+#     @profile
+#     def forward(self, features, G, **kwargs):
+#         if self.type == '0':
+#             h = features['0'][...,-1]
+#             return self.pool(G, h)
+#         elif self.type == '1':
+#             pooled = []
+#             for i in range(3):
+#                 h_i = features['1'][..., i]
+#                 pooled.append(self.pool(G, h_i).unsqueeze(-1))
+#             pooled = torch.cat(pooled, axis=-1)
+#             pooled = {'1': pooled}
+#             pooled['0'] = self.pool(G, features['0'][...,-1])
+#         else:
+#             print('GAvgPooling for type > 0 not implemented')
+#             exit()
+#         return pooled
+
+
 def bp():
     import pdb;pdb.set_trace()
 def is_list(entity):
@@ -625,6 +678,7 @@ if __name__ == '__main__':
     xyz1  = torch.rand(2, N, 3, requires_grad=False, device=deploy_device)
     builder = BuildGraph()
     G, _    = builder(xyz1)
+    #
     encoder = SE3Transformer(cfg=cfg, edge_dim=0, pooling='avg').cuda()
     out = encoder(G)
     print(out)
