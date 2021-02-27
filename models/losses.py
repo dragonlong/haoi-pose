@@ -308,7 +308,6 @@ class SidedDistanceFunction(torch.autograd.Function):
 
         return idx1.long()
 
-
 class SidedDistance(torch.nn.Module):
     """
     For every point in set1 find the indecies of the closest point in set2

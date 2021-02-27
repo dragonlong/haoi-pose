@@ -79,7 +79,8 @@ num_workers: 8
 nframe: 1
 f: aa
 
-# visualization
+# visualization & eval
+BS: 2
 domain: 'unseen'
 nocs: 'part'
 hand: False
@@ -91,3 +92,5 @@ save_fig: False
 show_fig: False
 viz: False
 is_special: True
+iteration: 0
+words: 'c,se3,T' # 'c,se3,N'

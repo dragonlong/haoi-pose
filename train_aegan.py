@@ -102,98 +102,102 @@ def main(cfg):
         """
         num_parts = 2
         all_rts, file_name, mean_err, r_raw_err, t_raw_err, s_raw_err = prepare_pose_eval(cfg.exp_num, cfg)
-        if cfg.split == 'val':
-            pbar = tqdm(val_loader)
+        pbar = tqdm(val_loader)
+        if 'partial' in cfg.task:
+            num_iteration = 1
         else:
-            pbar = tqdm(train_loader)
-        for b, data in enumerate(pbar):
-            tr_agent.val_func(data)
-            print(data.keys())
-            target_pts = data['points'].numpy().transpose(0, 2, 1)
-            input_pts  = data['G'].ndata['x'].view(target_pts.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous().cpu().numpy().transpose(0, 2, 1)
-            target_R   = data['R'].cpu().numpy()
-            target_T   = data['T'].cpu().numpy()
-            print(input_pts.shape, target_pts.shape, target_R.shape, target_T.shape)
-            if 'C' in data:
-                target_C   = data['C'].cpu().numpy()
-            if 'pose' in cfg.task:
-                pred_dict = {}
-                if cfg.pred_nocs:
-                    pred_dict['N'] = tr_agent.output_N.cpu().detach().numpy().transpose(0, 2, 1) # B, N, 3
-                    # ransac for pose
-                    m = 0
-                    basename  =  data['id'][m] + '_' + categories[cfg.target_category]
-                    nocs_gt   = target_pts[m]
-                    nocs_pred = np.concatenate([2*np.ones_like(pred_dict['N'][m]), pred_dict['N'][m]], axis=1)
-                    part_idx_list_pred = [None, np.arange(nocs_pred.shape[0])]
-                    part_idx_list_gt   = [None, np.arange(nocs_gt.shape[0])]
-                    rts_dict = compute_pose_ransac(nocs_gt, nocs_pred, input_pts[m], part_idx_list_pred, num_parts, basename, r_raw_err, t_raw_err, s_raw_err, \
-                            partidx_gt=part_idx_list_gt, target_category=cfg.target_category, is_special=cfg.is_special, verbose=False)
+            num_iteration = 100
+        for iteration in range(num_iteration):
+            cfg.iteration = iteration
+            for b, data in enumerate(pbar):
+                tr_agent.val_func(data)
+                # print(data.keys())
+                target_pts = data['points'].numpy().transpose(0, 2, 1)
+                input_pts  = data['G'].ndata['x'].view(target_pts.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous().cpu().numpy().transpose(0, 2, 1)
+                target_R   = data['R'].cpu().numpy()
+                target_T   = data['T'].cpu().numpy()
+                # print(input_pts.shape, target_pts.shape, target_R.shape, target_T.shape)
+                if 'C' in data:
+                    target_C   = data['C'].cpu().numpy()
+                if 'pose' in cfg.task:
+                    pred_dict = {}
+                    if cfg.pred_nocs:
+                        pred_dict['N'] = tr_agent.output_N.cpu().detach().numpy().transpose(0, 2, 1) # B, N, 3
+                        # ransac for pose
+                        for m in range(target_R.shape[0]):
+                            basename  = f'{cfg.iteration}_' + data['id'][m] + '_' + categories[cfg.target_category]
+                            nocs_gt   = target_pts[m]
+                            nocs_pred = np.concatenate([2*np.ones_like(pred_dict['N'][m]), pred_dict['N'][m]], axis=1)
+                            part_idx_list_pred = [None, np.arange(nocs_pred.shape[0])]
+                            part_idx_list_gt   = [None, np.arange(nocs_gt.shape[0])]
+                            rts_dict = compute_pose_ransac(nocs_gt, nocs_pred, input_pts[m], part_idx_list_pred, num_parts, basename, r_raw_err, t_raw_err, s_raw_err, \
+                                    partidx_gt=part_idx_list_gt, target_category=cfg.target_category, is_special=cfg.is_special, verbose=False)
+                            rts_dict['pred']   = nocs_pred[:, 3:]
+                            rts_dict['gt']     = nocs_gt
+                            rts_dict['in']     = input_pts[m]
+                            all_rts[basename]  = rts_dict
+                    else:
+                        pred_dict['R'] = tr_agent.output_R.cpu().detach().numpy()
+                        pred_dict['T'] = tr_agent.output_T.cpu().detach().numpy().transpose(0, 2, 1)
 
-                    all_rts[basename]  = rts_dict
-                else:
-                    pred_dict['R'] = tr_agent.output_R.cpu().detach().numpy()
-                    pred_dict['T'] = tr_agent.output_T.cpu().detach().numpy().transpose(0, 2, 1)
+                        # voting to get the final predictions
+                        for m in range(target_R.shape[0]):
+                            basename  = f'{cfg.iteration}_' + data['id'][m] + '_' + categories[cfg.target_category]
+                            scale_dict = {'gt': [], 'baseline': [], 'nonlinear': []}
+                            r_dict     = {'gt': [], 'baseline': [], 'nonlinear': []}
+                            t_dict     = {'gt': [], 'baseline': [], 'nonlinear': []}
+                            xyz_err    = {'baseline': [], 'nonlinear': []}
+                            rpy_err    = {'baseline': [], 'nonlinear': []}
+                            scale_err  = {'baseline': [], 'nonlinear': []}
+                            rpy_err['baseline'] = axis_diff_degree(pred_dict['R'][m], target_R[m])
+                            pred_center= input_pts[m] - pred_dict['T'][m]
+                            gt_center  = input_pts[m] - target_T[m]
+                            xyz_err['baseline'] = np.linalg.norm(np.mean(pred_center, axis=0) - np.mean(gt_center, axis=0))
+                            r_dict['baseline'].append(pred_dict['R'][m])
+                            t_dict['baseline'].append(pred_center)
+                            scale_dict['gt'].append(1)
 
-                    # voting to get the final predictions
-                    for m in range(2):
-                        scale_dict = {'gt': [], 'baseline': [], 'nonlinear': []}
-                        r_dict     = {'gt': [], 'baseline': [], 'nonlinear': []}
-                        t_dict     = {'gt': [], 'baseline': [], 'nonlinear': []}
-                        xyz_err    = {'baseline': [], 'nonlinear': []}
-                        rpy_err    = {'baseline': [], 'nonlinear': []}
-                        scale_err  = {'baseline': [], 'nonlinear': []}
-                        basename  =  data['id'][m] + '_' + categories[cfg.target_category]
-                        rpy_err['baseline'] = axis_diff_degree(pred_dict['R'][m], target_R[m])
-                        pred_center= input_pts[m] - pred_dict['T'][m]
-                        gt_center  = input_pts[m] - target_T[m]
-                        xyz_err['baseline'] = np.mean(pred_center, axis=0) - np.mean(gt_center, axis=0)
-                        r_dict['baseline'].append(pred_dict['R'][m])
-                        t_dict['baseline'].append(pred_center)
-                        scale_dict['gt'].append(1)
+                            rts_dict = {}
+                            rts_dict['scale']   = scale_dict
+                            rts_dict['rotation']      = r_dict
+                            rts_dict['translation']   = t_dict
+                            rts_dict['xyz_err']   = xyz_err
+                            rts_dict['rpy_err']   = rpy_err
+                            rts_dict['scale_err'] = scale_err
+                            rts_dict['in']     = input_pts[m]
+                            all_rts[basename]  = rts_dict
+                save_offline =False
+                if save_offline:
+                    if cfg.task == 'adversarial_adaptation':
+                        outputs = tr_agent.fake_pc
+                        for m in range(data["raw"].shape[0]):
+                            model_id  = data["raw_id"][m]
+                            taxonomy_id = categories[cfg.target_category]
+                            save_name = f'{cfg.log_dir}/generation/{cfg.split}/input_{taxonomy_id}_{model_id}.npy'
+                            save_for_viz(['points', 'labels'], [data["raw"][m].cpu().numpy().T, np.ones((data["raw"][m].shape[1]))], save_name, type='np')
+                            save_name = f'{cfg.log_dir}/generation/{cfg.split}/{cfg.module}_{taxonomy_id}_{model_id}.npy'
+                            save_for_viz(['points', 'labels'], [outputs[m].cpu().numpy().T, np.ones((outputs[m].cpu().numpy().shape[1]))], save_name, type='np')
+                    else:
+                        outputs = tr_agent.output_pts
+                        latent_vect = tr_agent.latent_vect
+                        graphs = dgl.unbatch(data["G"])
+                        if cfg.use_wandb:
+                            for m in range(data["points"].shape[0]):
+                                # target_pts  = data["points"][m].cpu().numpy().T
+                                target_pts  = graphs[m].ndata['x'].cpu().numpy()
+                                outputs_pts = outputs[m].cpu().numpy().T
+                                outputs_pts = outputs_pts + np.array([0, 1, 0]).reshape(1, -1)
+                                pts = np.concatenate([target_pts, outputs_pts], axis=0)
+                                wandb.log({"input+AE_GAN_output": [wandb.Object3D(pts)], 'step': b*data["points"].shape[0] + m})
 
-                        rts_dict = {}
-                        rts_dict['scale']   = scale_dict
-                        rts_dict['rotation']      = r_dict
-                        rts_dict['translation']   = t_dict
-                        rts_dict['xyz_err']   = xyz_err
-                        rts_dict['rpy_err']   = rpy_err
-                        rts_dict['scale_err'] = scale_err
-                        # print()
-                    # choose the
-                        all_rts[basename]  = rts_dict
-            save_offline =False
-            if save_offline:
-                if cfg.task == 'adversarial_adaptation':
-                    outputs = tr_agent.fake_pc
-                    for m in range(data["raw"].shape[0]):
-                        model_id  = data["raw_id"][m]
-                        taxonomy_id = categories[cfg.target_category]
-                        save_name = f'{cfg.log_dir}/generation/{cfg.split}/input_{taxonomy_id}_{model_id}.npy'
-                        save_for_viz(['points', 'labels'], [data["raw"][m].cpu().numpy().T, np.ones((data["raw"][m].shape[1]))], save_name, type='np')
-                        save_name = f'{cfg.log_dir}/generation/{cfg.split}/{cfg.module}_{taxonomy_id}_{model_id}.npy'
-                        save_for_viz(['points', 'labels'], [outputs[m].cpu().numpy().T, np.ones((outputs[m].cpu().numpy().shape[1]))], save_name, type='np')
-                else:
-                    outputs = tr_agent.output_pts
-                    latent_vect = tr_agent.latent_vect
-                    graphs = dgl.unbatch(data["G"])
-                    if cfg.use_wandb:
                         for m in range(data["points"].shape[0]):
-                            # target_pts  = data["points"][m].cpu().numpy().T
-                            target_pts  = graphs[m].ndata['x'].cpu().numpy()
-                            outputs_pts = outputs[m].cpu().numpy().T
-                            outputs_pts = outputs_pts + np.array([0, 1, 0]).reshape(1, -1)
-                            pts = np.concatenate([target_pts, outputs_pts], axis=0)
-                            wandb.log({"input+AE_GAN_output": [wandb.Object3D(pts)], 'step': b*data["points"].shape[0] + m})
-
-                    for m in range(data["points"].shape[0]):
-                        model_id  = data['id'][m]
-                        taxonomy_id = categories[cfg.target_category]
-                        save_name = f'{cfg.log_dir}/generation/{cfg.split}/input_{taxonomy_id}_{model_id}.npy'
-                        save_for_viz(['points', 'labels'], [data["points"][m].cpu().numpy().T, np.ones((data["points"][m].shape[1]))], save_name, type='np')
-                        save_name = f'{cfg.log_dir}/generation/{cfg.split}/{cfg.module}_{taxonomy_id}_{model_id}.npy'
-                        save_for_viz(['points', 'labels'], [outputs[m].cpu().numpy().T, np.ones((outputs[m].cpu().numpy().shape[1]))], save_name, type='np')
-        post_summary(all_rts)
+                            model_id  = data['id'][m]
+                            taxonomy_id = categories[cfg.target_category]
+                            save_name = f'{cfg.log_dir}/generation/{cfg.split}/input_{taxonomy_id}_{model_id}.npy'
+                            save_for_viz(['points', 'labels'], [data["points"][m].cpu().numpy().T, np.ones((data["points"][m].shape[1]))], save_name, type='np')
+                            save_name = f'{cfg.log_dir}/generation/{cfg.split}/{cfg.module}_{taxonomy_id}_{model_id}.npy'
+                            save_for_viz(['points', 'labels'], [outputs[m].cpu().numpy().T, np.ones((outputs[m].cpu().numpy().shape[1]))], save_name, type='np')
+        post_summary(all_rts, file_name, args=cfg)
         return
 
     val_loader   = cycle(val_loader)

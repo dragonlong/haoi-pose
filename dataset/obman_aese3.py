@@ -184,9 +184,23 @@ class HandDatasetAEGraph(HandDataset):
             self.data_dict = np.load(preprocessed_file, allow_pickle=True).item()
             self.all_keys  = list(self.data_dict.keys())
 
+        if self.cfg.eval or self.split != 'train':
+            np.random.seed(0)
+            self.random_angle = np.random.rand(self.__len__(), 150, 3) * 360
+            self.random_T     = np.random.rand(self.__len__(), 150, 3)
+
     def get_sample_mine(self, idx, verbose=False):
         """used only for points data"""
-        if self.augment and idx!=0:
+        if self.cfg.eval or self.split != 'train':
+            # angle should be N * 10 * 3
+            # print(f'--fetching from pre-defined pose, with iteration {self.cfg.iteration}')
+            theta_x = self.random_angle[idx, self.cfg.iteration, 0]
+            Rx = rotate_about_axis(theta_x / 180 * np.pi, axis='x')
+            theta_z = self.random_angle[idx, self.cfg.iteration, 2]
+            Rz = rotate_about_axis(theta_z / 180 * np.pi, axis='z')
+            RR = torch.from_numpy(np.matmul(Rx, Rz).astype(np.float32))
+            TT = torch.from_numpy(self.random_T[idx, self.cfg.iteration].reshape(1, 3).astype(np.float32))
+        elif self.augment and idx!=0:
             theta_x = random.randint(0, 180)
             Rx = rotate_about_axis(theta_x / 180 * np.pi, axis='x')
             theta_z = random.randint(0, 180)
@@ -234,6 +248,7 @@ class HandDatasetAEGraph(HandDataset):
 
                 # we care about the nomralized shape in NOCS
                 gt_points = (canon_pts - center_pt.reshape(1, 3)) / length_bb + 0.5
+                # if self.split == 'train':
                 gt_points = np.random.permutation(gt_points)
                 gt_points = gt_points[:self.num_gt, :]
                 gt_points = torch.from_numpy(gt_points.astype(np.float32)[:, :])

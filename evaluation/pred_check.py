@@ -17,7 +17,7 @@ from pytransform3d.rotations import *
 import torch
 
 import _init_paths
-from common.vis_utils import plot3d_pts, plot2d_img, plot_arrows, plot_arrows_list, plot_hand_w_object, hist_show
+from common.vis_utils import plot3d_pts, plot2d_img, plot_arrows, plot_arrows_list, plot_hand_w_object, hist_show, plot_distribution
 from common.data_utils import get_demo_h5, get_full_test, save_objmesh, fast_load_obj, get_obj_mesh, load_pickle
 from common.aligning import estimateSimilarityTransform, estimateSimilarityUmeyama
 from common.debugger import *
@@ -190,7 +190,7 @@ def save_pose_pred(all_rts, filename):
         print('mean translation err of part {}: \n'.format(j), 'baseline: {}'.format(np.array(t_raw_err['baseline'][j]).mean()))
 
 def prepare_pose_eval(save_exp, args, num_parts=2):
-    file_name       = my_dir + '/results/test_pred/{}/{}_{}_{}_rt_pn_general.pkl'.format(args.item, save_exp, args.domain, args.nocs)
+    file_name       = my_dir + '/results/test_pred/{}/{}_{}_{}_rt_pn_general.npy'.format(args.item, save_exp, args.domain, args.nocs)
     save_path       = my_dir + '/results/test_pred/{}/'.format(args.item)
     if not os.path.exists(save_path):
         os.makedirs(save_path)
@@ -211,10 +211,9 @@ def prepare_pose_eval(save_exp, args, num_parts=2):
     return all_rts, file_name, mean_err, r_raw_err, t_raw_err, s_raw_err
 
 def post_summary(all_rts, file_name=None, args=None, r_raw_err=None, t_raw_err=None):
-    # if args.save:
-    #     print('saving to ', file_name)
-    #     with open(file_name, 'wb') as f:
-    #         pickle.dump(all_rts, f)
+    if args.save:
+        print('--saving to ', file_name)
+        np.save(file_name, arr=all_rts)
 
     # evaluate per category as well
     xyz_err_dict = {}
@@ -224,8 +223,14 @@ def post_summary(all_rts, file_name=None, args=None, r_raw_err=None, t_raw_err=N
         if category_name not in xyz_err_dict:
             xyz_err_dict[category_name] = []
             rpy_err_dict[category_name] = []
-        rpy_err_dict[category_name].append(value_dict['rpy_err']['baseline'])
-        xyz_err_dict[category_name].append(value_dict['xyz_err']['baseline'])
+        if isinstance(value_dict['rpy_err']['baseline'], list):
+            rpy_err_dict[category_name].append(value_dict['rpy_err']['baseline'][0])
+        else:
+            rpy_err_dict[category_name].append(value_dict['rpy_err']['baseline'])
+        if isinstance(value_dict['xyz_err']['baseline'], list):
+            xyz_err_dict[category_name].append(value_dict['xyz_err']['baseline'][0])
+        else:
+            xyz_err_dict[category_name].append(value_dict['xyz_err']['baseline'])
 
     # in total
     if r_raw_err is not None:
@@ -236,9 +241,8 @@ def post_summary(all_rts, file_name=None, args=None, r_raw_err=None, t_raw_err=N
     print('category\trotation error\ttranslation error')
     for category in all_categorys:
         print(f'{categories_id[category]}\t{np.array(rpy_err_dict[category]).mean():0.4f}\t{np.array(xyz_err_dict[category]).mean():0.4f}')
-
-    values, bins = np.histogram(rpy_err_dict[category_name], bins=np.arange(0, 180, 10), density=True)
-    hist_show([values], bins[:-1], tick_label='default', axes_label=['rotation error', 'ratio'], title_name='rotation analysis', total_width=0.5, dpi=200, save_fig=False, sub_name='unseen')
+    plot_distribution(rpy_err_dict[category_name], labelx='r_err', labely='frequency', title_name='rotation_error', sub_name=args.exp_num, save_fig=True)
+    plot_distribution(xyz_err_dict[category_name], labelx='t_err', labely='frequency', title_name='translation_error', sub_name=args.exp_num, save_fig=True)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

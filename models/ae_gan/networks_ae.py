@@ -12,9 +12,9 @@ from equivariant_attention.modules import GConvSE3, GNormSE3, get_basis_and_r, G
 from equivariant_attention.fibers import Fiber
 
 # only for pointnet++ baseline
-# from common.debugger import *
-# from models.model_factory import ModelBuilder
-# from models.decoders.pointnet_2 import PointNet2Segmenter
+from common.debugger import *
+from models.model_factory import ModelBuilder
+from models.decoders.pointnet_2 import PointNet2Segmenter
 from kaolin.models.PointNet2 import furthest_point_sampling
 from kaolin.models.PointNet2 import fps_gather_by_index
 from kaolin.models.PointNet2 import ball_query
@@ -131,7 +131,7 @@ class InterDownGraph(nn.Module): #
         neighbors_ind      = self.e_sampler(pos, xyz_query)
         glist              = dgl.unbatch(G)
         remove_list = []
-        for i in range(B):
+        for i in range(BS):
             src = neighbors_ind[i].contiguous().view(-1)
             dst = xyz_ind[i].view(-1, 1).repeat(1, self.num_samples).view(-1)
             unified = torch.cat([src, dst])
@@ -471,8 +471,8 @@ class SE3Transformer(nn.Module):
         pred_T   = self.Oblock[2](h, G=G, r=r, basis=basis)['1'] # use type 1 feature
         pred_dict= {'R': out['1'], 'N': out['0'], 'T': pred_T}
         out = self.Pblock(out, G=G, r=r, basis=basis) # pooling
-        pred_dict['0'] = out['0'] # for shape
-        pred_dict['1'] = out['1'] # for rotation average
+        pred_dict['0'] = out['0']                     # for shape embedding
+        pred_dict['1'] = out['1']                     # for rotation average
         if verbose:
             print(pred_dict['R'].shape, pred_dict['N'].shape)
         return pred_dict
@@ -641,7 +641,7 @@ class PointAE(nn.Module):
             self.encoder = EncoderPointNet(eval(cfg.enc_filters), cfg.latent_dim, cfg.enc_bn)
 
         if 'pose' in cfg.task:
-            self.regressor = RegressorFC(cfg.MODEL.num_channels, bn=cfg.dec_bn)
+            self.regressor = RegressorFC(cfg.MODEL.num_channels, bn=False)
             if cfg.pred_nocs:
                 self.regressor_nocs = RegressorC1D(list(cfg.nocs_features), cfg.latent_dim)
             if cfg.pred_seg:

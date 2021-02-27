@@ -1136,6 +1136,7 @@ def hist_show(values, labels, tick_label, axes_label, title_name, total_width=0.
     if save_fig:
         if not os.path.exists('./results/test/'):
             os.makedirs('./results/test/')
+        print('--saving fig to ', './results/test/{}_{}.png'.format(title_name, sub_name))
         fig.savefig('./results/test/{}_{}.png'.format(title_name, sub_name), pad_inches=0)
     plt.close()
 
@@ -1205,7 +1206,7 @@ def draw_text(draw_image, bbox, text, draw_box=False):
 
     return draw_image
 
-def plot_distribution(d, labelx='Value', labely='Frequency', title_name='Mine', dpi=200, xlimit=None, put_text=False):
+def plot_distribution(d, labelx='Value', labely='Frequency', title_name='Mine', dpi=200, xlimit=None, put_text=False, save_fig=False, sub_name='seen'):
     fig     = plt.figure(dpi=dpi)
     n, bins, patches = plt.hist(x=d, bins='auto', color='#0504aa',
                                 alpha=0.7, rwidth=0.85)
@@ -1221,6 +1222,14 @@ def plot_distribution(d, labelx='Value', labely='Frequency', title_name='Mine', 
     if xlimit is not None:
         plt.xlim(xmin=xlimit[0], xmax=xlimit[1])
     plt.show()
+    if save_fig:
+        if not os.path.exists('./results/test/'):
+            os.makedirs('./results/test/')
+        print('--saving fig to ', './results/test/{}_{}.png'.format(title_name, sub_name))
+        fig.savefig('./results/test/{}_{}.png'.format(title_name, sub_name), pad_inches=0)
+    plt.close()
+
+
 
 def viz_err_distri(val_gt, val_pred, title_name):
     if val_gt.shape[1] > 1:

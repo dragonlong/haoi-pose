@@ -28,6 +28,7 @@ roslaunch graspit_interface graspit_interface.launch
 rostopic list
 rosservice list
 
+
 =========>> mano_grasp ===========
 hand
 cd mano_grasp
@@ -202,7 +203,11 @@ do
  mkdir -p $i/seen
 done
 
-#
+mkdir -p /home/dragon/Documents/ICML2021/results/test_pred/obman/
+for EXP_NUM in 2.4074 2.40941 2.4058 2.406971
+do
+scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/results/test_pred/obman/${EXP_NUM}_unseen_part_rt_pn_general.npy /home/dragon/Documents/ICML2021/results/test_pred/obman/
+done
 # # scp lxiaol9@newriver1.arc.vt.edu:/home/lxiaol9/3DGenNet2019/haoi-pose/out/pointcloud/2.01/vis/800* /home/dragon/Documents/ICML2021/results/val_pred/2.01/
 # scp -r lxiaol9@newriver1.arc.vt.edu:/home/lxiaol9/3DGenNet2019/haoi-pose/outputs/media /home/dragon/Dropbox/ICML2021/code/haoi-pose/outputs
 
@@ -221,3 +226,20 @@ python obman_samplepoints.py
   # 4. Trimesh's code;
   #
   # 5. Use Pyrender to visualize the points;
+# '04074963'
+for category in '03797390' '02880940' '02946921' '03593526' '03624134' '02992529' '02942699'
+do
+zip -r ${category}.zip ./${category} &
+done
+
+rclone sync 03624134.zip drive:Object_and_hands/external/ShapeNetCore.v2/ -P
+rclone sync . --include "*.{zip}" drive:Object_and_hands/external/ShapeNetCore.v2/ -P
+pointnet++
+2.4074
+NOCS-se3
+2.40941
+rclone sync . --include "{2.40941,2.4058,2.406971}/checkpoints/*" drive:Object_and_hands/model/obman/ -P
+2.4058(R, L2)
+2.406971(T voting)
+
+#

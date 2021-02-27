@@ -108,6 +108,7 @@ class HandDataset(Dataset):
             self.hand_only  = cfg.hand_only
 
         self.pose_dataset = pose_dataset
+        self.split = split
         self.cfg = cfg
         self.as_obj_only = as_obj_only
         self.inp_res = inp_res

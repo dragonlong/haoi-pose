@@ -13,7 +13,7 @@ HEAD:
   R: [128, 128, 3, None]
   T: [128, 128, 3, None]
   N: [128, 128, 3, None]
-  C: [128, 128, 2, 'softmax']
+  # C: [128, 128, 2, 'softmax']
   # nocs_per_point : [128, 64, None, 'sigmoid']
   # gocs_per_point : [128, 3, 'sigmoid']
   # handheatmap_per_point :  [128, 128, 21, 'sigmoid']

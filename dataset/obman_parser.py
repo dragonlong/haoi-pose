@@ -314,17 +314,27 @@ def main(cfg):
                 vis_utils.plot3d_pts([[input], [full_pts]], [['input'], ['full shape']],  s=2**2, dpi=300, axis_off=False)
                 # vis_utils.visualize_pointcloud([input, gt], title_name='partial + complete', backend='pyrender')
         else:
-            from models.se3net import SE3Transformer
-            model = SE3Transformer(num_layers=1, atom_feature_size=1, num_degrees=2, num_channels=16, edge_dim=0)
-            G1, _, _, R1 = dset.__getitem__(0)
-            out1 = model.forward(G1)
-
-            G2, _, _, R2 = dset.__getitem__(10)
-            out2 = model.forward(G2)
-            summary(out2)
-            summary(out1 @ R2)
-            diff = torch.max(out2 - out1 @ R2).item()
-            print(diff)
+            for j in range(10):
+                g_raw, n_arr, instance_name, up_axis, center_offset = dset.__getitem__(j)
+                gt_points = n_arr
+                input = g_raw.ndata['x'].numpy()
+                gt    = n_arr.transpose(1, 0).numpy()
+                full_pts = gt_points.transpose(1, 0).numpy()
+                print(f'input: {input.shape}, gt: {gt.shape}')
+                vis_utils.plot3d_pts([[input], [gt]], [['input'], ['gt NOCS']],  s=2**2, dpi=300, axis_off=False, color_channel=[[gt], [gt]])
+                vis_utils.plot3d_pts([[input], [full_pts]], [['input'], ['full shape']],  s=2**2, dpi=300, axis_off=False)
+        # else:
+        #     from models.se3net import SE3Transformer
+        #     model = SE3Transformer(num_layers=1, atom_feature_size=1, num_degrees=2, num_channels=16, edge_dim=0)
+        #     G1, _, _, R1 = dset.__getitem__(0)
+        #     out1 = model.forward(G1)
+        #
+        #     G2, _, _, R2 = dset.__getitem__(10)
+        #     out2 = model.forward(G2)
+        #     summary(out2)
+        #     summary(out1 @ R2)
+        #     diff = torch.max(out2 - out1 @ R2).item()
+        #     print(diff)
 
 
     # for j in range(20):
