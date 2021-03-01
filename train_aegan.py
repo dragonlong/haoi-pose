@@ -225,8 +225,10 @@ def main(cfg):
 
                 if cfg.vis and clock.step % cfg.vis_frequency == 0:
                     tr_agent.visualize_batch(data, "validation")
-
             clock.tick()
+
+            if clock.step % 1000 == 0:
+                tr_agent.save_ckpt('latest')
 
         tr_agent.update_learning_rate()
         clock.tock()

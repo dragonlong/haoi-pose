@@ -1,3 +1,9 @@
+"""
+Log: Monday, 3.1
+1. change concatenation into sum;
+2. change module
+
+"""
 import torch
 import torch.nn as nn
 import sys
@@ -8,7 +14,7 @@ from torch import nn
 from torch.nn import functional as F
 from typing import Dict, Tuple, List
 
-from equivariant_attention.modules import GConvSE3, GNormSE3, get_basis_and_r, GSE3Res, GMaxPooling, GAvgPooling
+from equivariant_attention.modules import GConvSE3, GNormSE3, get_basis_and_r, GSE3Res, GMaxPooling, GAvgPooling, G1x1SE3, GSum
 from equivariant_attention.fibers import Fiber
 
 # only for pointnet++ baseline
@@ -25,58 +31,6 @@ from kaolin.models.PointNet2 import three_nn
 from kaolin.models.PointNet2 import group_gather_by_index
 from omegaconf import DictConfig, ListConfig
 import dgl
-#
-# class GAvgPooling(nn.Module):
-#     """Graph Average Pooling module."""
-#     def __init__(self, type='0'):
-#         super().__init__()
-#         self.pool = AvgPooling()
-#         self.type = type
-#
-#     @profile
-#     def forward(self, features, G, **kwargs):
-#         if self.type == '0':
-#             h = features['0'][...,-1]
-#             pooled = self.pool(G, h)
-#         elif self.type == '1':
-#             pooled = []
-#             for i in range(3):
-#                 h_i = features['1'][..., i]
-#                 pooled.append(self.pool(G, h_i).unsqueeze(-1))
-#             pooled = torch.cat(pooled, axis=-1)
-#             pooled = {'1': pooled}
-#             pooled['0'] = self.pool(G, features['0'][...,-1])
-#         else:
-#             print('GAvgPooling for type > 0 not implemented')
-#             exit()
-#         return pooled
-#
-#
-# class GMaxPooling(nn.Module):
-#     """Graph Max Pooling module."""
-#     def __init__(self, type='0'):
-#         super().__init__()
-#         self.pool = MaxPooling()
-#         self.type = type
-#
-#     @profile
-#     def forward(self, features, G, **kwargs):
-#         if self.type == '0':
-#             h = features['0'][...,-1]
-#             return self.pool(G, h)
-#         elif self.type == '1':
-#             pooled = []
-#             for i in range(3):
-#                 h_i = features['1'][..., i]
-#                 pooled.append(self.pool(G, h_i).unsqueeze(-1))
-#             pooled = torch.cat(pooled, axis=-1)
-#             pooled = {'1': pooled}
-#             pooled['0'] = self.pool(G, features['0'][...,-1])
-#         else:
-#             print('GAvgPooling for type > 0 not implemented')
-#             exit()
-#         return pooled
-
 
 def bp():
     import pdb;pdb.set_trace()
@@ -589,7 +543,7 @@ class GraphFPModule(nn.Module):
 
         # 2. add SE3-layer over intermediate graph, and abstract Graph
         Tblock = []
-        in_channels  = eval(up_conv_nn[0])
+        in_channels  = eval(up_conv_nn[0]) # concatenated channels
         out_channels = up_conv_nn[1:]
         fibers  = [Fiber(num_degrees, in_channels)]
         for i in range(len(out_channels)):

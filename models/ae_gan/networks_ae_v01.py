@@ -12,12 +12,9 @@ from equivariant_attention.modules import GConvSE3, GNormSE3, get_basis_and_r, G
 from equivariant_attention.fibers import Fiber
 
 # only for pointnet++ baseline
-try:
-    from common.debugger import *
-    from models.model_factory import ModelBuilder
-    from models.decoders.pointnet_2 import PointNet2Segmenter
-except:
-    print('~need env paths~')
+from common.debugger import *
+from models.model_factory import ModelBuilder
+from models.decoders.pointnet_2 import PointNet2Segmenter
 from kaolin.models.PointNet2 import furthest_point_sampling
 from kaolin.models.PointNet2 import fps_gather_by_index
 from kaolin.models.PointNet2 import ball_query
@@ -25,6 +22,7 @@ from kaolin.models.PointNet2 import three_nn
 from kaolin.models.PointNet2 import group_gather_by_index
 from omegaconf import DictConfig, ListConfig
 import dgl
+
 #
 # class GAvgPooling(nn.Module):
 #     """Graph Average Pooling module."""
@@ -127,29 +125,23 @@ class InterDownGraph(nn.Module): #
         BS: batch size
         """
         glist = []
-        pos = G.ndata['x'].view(BS, -1, 3).contiguous() # it should be 256, but only got 249, then the input doesn't have enough points
+        pos = G.ndata['x'].view(BS, -1, 3).contiguous()
         B, N, _ = pos.shape
-        xyz_ind, xyz_query = self.n_sampler(pos)        # downsample, might be that I actually sampled 256 > 249, so that
-        neighbors_ind      = self.e_sampler(pos, xyz_query) #
-        glist              = []             # works for all complete shapes
+        xyz_ind, xyz_query = self.n_sampler(pos)    # downsample
+        neighbors_ind      = self.e_sampler(pos, xyz_query)
+        glist              = dgl.unbatch(G)
+        remove_list = []
         for i in range(BS):
             src = neighbors_ind[i].contiguous().view(-1)
             dst = xyz_ind[i].view(-1, 1).repeat(1, self.num_samples).view(-1)
-            g = dgl.DGLGraph((src.cpu(), dst.cpu()))
-            try:
-                g.ndata['x'] = pos[i] # dgl._ffi.base.DGLError: Expect number of features to match number of nodes (len(u)). Got 256 and 249 instead.
-                g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
-                g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()] #[num_atoms,3] but we only supervise the half
-            except:
-                print(f'--{i}th data')
-                print('nodes pos: ', pos[i].shape)
-                print('nodes neighborhoods: ', neighbors_ind[i].shape)
-                g = dgl.unbatch(G)[i]
-                g.remove_edges( np.arange( len(g.all_edges()[0]) ).tolist()) # this line comes with bug
-                g.add_edges(src.cpu().long(), dst.cpu().long())
-                g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()]
-            glist.append(g)
+            unified = torch.cat([src, dst])
+            uniq, inv_idx = torch.unique(unified, return_inverse=True)
+            src_idx = inv_idx[:src.shape[0]]
+            dst_idx = inv_idx[src.shape[0]:]
 
+            glist[i].remove_edges( np.arange( len(glist[i].all_edges()[0]) ).tolist())
+            glist[i].add_edges(src_idx, dst_idx)
+            glist[i].edata['d'] = pos[i][dst_idx] - pos[i][src_idx]
         Gmid = dgl.batch(glist)
 
         # updated graph
@@ -163,6 +155,7 @@ class InterDownGraph(nn.Module): #
             g.ndata['x'] = pos[i]
             g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
             g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()] #[num_atoms,3] but we only supervise the half
+            #
             glist.append(g)
         Gout = dgl.batch(glist)
 
@@ -323,7 +316,7 @@ class RegressorC1D(nn.Module):
         layers = []#
         out_channels = [latent_dim] + out_channels
         for i in range(1, len(out_channels)-1):
-            layers += [nn.Conv1d(out_channels[i - 1], out_channels[i], 1, bias=True), nn.LeakyReLU(inplace=True)] # nn.BatchNorm1d(out_channels[i], eps=0.001)
+            layers += [nn.Conv1d(out_channels[i - 1], out_channels[i], 1, bias=True), nn.LeakyReLU(inplace=True), nn.BatchNorm1d(out_channels[i], eps=0.001)]
         if out_channels[-1] in ['sigmoid', 'tanh', 'relu', 'softmax']:
             layers +=[eval_torch_func(out_channels[-1])]
         else:
@@ -465,7 +458,7 @@ class SE3Transformer(nn.Module):
         h3 = self.up_modules[0](h3, G=G3, r=r3, basis=basis3, uph=h4, upG=G4) # 64
         h2 = self.up_modules[1](h2, G=G2, r=r2, basis=basis2, uph=h3, upG=G3) # 128
         h1 = self.up_modules[2](h1, G=G1, r=r1, basis=basis1, uph=h2, upG=G2) # 256
-        h  = self.up_modules[3](h0, G=G0, r=r, basis=basis, uph=h1, upG=G1)    # 512
+        h = self.up_modules[3](h0, G=G0, r=r, basis=basis, uph=h1, upG=G1)    # 512
         if verbose:
             i = 1 # choose your interested layer
             print(f'--up{i} GraphFP: ', self.up_modules[i].Tblock[0].f_in.structure, self.up_modules[i].Tblock[0].f_out.structure)
@@ -473,11 +466,11 @@ class SE3Transformer(nn.Module):
 
         # output layers
         out = {}
-        out['0'] = self.Oblock[0](h, G=G, r=r, basis=basis)['0'] # 1. dense type 0 feature for NOCS; 2. or pooled+MLP to be Shape embedding; 3. Or MLP to be confidence
-        out['1'] = self.Oblock[1](h, G=G, r=r, basis=basis)['1'] # 1. dense type 1 feature for R
-        pred_T   = self.Oblock[2](h, G=G, r=r, basis=basis)['1'] # 1. dense type 1 feature for T
+        out['0'] = self.Oblock[0](h, G=G, r=r, basis=basis)['0']
+        out['1'] = self.Oblock[1](h, G=G, r=r, basis=basis)['1']
+        pred_T   = self.Oblock[2](h, G=G, r=r, basis=basis)['1'] # use type 1 feature
         pred_dict= {'R': out['1'], 'N': out['0'], 'T': pred_T}
-        out      = self.Pblock(out, G=G, r=r, basis=basis) # pooling
+        out = self.Pblock(out, G=G, r=r, basis=basis) # pooling
         pred_dict['0'] = out['0']                     # for shape embedding
         pred_dict['1'] = out['1']                     # for rotation average
         if verbose:
@@ -653,8 +646,6 @@ class PointAE(nn.Module):
                 self.regressor_nocs = RegressorC1D(list(cfg.nocs_features), cfg.latent_dim)
             if cfg.pred_seg:
                 self.classifier_seg = RegressorC1D(list(cfg.seg_features), cfg.latent_dim)
-            if cfg.pred_conf:
-                self.regressor_confi= RegressorC1D(list(cfg.confi_features), cfg.latent_dim)
         self.decoder = DecoderFC(eval(cfg.dec_features), cfg.latent_dim, cfg.n_pts, cfg.dec_bn)
 
     def encode(self, x):

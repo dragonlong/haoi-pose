@@ -256,7 +256,7 @@ def compute_1vN_nocs_loss(nocs, nocs_gt, confidence=None, target_category='remot
     return loss_nocs
 
 def compute_vect_loss(vect, vect_gt, confidence=None, num_parts=2, mask_array=None, \
-        TYPE_LOSS='L2'):
+        TYPE_LOSS='L2', return_mean=True):
         """
         vect   : [B, K, N]; K could be any number, we only need the confidence
         vect_gt: [B, K, N];
