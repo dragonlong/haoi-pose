@@ -124,25 +124,45 @@ class InterDownGraph(nn.Module): #
         G: input Graph
         BS: batch size
         """
-        glist = []
         pos = G.ndata['x'].view(BS, -1, 3).contiguous()
         B, N, _ = pos.shape
         xyz_ind, xyz_query = self.n_sampler(pos)    # downsample
         neighbors_ind      = self.e_sampler(pos, xyz_query)
         glist              = dgl.unbatch(G)
-        remove_list = []
+        for i in range(BS):
+            src = neighbors_ind[i].contiguous().view(-1)
+            dst = xyz_ind[i].view(-1, 1).repeat(1, self.num_samples).view(-1)
+            """
+            unified = torch.cat([src, dst])
+            uniq, inv_idx = torch.unique(unified, return_inverse=True)  # discard nodes w/o edges
+            src_idx = inv_idx[:src.shape[0]]
+            dst_idx = inv_idx[src.shape[0]:]
+            """
+            glist[i].remove_edges( np.arange( len(glist[i].all_edges()[0]) ).tolist())
+            glist[i].add_edges(src, dst)
+            glist[i].edata['d'] = pos[i][dst] - pos[i][src]
+        Gmid = dgl.batch(glist)
+
+        """
+        glist = []
+        old_glist = dgl.unbatch(G)
         for i in range(BS):
             src = neighbors_ind[i].contiguous().view(-1)
             dst = xyz_ind[i].view(-1, 1).repeat(1, self.num_samples).view(-1)
             unified = torch.cat([src, dst])
-            uniq, inv_idx = torch.unique(unified, return_inverse=True)
+            uniq, inv_idx = torch.unique(unified, return_inverse=True)  # discard nodes w/o edges
             src_idx = inv_idx[:src.shape[0]]
             dst_idx = inv_idx[src.shape[0]:]
-
-            glist[i].remove_edges( np.arange( len(glist[i].all_edges()[0]) ).tolist())
-            glist[i].add_edges(src_idx, dst_idx)
-            glist[i].edata['d'] = pos[i][dst_idx] - pos[i][src_idx]
-        Gmid = dgl.batch(glist)
+            print('pos i old', pos[i].shape)
+            cur_pos = pos[i][uniq]
+            print('pos i new', cur_pos.shape)
+            g = dgl.DGLGraph((src_idx, dst_idx))
+            for key, value in old_glist[i].ndata.items():
+                g.ndata[key] = value[uniq]
+            g.edata['d'] = cur_pos[dst_idx] - cur_pos[src_idx]
+            glist.append(g)
+        Gmid_new = dgl.batch(glist)
+        """
 
         # updated graph
         glist = []
