@@ -5,7 +5,7 @@ import wandb
 import __init__
 from models.ae_gan import get_network
 from models.base import BaseAgent
-from utils.emd import earth_mover_distance
+# from utils.emd import earth_mover_distance
 from models.losses import loss_geodesic, loss_vectors, compute_vect_loss, compute_1vN_nocs_loss, compute_miou_loss
 from common.d3_utils import compute_rotation_matrix_from_euler, compute_euler_angles_from_rotation_matrices, compute_rotation_matrix_from_ortho6d
 #
