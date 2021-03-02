@@ -22,7 +22,7 @@ g.edata['d'] = pos[i][dst] - pos[i][src]
 IndexError: tensors used as indices must be long, byte or bool tensors
 
 
-SE31x1, GSum 
+SE31x1, GSum
 
 
 (Pdb) print(z.keys())

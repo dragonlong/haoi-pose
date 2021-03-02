@@ -2,7 +2,7 @@ MODEL:
   num_layers: 12
   num_in_channels: 1
   num_mid_channels: 16
-  num_out_channels: 32
+  num_out_channels: 128
   num_channels_R: 1 # or 1
   num_nlayers: 1
   num_degrees: 2
@@ -14,9 +14,9 @@ MODEL:
       n_heads: 1
       knn: True
       num_degrees: 2
-      npoint: [256, 128, 64, 32]
+      npoint: [256, 64, 32, 16]
       radius: [[0.1], [0.2], [0.4], [0.8]]
-      nsamples: [[10], [16], [16], [16]]  #TOD16
+      nsamples: [[10], [16], [16], [15]]  #TOD16
       down_conv_nn:
           [
               [
@@ -29,11 +29,11 @@ MODEL:
                   [32, 64, 64], #
               ],
               [
-                  [64, 64, 64],
+                  [64, 128, 128],
               ],
           ]
   up_conv:
-      module_type: GraphFPModule # may change into
+      module_type: GraphFPSumModule # may change into
       edge_dim: 0
       div: 4
       n_heads: 1
@@ -41,10 +41,10 @@ MODEL:
       num_degrees: 2
       up_conv_nn:
           [
-              [64 + 64, 64],   #
-              [64 + 32, 32],
-              [32 + 16, 32],   # 128 -> 512
-              [32 + 16, 32],   # 512 -> 1024
+              [64 + 0, 64],   #
+              [64 + 0, 64],
+              [64 + 0, 64],   # 128 -> 512
+              [64 + 0, 64],   # 512 -> 1024
           ]
   mlp_cls:
       nn: [128]

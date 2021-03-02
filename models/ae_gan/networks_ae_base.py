@@ -1,9 +1,3 @@
-"""
-Log: Monday, 3.1
-1. change concatenation into sum;
-2. change module
-
-"""
 import torch
 import torch.nn as nn
 import sys
@@ -14,7 +8,7 @@ from torch import nn
 from torch.nn import functional as F
 from typing import Dict, Tuple, List
 
-from equivariant_attention.modules import GConvSE3, GNormSE3, get_basis_and_r, GSE3Res, GMaxPooling, GAvgPooling, G1x1SE3, GSum
+from equivariant_attention.modules import GConvSE3, GNormSE3, get_basis_and_r, GSE3Res, GMaxPooling, GAvgPooling
 from equivariant_attention.fibers import Fiber
 
 # only for pointnet++ baseline
@@ -31,6 +25,58 @@ from kaolin.models.PointNet2 import three_nn
 from kaolin.models.PointNet2 import group_gather_by_index
 from omegaconf import DictConfig, ListConfig
 import dgl
+#
+# class GAvgPooling(nn.Module):
+#     """Graph Average Pooling module."""
+#     def __init__(self, type='0'):
+#         super().__init__()
+#         self.pool = AvgPooling()
+#         self.type = type
+#
+#     @profile
+#     def forward(self, features, G, **kwargs):
+#         if self.type == '0':
+#             h = features['0'][...,-1]
+#             pooled = self.pool(G, h)
+#         elif self.type == '1':
+#             pooled = []
+#             for i in range(3):
+#                 h_i = features['1'][..., i]
+#                 pooled.append(self.pool(G, h_i).unsqueeze(-1))
+#             pooled = torch.cat(pooled, axis=-1)
+#             pooled = {'1': pooled}
+#             pooled['0'] = self.pool(G, features['0'][...,-1])
+#         else:
+#             print('GAvgPooling for type > 0 not implemented')
+#             exit()
+#         return pooled
+#
+#
+# class GMaxPooling(nn.Module):
+#     """Graph Max Pooling module."""
+#     def __init__(self, type='0'):
+#         super().__init__()
+#         self.pool = MaxPooling()
+#         self.type = type
+#
+#     @profile
+#     def forward(self, features, G, **kwargs):
+#         if self.type == '0':
+#             h = features['0'][...,-1]
+#             return self.pool(G, h)
+#         elif self.type == '1':
+#             pooled = []
+#             for i in range(3):
+#                 h_i = features['1'][..., i]
+#                 pooled.append(self.pool(G, h_i).unsqueeze(-1))
+#             pooled = torch.cat(pooled, axis=-1)
+#             pooled = {'1': pooled}
+#             pooled['0'] = self.pool(G, features['0'][...,-1])
+#         else:
+#             print('GAvgPooling for type > 0 not implemented')
+#             exit()
+#         return pooled
+
 
 def bp():
     import pdb;pdb.set_trace()
@@ -80,12 +126,13 @@ class InterDownGraph(nn.Module): #
         G: input Graph
         BS: batch size
         """
+<<<<<<< HEAD
         glist = []
         pos = G.ndata['x'].view(BS, -1, 3).contiguous() # it should be 256, but only got 249, then the input doesn't have enough points
         B, N, _ = pos.shape
         xyz_ind, xyz_query = self.n_sampler(pos)        # downsample, might be that I actually sampled 256 > 249, so that
         neighbors_ind      = self.e_sampler(pos, xyz_query) #
-        glist              = []                          # works for all complete shapes
+        glist              = []             # works for all complete shapes
         for i in range(BS):
             src = neighbors_ind[i].contiguous().view(-1)
             dst = xyz_ind[i].view(-1, 1).repeat(1, self.num_samples).view(-1)
@@ -95,6 +142,7 @@ class InterDownGraph(nn.Module): #
                 g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
                 g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()] #[num_atoms,3] but we only supervise the half
             except:
+                print(f'--{i}th data')
                 print('nodes pos: ', pos[i].shape)
                 print('nodes neighborhoods: ', neighbors_ind[i].shape)
                 g = dgl.unbatch(G)[i]
@@ -103,7 +151,47 @@ class InterDownGraph(nn.Module): #
                 g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()]
             glist.append(g)
 
+=======
+        pos = G.ndata['x'].view(BS, -1, 3).contiguous()
+        B, N, _ = pos.shape
+        xyz_ind, xyz_query = self.n_sampler(pos)    # downsample
+        neighbors_ind      = self.e_sampler(pos, xyz_query)
+        glist              = dgl.unbatch(G)
+        for i in range(BS):
+            src = neighbors_ind[i].contiguous().view(-1)
+            dst = xyz_ind[i].view(-1, 1).repeat(1, self.num_samples).view(-1)
+            """
+            unified = torch.cat([src, dst])
+            uniq, inv_idx = torch.unique(unified, return_inverse=True)  # discard nodes w/o edges
+            src_idx = inv_idx[:src.shape[0]]
+            dst_idx = inv_idx[src.shape[0]:]
+            """
+            glist[i].remove_edges( np.arange( len(glist[i].all_edges()[0]) ).tolist())
+            glist[i].add_edges(src, dst)
+            glist[i].edata['d'] = pos[i][dst] - pos[i][src]
+>>>>>>> e1767f6014f2ad5e78147939e81f458394353d4f
         Gmid = dgl.batch(glist)
+
+        """
+        glist = []
+        old_glist = dgl.unbatch(G)
+        for i in range(BS):
+            src = neighbors_ind[i].contiguous().view(-1)
+            dst = xyz_ind[i].view(-1, 1).repeat(1, self.num_samples).view(-1)
+            unified = torch.cat([src, dst])
+            uniq, inv_idx = torch.unique(unified, return_inverse=True)  # discard nodes w/o edges
+            src_idx = inv_idx[:src.shape[0]]
+            dst_idx = inv_idx[src.shape[0]:]
+            print('pos i old', pos[i].shape)
+            cur_pos = pos[i][uniq]
+            print('pos i new', cur_pos.shape)
+            g = dgl.DGLGraph((src_idx, dst_idx))
+            for key, value in old_glist[i].ndata.items():
+                g.ndata[key] = value[uniq]
+            g.edata['d'] = cur_pos[dst_idx] - cur_pos[src_idx]
+            glist.append(g)
+        Gmid_new = dgl.batch(glist)
+        """
 
         # updated graph
         glist = []
@@ -374,10 +462,7 @@ class SE3Transformer(nn.Module):
         # Up modules
         for i in range(len(opt.up_conv.up_conv_nn)):
             args = self._fetch_arguments(opt.up_conv, i, "UP")
-            if opt.up_conv.module_type == 'GraphFPModule':
-                up_module = GraphFPModule(**args)
-            else:
-                up_module = GraphFPSumModule(**args)
+            up_module = GraphFPModule(**args)
             self.up_modules.append(up_module)
 
         if verbose:
@@ -491,7 +576,10 @@ class SE3TBlock(nn.Module):
 
         # 2. add SE3-layer over intermediate graph, and abstract Graph
         Tblock = []
-        fibers  = [Fiber(num_degrees, in_channels)]
+        if module_type=='first_layer':
+            fibers  = [Fiber(1, in_channels)]
+        else:
+            fibers  = [Fiber(num_degrees, in_channels)]
         #
         for i in range(len(out_channels)):
             fibers.append( Fiber(num_degrees, out_channels[i]) )
@@ -542,7 +630,7 @@ class GraphFPModule(nn.Module):
 
         # 2. add SE3-layer over intermediate graph, and abstract Graph
         Tblock = []
-        in_channels  = eval(up_conv_nn[0]) # concatenated channels
+        in_channels  = eval(up_conv_nn[0])
         out_channels = up_conv_nn[1:]
         fibers  = [Fiber(num_degrees, in_channels)]
         for i in range(len(out_channels)):
@@ -588,70 +676,6 @@ class GraphFPModule(nn.Module):
             h = layer(h, G=G, r=r, basis=basis)
 
         return h
-
-class GraphFPSumModule(nn.Module):
-    def __init__(self, up_conv_nn, num_degrees=2, edge_dim=0, div=4, n_heads=1, knn=False, use_xyz=True, module_type='mid_layer', index=0):
-        super(GraphFPSumModule, self).__init__()
-        self.module_type = module_type
-        self.use_xyz = use_xyz
-        self.edge_dim= edge_dim
-        self.div=div
-        self.n_heads=n_heads
-        self.num_degrees = num_degrees
-        self.index = index
-
-        # 2. add SE3-layer over intermediate graph, and abstract Graph
-        Tblock = []
-        in_channels  = eval(up_conv_nn[0]) # concatenated channels
-        out_channels = up_conv_nn[1:]
-        fibers  = [Fiber(num_degrees, in_channels)]
-        for i in range(len(out_channels)):
-            fibers.append( Fiber(num_degrees, out_channels[i]) )
-
-        for i in range(len(out_channels)):
-            Tblock.append(GSE3Res(fibers[i], fibers[i+1], edge_dim=self.edge_dim))
-            Tblock.append(GNormSE3(fibers[i+1]))
-        self.Tblock = nn.ModuleList(Tblock)
-        self.add = GSum(fibers[0], fibers[-1])
-
-    def forward(self, h, G, r, basis, uph=None, upG=None, BS=2):
-        """
-        h: input skip feature, with type 0: [BS*N, C, 1], type 0: [BS*N, C, 1]
-        G, input skip graph,
-        r: relative distance
-        basis: basis function in SE3 layer
-        upG: previous layer Graph, need upsampling;
-        uph: previous layer, need upsampling;
-        """
-        xyz_prev = upG.ndata['x'].view(BS, -1, 3).contiguous()
-        xyz = G.ndata['x'].view(BS, -1, 3).contiguous()
-
-        # upsampling + concatenation
-        dist, ind = three_nn(xyz, xyz_prev)
-        dist = dist * dist
-        dist[dist < 1e-10] = 1e-10
-        inverse_dist = 1.0 / (dist + 1e-8)
-        norm = torch.sum(inverse_dist, dim=2, keepdim=True)
-        weights = inverse_dist / norm
-        keys = h.keys()
-        h_interpolated = {}
-        for key in keys:
-            nC, nF= uph[key].shape[-2], uph[key].shape[-1]
-            fp    = uph[key].view(uph[key].shape[0], -1).contiguous() # BS*N, C, 1/3 -> BS*N, C
-            fp    = fp.view(BS, -1, fp.shape[-1]).contiguous().permute(0, 2, 1).contiguous() # BS, C, N
-            new_features = torch.sum(group_gather_by_index(fp, ind) * weights.unsqueeze(1), dim=3) # BS, C, N
-            nC1   = new_features.shape[1]
-            assert nC1 == nC * nF
-            new_features = new_features.permute(0, 2, 1).contiguous().view(-1, nC1).contiguous()
-            new_features = new_features.view(new_features.shape[0], nC, -1)
-            h_interpolated[key] = new_features
-            # h[key] = torch.cat([new_features, h[key]], dim=1)
-        h = self.add(h, h_interpolated)
-        for i, layer in enumerate(self.Tblock):
-            h = layer(h, G=G, r=r, basis=basis)
-
-        return h
-
 
 class PointAE(nn.Module):
     def __init__(self, cfg):

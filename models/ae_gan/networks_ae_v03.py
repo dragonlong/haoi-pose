@@ -175,7 +175,7 @@ def pdist2squared(x, y):
     xx = (x**2).sum(dim=1).unsqueeze(2) # B, N, 1
     yy = (y**2).sum(dim=1).unsqueeze(1) # B, 1, N
     dist = xx + yy - 2.0 * torch.bmm(x.permute(0, 2, 1), y)
-    dist[dist != dist] = 0
+    dist[dist != dist] = 0networks_ae_v02
     dist = torch.clamp(dist, 0.0, np.inf)
     return dist
 
@@ -371,14 +371,14 @@ class SE3Transformer(nn.Module):
             down_module = SE3TBlock(**args)
             self.down_modules.append(down_module)
 
-        # Up modules
-        for i in range(len(opt.up_conv.up_conv_nn)):
-            args = self._fetch_arguments(opt.up_conv, i, "UP")
-            if opt.up_conv.module_type == 'GraphFPModule':
-                up_module = GraphFPModule(**args)
-            else:
-                up_module = GraphFPSumModule(**args)
-            self.up_modules.append(up_module)
+        # # Up modules
+        # for i in range(len(opt.up_conv.up_conv_nn)):
+        #     args = self._fetch_arguments(opt.up_conv, i, "UP")
+        #     if opt.up_conv.module_type == 'GraphFPModule':
+        #         up_module = GraphFPModule(**args)
+        #     else:
+        #         up_module = GraphFPSumModule(**args)
+        #     self.up_modules.append(up_module)
 
         if verbose:
             for i in range(len(self.up_modules)):
@@ -417,20 +417,22 @@ class SE3Transformer(nn.Module):
         h3, G3, r3, basis3 = self.down_modules[2](h2, Gin=G2) # 128-64
         h4, G4, r4, basis4 = self.down_modules[3](h3, Gin=G3) # 64-32
 
-        # decoding
-        h3 = self.up_modules[0](h3, G=G3, r=r3, basis=basis3, uph=h4, upG=G4) # 64
-        h2 = self.up_modules[1](h2, G=G2, r=r2, basis=basis2, uph=h3, upG=G3) # 128
-        h1 = self.up_modules[2](h1, G=G1, r=r1, basis=basis1, uph=h2, upG=G2) # 256
-        h  = self.up_modules[3](h0, G=G0, r=r, basis=basis, uph=h1, upG=G1)    # 512
-        if verbose:
-            i = 1 # choose your interested layer
-            print(f'--up{i} GraphFP: ', self.up_modules[i].Tblock[0].f_in.structure, self.up_modules[i].Tblock[0].f_out.structure)
-            print('--input ', h0['0'].shape, 'to upsample', h1['0'].shape)
+        # # decoding
+        # h3 = self.up_modules[0](h3, G=G3, r=r3, basis=basis3, uph=h4, upG=G4) # 64
+        # h2 = self.up_modules[1](h2, G=G2, r=r2, basis=basis2, uph=h3, upG=G3) # 128
+        # h1 = self.up_modules[2](h1, G=G1, r=r1, basis=basis1, uph=h2, upG=G2) # 256
+        # h  = self.up_modules[3](h0, G=G0, r=r, basis=basis, uph=h1, upG=G1)    # 512
+        # if verbose:
+        #     i = 1 # choose your interested layer
+        #     print(f'--up{i} GraphFP: ', self.up_modules[i].Tblock[0].f_in.structure, self.up_modules[i].Tblock[0].f_out.structure)
+        #     print('--input ', h0['0'].shape, 'to upsample', h1['0'].shape)
 
+        h = h4
         # output layers
-        out = {}
-        out['0'] = self.Oblock[0](h, G=G, r=r, basis=basis)['0'] # 1. dense type 0 feature for NOCS; 2. or pooled+MLP to be Shape embedding; 3. Or MLP to be confidence
-        out['1'] = self.Oblock[1](h, G=G, r=r, basis=basis)['1'] # 1. dense type 1 feature for R
+        # out = {}
+        # out['0'] = self.Oblock[0](h, G=G, r=r, basis=basis)['0'] # 1. dense type 0 feature for NOCS; 2. or pooled+MLP to be Shape embedding; 3. Or MLP to be confidence
+        # out['1'] = self.Oblock[1](h, G=G, r=r, basis=basis)['1'] # 1. dense type 1 feature for R
+        out = self.Oblock[1](h, G=G, r=r, basis=basis) #
         pred_T   = self.Oblock[2](h, G=G, r=r, basis=basis)['1'] # 1. dense type 1 feature for T
         pred_dict= {'R': out['1'], 'N': out['0'], 'T': pred_T}
         out      = self.Pblock(out, G=G, r=r, basis=basis) # pooling

@@ -28,7 +28,9 @@ cont: False
 ckpt: latest
 vis: False
 save_frequency: 500
+save_step_frequency: 1000
 val_frequency: 10
+eval_frequency: 1000
 vis_frequency: 1000
 weight_kl_vae: 10.0   # weight factor for kl loss
 weight_z_L1: 7.5      # weight factor for latent reconstruction loss
