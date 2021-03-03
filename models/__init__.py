@@ -2,7 +2,7 @@ import sys
 TRAIN_PATH = "../"
 sys.path.insert(0, TRAIN_PATH)
 
-from models.agent_ae_xl import PointAEAgent, PointVAEAgent, PointAEPoseAgent
+from models.agent_ae import PointAEAgent, PointVAEAgent, PointAEPoseAgent
 from models.agent_gan import MainAgent
 
 def get_agent(config):

@@ -263,8 +263,8 @@ def compute_vect_loss(vect, vect_gt, confidence=None, num_parts=2, mask_array=No
         confidence: [B, N]
         """
         diff_l2 = torch.norm(vect - vect_gt, dim=1) # BxN
-        diff_abs= torch.sum(torch.abs(vect - vect_gt), dim=1) # BxN
-        diff_avg= torch.mean(torch.abs(vect - vect_gt), dim=1) # B*N
+        diff_abs= torch.sum(torch.abs(vect - vect_gt), dim=1) # BxN xM
+        diff_avg= torch.mean(torch.abs(vect - vect_gt), dim=1) # B*N xM
         if confidence is not None:
             if TYPE_LOSS=='L2':
                 return torch.sum(diff_l2 * confidence, dim=1) / (torch.sum(confidence, dim=1) + 1)

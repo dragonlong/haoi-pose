@@ -129,7 +129,7 @@ def main(cfg):
         wandb.init(project="haoi-pose", name=run_name)
         wandb.init(config=cfg)
     # copy the project codes into log_dir
-    if not cfg.debug:
+    if (not cfg.eval) and (not cfg.debug):
         if not os.path.isdir(f'{cfg.log_dir}/code'):
             os.makedirs(f'{cfg.log_dir}/code')
             os.makedirs(f'{cfg.log_dir}/code/dataset')

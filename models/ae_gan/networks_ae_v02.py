@@ -1,7 +1,9 @@
 """
 Log: Monday, 3.1
 1. change concatenation into sum;
-2. change module
+2. change module into GraphFPSumModule;
+3. flexible neighbors & points;
+4. confidence tested;
 
 """
 import torch

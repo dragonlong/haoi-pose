@@ -49,11 +49,7 @@ class PointAEPoseAgent(BaseAgent):
             if self.config.pred_nocs:
                 self.output_N = self.net.regressor_nocs(self.latent_vect['N'].squeeze().view(target_R.shape[0], -1, self.latent_vect['N'].shape[1]).contiguous().permute(0, 2, 1).contiguous()) # assume to be B*N, 128? --> 3 channel
             else:
-                if self.config.MODEL.num_channels_R > 1:
-                    self.output_R  = self.latent_vect['R'][:, 0, :].view(target_R.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous()# BS*N, C, 3
-                    self.output_R1 = self.latent_vect['R'][:, 1, :].view(target_R.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous()
-                else:
-                    self.output_R = self.latent_vect['R'].squeeze().view(target_R.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous() # B, 3, N
+                self.output_R = self.latent_vect['R'].squeeze().view(target_R.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous() # B, 3, N
                 self.output_R_pooled = self.latent_vect['1'].permute(0, 2, 1).contiguous() # B, 3, 1
                 target_R = target_R.permute(0, 2, 1).contiguous() # B, 3, 1
                 self.output_T = self.latent_vect['T'].permute(0, 2, 1).contiguous().squeeze().view(target_T.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous()# [2048, 1, 3]
@@ -64,9 +60,6 @@ class PointAEPoseAgent(BaseAgent):
             #confidence
             if self.config.pred_conf:
                 self.output_Cf = self.net.regressor_confi(self.latent_vect['N'].squeeze().view(target_R.shape[0], -1, self.latent_vect['N'].shape[1]).contiguous().permute(0, 2, 1).contiguous())
-
-            if self.config.pred_mode:
-                self.output_mode = self.net.classifier_mode(self.latent_vect['R0']) # use the feature from feature type
         else:
             # B, 3, N
             input_pts        = data['G'].ndata['x'].view(target_pts.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous().cuda() #
@@ -91,24 +84,17 @@ class PointAEPoseAgent(BaseAgent):
             self.nocs_loss= self.nocs_loss.mean()
         else:
             confidence = target_C
-            # if self.output_R.shape[-1] == 3:
-            #     self.regressionR_loss = loss_geodesic(compute_rotation_matrix_from_ortho6d( self.output_R[:, :, :2].permute(0, 2, 1).contiguous().reshape(target_R.shape[0], -1).contiguous() ), target_R) #
-            #     self.regressionR_loss = self.regressionR_loss.mean()
-            # else: # dense/pooled, B, 3, N
-            self.output_R = self.output_R/(torch.norm(self.output_R, dim=1, keepdim=True) + epsilon)
-            if self.config.rotation_use_dense and self.output_R.shape[-1]>10:
-                self.regressionR_loss = compute_vect_loss(self.output_R, target_R, confidence=confidence) # B
-            else:
-                self.regressionR_loss = compute_vect_loss(self.output_R_pooled, target_R)
-            if self.config.MODEL.num_channels_R > 1:
-                self.output_R1 = self.output_R1/(torch.norm(self.output_R1, dim=1, keepdim=True) + epsilon)
-                self.regressionR_loss1 = compute_vect_loss(self.output_R1, target_R, confidence=confidence)
-                min_loss, min_indices =  torch.min(torch.stack([self.regressionR_loss, self.regressionR_loss1], dim=-1), dim=-1)
-                self.regressionR_loss = min_loss
-                for m in range(min_loss.shape[0]):
-                    if min_indices[m] == 1:
-                        self.output_R[m] = self.output_R1[m]
-            self.regressionR_loss = self.regressionR_loss.mean()
+            if self.output_R.shape[-1] == 3:
+                self.regressionR_loss = loss_geodesic(compute_rotation_matrix_from_ortho6d( self.output_R[:, :, :2].permute(0, 2, 1).contiguous().reshape(target_R.shape[0], -1).contiguous() ), target_R) #
+                self.regressionR_loss = self.regressionR_loss.mean()
+            else: # dense/pooled, B, 3, N
+                self.output_R = self.output_R/(torch.norm(self.output_R, dim=1, keepdim=True) + epsilon)
+                if self.config.rotation_use_dense:
+                    self.regressionR_loss = compute_vect_loss(self.output_R, target_R, confidence=confidence) # B
+                else:
+                    self.regressionR_loss = compute_vect_loss(self.output_R_pooled, target_R)
+                self.regressionR_loss = self.regressionR_loss.mean()
+
             if target_T is not None and self.config.use_objective_T:
                 self.regressionT_loss = compute_vect_loss(self.output_T, target_T, confidence=confidence).mean() # TYPE_LOSS='SOFT_L1'
 
@@ -119,6 +105,7 @@ class PointAEPoseAgent(BaseAgent):
             self.degree_err = torch.acos( torch.sum(self.output_R*target_R, dim=1)) * 180 / np.pi
             self.infos['good_pred_ratio'] = good_pred_ratio.mean() # scalar
             if self.config.pred_conf:
+                # here we are curious about the R prediction quality
                 pred_c = self.output_Cf.squeeze()
                 gt_c = torch.abs(1 - dis/2)
                 confi_err= torch.abs(gt_c - pred_c)
@@ -186,6 +173,7 @@ class PointAEPoseAgent(BaseAgent):
             if not exists(save_path):
                 print('making directories', save_path)
                 makedirs(save_path)
+            print('saving to ', save_name)
             save_arr  = np.concatenate([input_pts, degree_err], axis=-1)
             np.savetxt(save_name, save_arr[0])
 

@@ -60,10 +60,8 @@ use_wandb=True
   use_wandb=True
   eval=True save=True
 
-
 2.42 # all categories, AE, synthetic complete pcloud
   python train_aegan.py training=ae_gan name_model=ae dataset_class='HandDatasetAEGan' exp_num='2.42'
-
 
 2.43: remote
   2.431: # multiple instance, dynamic graph, with augmentation, L2, remote
@@ -153,7 +151,7 @@ vis_frequency=500 vis=True MODEL.down_conv.nsamples='[[10], [16], [16], [31]]' \
 use_wandb=True
 
 # test training to see whole validation set;
-2.40914: # train for partial shape, bottle, object pts only, R, L2, dense, use confidence type 1, confidence_loss_multiplier=0.1, bigger receptive field;
+2.40914: (good!) # train for partial shape, bottle, object pts only, R, L2, dense, use confidence type 1, confidence_loss_multiplier=0.1, bigger receptive field;
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
 $TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.40914' DATASET.train_batch=2 DATASET.test_batch=2 \
 augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
@@ -169,7 +167,7 @@ pred_conf=True use_confidence_R=True confidence_loss_type=1 confidence_loss_mult
 vis_frequency=1000 vis=True MODEL.down_conv.nsamples='[[10], [16], [16], [31]]' \
 use_wandb=True
 
-2.40916: # train for partial shape, bottle, object pts only, R, L2, dense, use confidence type 1, confidence_loss_multiplier=0.1, bigger receptive field;
+2.40916:  # (good!) train for partial shape, bottle, object pts only, R, L2, dense, use confidence type 1, confidence_loss_multiplier=0.1, bigger receptive field;
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
 $TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.40916' DATASET.train_batch=2 DATASET.test_batch=2 \
 augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
@@ -177,6 +175,28 @@ pred_conf=True use_confidence_R=True confidence_loss_type=1 confidence_loss_mult
 vis_frequency=1000 vis=True \
 MODEL.down_conv.npoint='[256, 64, 32, 16]' \
 MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
+use_wandb=True
+
+2.409161:  # encoder + decoder, modal=5, with classifyM loss
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.409161' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+vis_frequency=1000 vis=True \
+MODEL.down_conv.npoint='[256, 64, 32, 16]' \
+MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
+MODEL.num_channels_R=5 MODEL.encoder_only=False \
+pred_mode=True use_objective_M=True \
+use_wandb=True
+
+2.409162:  # encoder + decoder, modal=2, with classifyM loss
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.409162' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+vis_frequency=1000 vis=True \
+MODEL.down_conv.npoint='[256, 64, 32, 16]' \
+MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
+MODEL.num_channels_R=2 MODEL.encoder_only=False \
+pred_mode=True use_objective_M=True \
 use_wandb=True
 
 2.40917: # train for partial shape, bottle, object pts only, R, L2, dense, use confidence type 1, confidence_loss_multiplier=0.1, bigger receptive field;
@@ -198,26 +218,38 @@ vis_frequency=1000 vis=True MODEL.down_conv.nsamples='[[10], [16], [16], [31]]' 
 MODEL.num_channels_R=2 \
 use_wandb=True
 
-# set mode loss, and add
-2.40919:
+2.40919: # encoder only, modal=2, with classifyM loss
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
 $TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.40919' DATASET.train_batch=2 DATASET.test_batch=2 \
 augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
-pred_conf=True use_confidence_R=True confidence_loss_type=1 confidence_loss_multiplier=0.1 \
 vis_frequency=1000 vis=True \
 models=se3_transformerv3 \
-MODEL.num_channels_R=2 \
+MODEL.num_channels_R=2 MODEL.encoder_only=True \
+pred_mode=True use_objective_M=True \
 use_wandb=True
 
-
-2.409191:
+2.409191: # encoder only, modal=5, with classifyM loss
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
 $TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.409191' DATASET.train_batch=2 DATASET.test_batch=2 \
 augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
 vis_frequency=1000 vis=True \
 models=se3_transformerv3 \
-MODEL.num_channels_R=2 \
+MODEL.num_channels_R=5 MODEL.encoder_only=True \
+pred_mode=True use_objective_M=True \
 use_wandb=True
+
+2.409192: # encoder only, modal=5, with classifyM loss
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.409192' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+vis_frequency=1000 vis=True \
+models=se3_transformerv3 \
+MODEL.num_channels_R=5 MODEL.encoder_only=True MODEL.down_conv.npoint='[256, 64, 16, 4]' \
+MODEL.down_conv.nsamples='[[16], [16], [15], [3]]' \
+pred_mode=True use_objective_M=True \
+use_wandb=True
+
+
 
   2.4092: # train for partial shape, bottle, object pts only, T voting
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'

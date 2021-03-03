@@ -8,6 +8,7 @@ dec_features: (256, 256)
 nocs_features: [128, 128, 3]
 seg_features: [128, 128, 2, 'softmax']
 confi_features: [128, 1, 'sigmoid']
+mode_features: ['softmax']
 enc_bn: True
 dec_bn: False
 z_dim: 64 # dimension for mode condition vector z

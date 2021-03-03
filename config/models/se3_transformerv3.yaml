@@ -7,6 +7,7 @@ MODEL:
   num_nlayers: 1
   num_degrees: 2
   edge_dim: 0
+  encoder_only: False
   down_conv:
       module_type: SE3TBlock
       edge_dim: 0
@@ -14,7 +15,7 @@ MODEL:
       n_heads: 1
       knn: True
       num_degrees: 2
-      npoint: [256, 64, 32, 16]
+      npoint: [256, 64, 32, 16] #
       radius: [[0.1], [0.2], [0.4], [0.8]]
       nsamples: [[10], [16], [16], [15]]  #TOD16
       down_conv_nn:

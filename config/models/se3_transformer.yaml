@@ -7,6 +7,7 @@ MODEL:
   num_nlayers: 1
   num_degrees: 2
   edge_dim: 0
+  encoder_only: False
   down_conv:
       module_type: SE3TBlock
       edge_dim: 0
