@@ -5,7 +5,7 @@ import wandb
 import __init__
 from models.ae_gan import get_network
 from models.base import BaseAgent
-# from utils.emd import earth_mover_distance
+from utils.emd import earth_mover_distance
 from models.losses import loss_geodesic, loss_vectors, compute_vect_loss, compute_1vN_nocs_loss, compute_miou_loss
 from common.d3_utils import compute_rotation_matrix_from_euler, compute_euler_angles_from_rotation_matrices, compute_rotation_matrix_from_ortho6d
 from os import makedirs, remove
@@ -49,12 +49,7 @@ class PointAEPoseAgent(BaseAgent):
             if self.config.pred_nocs:
                 self.output_N = self.net.regressor_nocs(self.latent_vect['N'].squeeze().view(target_R.shape[0], -1, self.latent_vect['N'].shape[1]).contiguous().permute(0, 2, 1).contiguous()) # assume to be B*N, 128? --> 3 channel
             else:
-                if self.config.MODEL.num_channels_R > 1:
-                    # [BS*N, C, 3] -> [Bs, N, C, 3] -> [Bs, 3, N, C]
-                    BS, CS = target_R.shape[0], self.latent_vect['R'].shape[-2]
-                    self.output_R  = self.latent_vect['R'].view(BS, -1, CS, 3).contiguous().permute(0, 3, 1, 2).contiguous()# BS*N, C, 3
-                else:
-                    self.output_R = self.latent_vect['R'].squeeze().view(target_R.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous() # B, 3, N
+                self.output_R = self.latent_vect['R'].squeeze().view(target_R.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous() # B, 3, N
                 self.output_R_pooled = self.latent_vect['1'].permute(0, 2, 1).contiguous() # B, 3, 1
                 target_R = target_R.permute(0, 2, 1).contiguous() # B, 3, 1
                 self.output_T = self.latent_vect['T'].permute(0, 2, 1).contiguous().squeeze().view(target_T.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous()# [2048, 1, 3]
@@ -62,12 +57,9 @@ class PointAEPoseAgent(BaseAgent):
 
             if self.config.pred_seg:
                 self.output_C = self.net.classifier_seg(self.latent_vect['N'].squeeze().view(target_R.shape[0], -1, self.latent_vect['N'].shape[1]).contiguous().permute(0, 2, 1).contiguous())
-
+            #confidence
             if self.config.pred_conf:
                 self.output_Cf = self.net.regressor_confi(self.latent_vect['N'].squeeze().view(target_R.shape[0], -1, self.latent_vect['N'].shape[1]).contiguous().permute(0, 2, 1).contiguous())
-
-            if self.config.pred_mode:
-                self.output_M = self.net.classifier_mode(self.latent_vect['R0']).squeeze() # [BS * N, M, 1]-->[BS * N, M]
         else:
             # B, 3, N
             input_pts        = data['G'].ndata['x'].view(target_pts.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous().cuda() #
@@ -92,44 +84,36 @@ class PointAEPoseAgent(BaseAgent):
             self.nocs_loss= self.nocs_loss.mean()
         else:
             confidence = target_C
-            # if self.output_R.shape[-1] == 3:
-            #     self.regressionR_loss = loss_geodesic(compute_rotation_matrix_from_ortho6d( self.output_R[:, :, :2].permute(0, 2, 1).contiguous().reshape(target_R.shape[0], -1).contiguous() ), target_R) #
-            #     self.regressionR_loss = self.regressionR_loss.mean()
-            # else: #
-            self.output_R = self.output_R/(torch.norm(self.output_R, dim=1, keepdim=True) + epsilon)
-            if self.config.MODEL.num_channels_R > 1:
-                regressionR_loss = compute_vect_loss(self.output_R, target_R.unsqueeze(-1))
-                min_loss, min_indices =  torch.min(regressionR_loss, dim=-1)
-                self.regressionR_loss = min_loss
-                self.output_R =  self.output_R[torch.arange(2), :, :, min_indices[:]]
-            elif self.config.rotation_use_dense:
-                self.regressionR_loss = compute_vect_loss(self.output_R, target_R, confidence=confidence) # B
-            else:
-                self.regressionR_loss = compute_vect_loss(self.output_R_pooled, target_R)
-
-            self.regressionR_loss = self.regressionR_loss.mean()
+            if self.output_R.shape[-1] == 3:
+                self.regressionR_loss = loss_geodesic(compute_rotation_matrix_from_ortho6d( self.output_R[:, :, :2].permute(0, 2, 1).contiguous().reshape(target_R.shape[0], -1).contiguous() ), target_R) #
+                self.regressionR_loss = self.regressionR_loss.mean()
+            else: # dense/pooled, B, 3, N
+                self.output_R = self.output_R/(torch.norm(self.output_R, dim=1, keepdim=True) + epsilon)
+                if self.config.rotation_use_dense:
+                    self.regressionR_loss = compute_vect_loss(self.output_R, target_R, confidence=confidence) # B
+                else:
+                    self.regressionR_loss = compute_vect_loss(self.output_R_pooled, target_R)
+                self.regressionR_loss = self.regressionR_loss.mean()
 
             if target_T is not None and self.config.use_objective_T:
                 self.regressionT_loss = compute_vect_loss(self.output_T, target_T, confidence=confidence).mean() # TYPE_LOSS='SOFT_L1'
 
             dis = torch.norm(self.output_R - target_R, dim=1) # B, N
-            correctness_mask = torch.zeros((dis.shape[0], dis.shape[1]), device=self.output_R.device)
+            correctness_mask = torch.zeros((dis.shape[0], dis.shape[1])).cuda()
             correctness_mask[dis<THRESHOLD_GOOD] = 1.0
-            # good_pred_ratio = torch.sum(correctness_mask * confidence, dim=1) / (torch.sum(confidence, dim=1) + 1)
-            good_pred_ratio = torch.mean(correctness_mask, dim=1) # TODO
+            good_pred_ratio = torch.sum(correctness_mask * confidence, dim=1) / (torch.sum(confidence, dim=1) + 1)
             self.degree_err = torch.acos( torch.sum(self.output_R*target_R, dim=1)) * 180 / np.pi
             self.infos['good_pred_ratio'] = good_pred_ratio.mean() # scalar
-            # if self.config.pred_conf:
-            #     pred_c = self.output_Cf.squeeze()
-            #     gt_c = torch.abs(1 - dis/2)
-            #     confi_err= torch.abs(gt_c - pred_c)
-            #     w   = self.config.confidence_loss_multiplier
-            #     self.regressionCi_loss= w * torch.sum( confi_err * confidence , dim=1) / (torch.sum(confidence, dim=1) + 1)
-            #     self.regressionCi_loss = self.regressionCi_loss.mean()
-
-            if self.config.pred_mode and self.config.MODEL.num_channels_R > 1:
-                self.classifyM_loss = compute_miou_loss(self.output_M, min_indices.unsqueeze(1).repeat(1, self.output_R.shape[-1]).contiguous().view(-1).contiguous(), loss_type='xentropy')
-
+            if self.config.pred_conf:
+                # here we are curious about the R prediction quality
+                pred_c = self.output_Cf.squeeze()
+                gt_c = torch.abs(1 - dis/2)
+                confi_err= torch.abs(gt_c - pred_c)
+                w   = self.config.confidence_loss_multiplier
+                self.regressionCi_loss= w * torch.sum( confi_err * confidence , dim=1) / (torch.sum(confidence, dim=1) + 1)
+                self.regressionCi_loss = self.regressionCi_loss.mean()
+                # self.good_pred_confidence = pred_c[dis<THRESHOLD_GOOD].mean()
+                # self.bad_pred_confidence  = pred_c[dis>THRESHOLD_BAD].mean()
         if 'completion' in self.config.task:
             if isinstance(self.latent_vect, dict):
                 self.output_pts = self.net.decoder(self.latent_vect['0'])
@@ -153,8 +137,6 @@ class PointAEPoseAgent(BaseAgent):
                 loss_dict["seg"]= self.seg_loss
             if self.config.use_confidence_R:
                 loss_dict['confidence'] = self.regressionCi_loss
-            if self.config.use_objective_M:
-                loss_dict['classifyM'] = self.classifyM_loss
         if 'completion' in self.config.task:
             loss_dict["emd"]=self.emd_loss
 
@@ -184,13 +166,14 @@ class PointAEPoseAgent(BaseAgent):
 
         save_pc = True
         degree_err = self.degree_err.cpu().detach().numpy()[:, : , np.newaxis] # B, N
-        input_pts  = self.latent_vect['G'].ndata['x'].view(target_pts.shape[0], -1, 3).contiguous().cpu().numpy() # B, N, 3
+        input_pts  = data['G'].ndata['x'].view(target_pts.shape[0], -1, 3).contiguous().cpu().numpy() # B, N, 3
         if save_pc:
             save_name = f'./results/{self.config.exp_num}/{mode}_{self.clock.step}.txt' #
             save_path = f'./results/{self.config.exp_num}/'
             if not exists(save_path):
                 print('making directories', save_path)
                 makedirs(save_path)
+            print('saving to ', save_name)
             save_arr  = np.concatenate([input_pts, degree_err], axis=-1)
             np.savetxt(save_name, save_arr[0])
 

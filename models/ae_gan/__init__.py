@@ -2,10 +2,10 @@
 # TRAIN_PATH = "../../"
 # sys.path.insert(0, TRAIN_PATH)
 
+# from models.ae_gan.networks_ae_ import PointAE
 from models.ae_gan.networks_ae import PointAE
 from models.ae_gan.networks_vae import PointVAE
 from models.ae_gan.networks_gan import GeneratorFC, DiscriminatorFC, zEncoderFC, zEncoderPointNet
-
 
 def get_network(config, name):
     if name == "pointAE":

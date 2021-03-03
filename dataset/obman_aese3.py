@@ -19,6 +19,7 @@ from dataset.obman_handataset import HandDataset
 from common import data_utils, handutils, vis_utils, bp
 from common.aligning import estimateSimilarityTransform, estimateSimilarityUmeyama
 from common.d3_utils import align_rotation, rotate_about_axis, transform_pcloud
+from common import vis_utils
 from common.queries import (
     BaseQueries,
     TransQueries,
@@ -349,6 +350,18 @@ class HandDatasetAEGraph(HandDataset):
         m_arr[np.arange(self.num_points), c_arr.astype(np.int8)] = 1.00 #
         m_arr[:, 0]= 0.0                           # will not consider hands during NOCS
 
+        s, r, t, _= estimateSimilarityUmeyama(n_arr.transpose(), p_arr.transpose()) # get GT Pose
+        # center_offset = np.matmul(n_arr - 0.5, r)
+        center_offset = p_arr - s * np.matmul(np.array([[0.5, 0.5, 0.5]]), r) - t.reshape(1, 3)
+        up_axis = np.matmul(np.array([[0.0, 1.0, 0.0]]), r)
+
+        # if verbose:
+        #     input   = p_arr
+        #     center  = input.mean(axis=0)
+        #     inds = [np.where(m_arr[:, 1]==0)[0], np.where(m_arr[:, 1]>0)[0]]
+        #     gt_vect= {'p': center, 'v': up_axis}
+        #     vis_utils.plot3d_pts([[input[inds[0]], input[inds[1]]]], [['hand', 'object']], s=2**2, arrows=[[gt_vect, gt_vect]], dpi=300, axis_off=False)
+
         # 2048 full pts, random picking one for adversarial training
         idx1 = self.all_ids[random.randint(0, len(self)-1)]
         # idx1 = idx
@@ -367,6 +380,7 @@ class HandDatasetAEGraph(HandDataset):
         gt_points = gt_points[:self.num_gt, :]
 
         g_sets = []
+
         for target_pts in [p_arr, gt_points]:
             # create graph
             pos = torch.from_numpy(target_pts.astype(np.float32)).unsqueeze(0)
@@ -394,8 +408,7 @@ class HandDatasetAEGraph(HandDataset):
             g_sets.append(g)
 
         g_raw, g_real = g_sets
-        _, r, t, _= estimateSimilarityUmeyama(n_arr, p_arr) # get GT Pose
-        center_offset = np.matmul(n_arr - 0.5, r)
+
         # create sub-graph
         if not self.is_testing:
             n_arr = torch.from_numpy(n_arr.astype(np.float32).transpose(1, 0))
@@ -411,8 +424,7 @@ class HandDatasetAEGraph(HandDataset):
             self.r_dict[idx] = RR
         else:
             RR = self.r_dict[idx]
-        up_axis = torch.matmul(torch.tensor([[0.0, 1.0, 0.0]]).float(), RR)
-
+        up_axis = torch.from_numpy(up_axis).float()
         return g_raw, g_real, n_arr, c_arr, m_arr, gt_points, instance_name, instance_name1, up_axis, center_offset
 
     def __len__(self):
@@ -421,11 +433,11 @@ class HandDatasetAEGraph(HandDataset):
         else:
             return len(self.unique_objs)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx, verbose=False):
         try:
             if 'adversarial' in self.task or 'partial' in self.task:
                 idx = self.all_ids[idx]
-                sample = self.get_sample_pair(idx)
+                sample = self.get_sample_pair(idx, verbose=verbose)
             else:
                 sample = self.get_sample_mine(idx)
         except Exception:

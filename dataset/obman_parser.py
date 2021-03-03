@@ -301,7 +301,7 @@ def main(cfg):
         # data = next(val_loader)
         if 'partial' in cfg.task:
             for j in range(10):
-                g_raw, g_real, n_arr, c_arr, m_arr, gt_points, instance_name, instance_name1, up_axis, center_offset = dset.__getitem__(j)
+                g_raw, g_real, n_arr, c_arr, m_arr, gt_points, instance_name, instance_name1, up_axis, center_offset = dset.__getitem__(j, verbose=True)
                 input = g_raw.ndata['x'].numpy()
                 gt    = n_arr.transpose(1, 0).numpy()
                 c_arr = c_arr.cpu().numpy()
@@ -309,9 +309,17 @@ def main(cfg):
                 full_pts = gt_points.transpose(1, 0).numpy()
                 print(f'input: {input.shape}, gt: {gt.shape}')
                 inds = [np.where(m_arr[:, 1]==0)[0], np.where(m_arr[:, 1]>0)[0]]
-                vis_utils.plot3d_pts([[input[inds[0]], input[inds[0]]], [gt]], [['input hand', 'hand'], ['gt NOCS']],  s=2**2, dpi=300, axis_off=False)
-                vis_utils.plot3d_pts([[input], [gt]], [['input'], ['gt NOCS']],  s=2**2, dpi=300, axis_off=False, color_channel=[[gt], [gt]])
-                vis_utils.plot3d_pts([[input], [full_pts]], [['input'], ['full shape']],  s=2**2, dpi=300, axis_off=False)
+                up_axis = up_axis.cpu().numpy().reshape(1, 3)
+
+                center  = input - center_offset.cpu().numpy()
+                print(center)
+                center  = center.mean(axis=0)
+                gt_vect= {'p': center, 'v': up_axis}
+                vis_utils.plot3d_pts([[input[inds[0]], input[inds[1]]]], [['hand', 'object']], s=2**2, arrows=[[gt_vect, gt_vect]], dpi=300, axis_off=False)
+
+                # vis_utils.plot3d_pts([[input[inds[0]], input[inds[0]]], [gt]], [['input hand', 'hand'], ['gt NOCS']],  s=2**2, dpi=300, axis_off=False)
+                # vis_utils.plot3d_pts([[input], [gt]], [['input'], ['gt NOCS']],  s=2**2, dpi=300, axis_off=False, color_channel=[[gt], [gt]])
+                # vis_utils.plot3d_pts([[input], [full_pts]], [['input'], ['full shape']],  s=2**2, dpi=300, axis_off=False)
                 # vis_utils.visualize_pointcloud([input, gt], title_name='partial + complete', backend='pyrender')
         else:
             for j in range(10):

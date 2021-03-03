@@ -32,8 +32,74 @@ whole_obj = infos.whole_obj
 part_obj  = infos.part_obj
 obj_urdf  = infos.obj_urdf
 categories_id = infos.categories_id
-project_path = infos.project_path
+project_path  = infos.project_path
 # training: ae_gan
+
+# given the agent, we could decide the evaluation methods
+def eval_func(tr_agent, data, all_rts, cfg):
+    tr_agent.val_func(data)
+    # print(data.keys())
+    target_pts = data['points'].numpy().transpose(0, 2, 1)
+    input_pts  = data['G'].ndata['x'].view(target_pts.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous().cpu().numpy().transpose(0, 2, 1)
+    target_R   = data['R'].cpu().numpy()
+    target_T   = data['T'].cpu().numpy()
+    # print(input_pts.shape, target_pts.shape, target_R.shape, target_T.shape)
+    if 'C' in data:
+        target_C   = data['C'].cpu().numpy()
+    if 'pose' in cfg.task:
+        pred_dict = {}
+        if cfg.pred_nocs:
+            pred_dict['N'] = tr_agent.output_N.cpu().detach().numpy().transpose(0, 2, 1) # B, N, 3
+            # ransac for pose
+            for m in range(target_R.shape[0]):
+                basename  = f'{cfg.iteration}_' + data['id'][m] + '_' + categories[cfg.target_category]
+                nocs_gt   = target_pts[m]
+                nocs_pred = np.concatenate([2*np.ones_like(pred_dict['N'][m]), pred_dict['N'][m]], axis=1)
+                part_idx_list_pred = [None, np.arange(nocs_pred.shape[0])]
+                part_idx_list_gt   = [None, np.arange(nocs_gt.shape[0])]
+                rts_dict = compute_pose_ransac(nocs_gt, nocs_pred, input_pts[m], part_idx_list_pred, num_parts, basename, r_raw_err, t_raw_err, s_raw_err, \
+                        partidx_gt=part_idx_list_gt, target_category=cfg.target_category, is_special=cfg.is_special, verbose=False)
+                rts_dict['pred']   = nocs_pred[:, 3:]
+                rts_dict['gt']     = nocs_gt
+                rts_dict['in']     = input_pts[m]
+                all_rts[basename]  = rts_dict
+        else:
+            if cfg.rotation_use_dense:
+                pred_dict['R'] = tr_agent.output_R.cpu().detach().numpy()
+            else:
+                pred_dict['R'] = tr_agent.output_R_pooled.cpu().detach().numpy()
+            pred_dict['T'] = tr_agent.output_T.cpu().detach().numpy().transpose(0, 2, 1)
+
+            # voting to get the final predictions
+            for m in range(target_R.shape[0]):
+                basename  = f'{cfg.iteration}_' + data['id'][m] + '_' + categories[cfg.target_category]
+                scale_dict = {'gt': [], 'baseline': [], 'nonlinear': []}
+                r_dict     = {'gt': [], 'baseline': [], 'nonlinear': []}
+                t_dict     = {'gt': [], 'baseline': [], 'nonlinear': []}
+                xyz_err    = {'baseline': [], 'nonlinear': []}
+                rpy_err    = {'baseline': [], 'nonlinear': []}
+                scale_err  = {'baseline': [], 'nonlinear': []}
+
+                rpy_err['baseline'] = axis_diff_degree(pred_dict['R'][m], target_R[m])
+                pred_center= input_pts[m] - pred_dict['T'][m]
+                gt_center  = input_pts[m] - target_T[m]
+                xyz_err['baseline'] = np.linalg.norm(np.mean(pred_center, axis=0) - np.mean(gt_center, axis=0))
+                r_dict['baseline'].append(pred_dict['R'][m])
+                t_dict['baseline'].append(pred_center)
+                scale_dict['gt'].append(1)
+
+                rts_dict = {}
+                rts_dict['scale']   = scale_dict
+                rts_dict['rotation']      = r_dict
+                rts_dict['translation']   = t_dict
+                rts_dict['xyz_err']   = xyz_err
+                rts_dict['rpy_err']   = rpy_err
+                rts_dict['scale_err'] = scale_err
+                rts_dict['in']     = input_pts[m]
+                all_rts[basename]  = rts_dict
+
+        return rts_dict, pred_dict, basename
+
 @hydra.main(config_path="config/completion.yaml")
 def main(cfg):
     OmegaConf.set_struct(cfg, False)  # This allows getattr and hasattr methods to function correctly
@@ -63,7 +129,7 @@ def main(cfg):
         wandb.init(project="haoi-pose", name=run_name)
         wandb.init(config=cfg)
     # copy the project codes into log_dir
-    if not cfg.debug:
+    if (not cfg.eval) and (not cfg.debug):
         if not os.path.isdir(f'{cfg.log_dir}/code'):
             os.makedirs(f'{cfg.log_dir}/code')
             os.makedirs(f'{cfg.log_dir}/code/dataset')
@@ -91,6 +157,7 @@ def main(cfg):
     parser = ObmanParser(cfg)
     train_loader = parser.trainloader
     val_loader   = parser.validloader
+    test_loader  = parser.validloader
     dset         = parser.valid_dataset
     dp = dset.__getitem__(0)
 
@@ -106,66 +173,11 @@ def main(cfg):
         if 'partial' in cfg.task:
             num_iteration = 1
         else:
-            num_iteration = 100
+            num_iteration = 10
         for iteration in range(num_iteration):
             cfg.iteration = iteration
             for b, data in enumerate(pbar):
-                tr_agent.val_func(data)
-                # print(data.keys())
-                target_pts = data['points'].numpy().transpose(0, 2, 1)
-                input_pts  = data['G'].ndata['x'].view(target_pts.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous().cpu().numpy().transpose(0, 2, 1)
-                target_R   = data['R'].cpu().numpy()
-                target_T   = data['T'].cpu().numpy()
-                # print(input_pts.shape, target_pts.shape, target_R.shape, target_T.shape)
-                if 'C' in data:
-                    target_C   = data['C'].cpu().numpy()
-                if 'pose' in cfg.task:
-                    pred_dict = {}
-                    if cfg.pred_nocs:
-                        pred_dict['N'] = tr_agent.output_N.cpu().detach().numpy().transpose(0, 2, 1) # B, N, 3
-                        # ransac for pose
-                        for m in range(target_R.shape[0]):
-                            basename  = f'{cfg.iteration}_' + data['id'][m] + '_' + categories[cfg.target_category]
-                            nocs_gt   = target_pts[m]
-                            nocs_pred = np.concatenate([2*np.ones_like(pred_dict['N'][m]), pred_dict['N'][m]], axis=1)
-                            part_idx_list_pred = [None, np.arange(nocs_pred.shape[0])]
-                            part_idx_list_gt   = [None, np.arange(nocs_gt.shape[0])]
-                            rts_dict = compute_pose_ransac(nocs_gt, nocs_pred, input_pts[m], part_idx_list_pred, num_parts, basename, r_raw_err, t_raw_err, s_raw_err, \
-                                    partidx_gt=part_idx_list_gt, target_category=cfg.target_category, is_special=cfg.is_special, verbose=False)
-                            rts_dict['pred']   = nocs_pred[:, 3:]
-                            rts_dict['gt']     = nocs_gt
-                            rts_dict['in']     = input_pts[m]
-                            all_rts[basename]  = rts_dict
-                    else:
-                        pred_dict['R'] = tr_agent.output_R.cpu().detach().numpy()
-                        pred_dict['T'] = tr_agent.output_T.cpu().detach().numpy().transpose(0, 2, 1)
-
-                        # voting to get the final predictions
-                        for m in range(target_R.shape[0]):
-                            basename  = f'{cfg.iteration}_' + data['id'][m] + '_' + categories[cfg.target_category]
-                            scale_dict = {'gt': [], 'baseline': [], 'nonlinear': []}
-                            r_dict     = {'gt': [], 'baseline': [], 'nonlinear': []}
-                            t_dict     = {'gt': [], 'baseline': [], 'nonlinear': []}
-                            xyz_err    = {'baseline': [], 'nonlinear': []}
-                            rpy_err    = {'baseline': [], 'nonlinear': []}
-                            scale_err  = {'baseline': [], 'nonlinear': []}
-                            rpy_err['baseline'] = axis_diff_degree(pred_dict['R'][m], target_R[m])
-                            pred_center= input_pts[m] - pred_dict['T'][m]
-                            gt_center  = input_pts[m] - target_T[m]
-                            xyz_err['baseline'] = np.linalg.norm(np.mean(pred_center, axis=0) - np.mean(gt_center, axis=0))
-                            r_dict['baseline'].append(pred_dict['R'][m])
-                            t_dict['baseline'].append(pred_center)
-                            scale_dict['gt'].append(1)
-
-                            rts_dict = {}
-                            rts_dict['scale']   = scale_dict
-                            rts_dict['rotation']      = r_dict
-                            rts_dict['translation']   = t_dict
-                            rts_dict['xyz_err']   = xyz_err
-                            rts_dict['rpy_err']   = rpy_err
-                            rts_dict['scale_err'] = scale_err
-                            rts_dict['in']     = input_pts[m]
-                            all_rts[basename]  = rts_dict
+                rts_dict, pred_dict, basename = eval_func(tr_agent, data, all_rts, cfg)
                 save_offline =False
                 if save_offline:
                     if cfg.task == 'adversarial_adaptation':
@@ -226,7 +238,29 @@ def main(cfg):
                 if cfg.vis and clock.step % cfg.vis_frequency == 0:
                     tr_agent.visualize_batch(data, "validation")
 
+            if clock.step % cfg.eval_frequency == 0:
+                track_dict = {'averageR': [], '100bestR': []}
+                for num, test_data in enumerate(test_loader):
+                    # print('--going over ', num)
+                    if num > 100: # we only evaluate 100 data every 1000 steps
+                        break
+                    losses, infos = tr_agent.eval_func(test_data)
+                    degree_err    = tr_agent.degree_err.cpu().detach().numpy()
+                    best100_ind   = np.argsort(degree_err, axis=1)
+                    best100_err   = degree_err[0, best100_ind[0][:100]].mean() + degree_err[1, best100_ind[1][:100]].mean()
+                    # 1. whole R loss in degree;
+                    track_dict['averageR'].append(degree_err.mean())
+                    # 2. better R estimation;
+                    track_dict['100bestR'].append(best100_err/2)
+                    # 3. more confident estimations
+                # print('>>>>>>during testing: ', np.array(track_dict['averageR']).mean(), np.array(track_dict['100bestR']).mean())
+                if cfg.use_wandb:
+                    for key, value in track_dict.items():
+                        wandb.log({f'test/{key}': np.array(value).mean(), 'step': clock.step})
             clock.tick()
+
+            if clock.step % cfg.save_step_frequency == 0:
+                tr_agent.save_ckpt('latest')
 
         tr_agent.update_learning_rate()
         clock.tock()

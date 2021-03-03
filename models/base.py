@@ -114,7 +114,7 @@ class BaseAgent(object):
         if not self.optimizer.param_groups[-1]['lr'] < self.base_lr / 5.0:
             self.scheduler.step(self.clock.epoch)
 
-    def record_losses(self, loss_dict, mode='train'):
+    def record_losses(self, loss_dict, mode='train', infos_dict=None):
         """record loss to tensorboard"""
         losses_values = {k: v.item() for k, v in loss_dict.items()}
 
@@ -123,7 +123,11 @@ class BaseAgent(object):
             tb.add_scalar(k, v, self.clock.step)
             if self.use_wandb:
                 wandb.log({f'{mode}/{k}': v, 'step': self.clock.step})
-
+        if infos_dict is not None:
+            for k, v in infos_dict.items():
+                tb.add_scalar(k, v, self.clock.step)
+                if self.use_wandb:
+                    wandb.log({f'{mode}/{k}': v, 'step': self.clock.step})
     def train_func(self, data):
         """one step of training"""
         self.net.train()
@@ -131,8 +135,9 @@ class BaseAgent(object):
         self.forward(data)
 
         losses = self.collect_loss()
+        infos  = self.collect_info()
         self.update_network(losses)
-        self.record_losses(losses, 'train')
+        self.record_losses(losses, 'train', infos_dict=infos)
 
     def val_func(self, data):
         """one step of validation"""
@@ -142,7 +147,20 @@ class BaseAgent(object):
             self.forward(data)
 
         losses = self.collect_loss()
-        self.record_losses(losses, 'validation')
+        infos  = self.collect_info()
+        self.record_losses(losses, 'validation', infos_dict=infos)
+
+    def eval_func(self, data):
+        """one step of validation"""
+        self.net.eval()
+        #
+        with torch.no_grad():
+            self.forward(data)
+
+        losses = self.collect_loss()
+        infos  = self.collect_info()
+
+        return losses, infos
 
     def visualize_batch(self, data, tb, **kwargs):
         """write visualization results to tensorboard writer"""
@@ -280,7 +298,7 @@ class GANzEAgent(object):
         self.optimizer_E.load_state_dict(checkpoint['optimizerE_state_dict'])
         self.clock.restore_checkpoint(checkpoint['clock'])
 
-    def record_losses(self, loss_dict, mode='train'):
+    def record_losses(self, loss_dict, mode='train', infos_dict=None):
         """record loss to tensorboard"""
         losses_values = {k: v.item() for k, v in loss_dict.items()}
 
@@ -289,7 +307,11 @@ class GANzEAgent(object):
             tb.add_scalar(k, v, self.clock.step)
             if self.use_wandb and self.clock.step % 10:
                 wandb.log({f'{mode}/{k}': v, 'step': self.clock.step})
-
+        if infos_dict is not None:
+            for k, v in infos_dict.items():
+                tb.add_scalar(k, v, self.clock.step)
+                if self.use_wandb:
+                    wandb.log({f'{mode}/{k}': v, 'step': self.clock.step})
     def visualize_batch(self, data, tb, **kwargs):
         """write visualization results to tensorboard writer"""
         raise NotImplementedError
