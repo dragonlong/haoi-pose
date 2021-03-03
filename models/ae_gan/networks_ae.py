@@ -374,6 +374,7 @@ class SE3Transformer(nn.Module):
         self.pooling    = pooling
         self.n_heads    = n_heads
         self.latent_dim = latent_dim
+        self.batch_size = cfg.DATASET.train_batch
 
         self.fibers = {'in': Fiber(1, self.num_in_channels),
                        'mid': Fiber(self.num_degrees, self.num_mid_channels),         # should match with first downsample layer input
@@ -438,17 +439,17 @@ class SE3Transformer(nn.Module):
             h0 = self.pre_modules[i](h0, G=G, r=r, basis=basis)
 
         # encoding
-        h1, G1, r1, basis1 = self.down_modules[0](h0, Gin=G0) # 512-256
-        h2, G2, r2, basis2 = self.down_modules[1](h1, Gin=G1) # 256-128
-        h3, G3, r3, basis3 = self.down_modules[2](h2, Gin=G2) # 128-64
-        h4, G4, r4, basis4 = self.down_modules[3](h3, Gin=G3) # 64-32
+        h1, G1, r1, basis1 = self.down_modules[0](h0, Gin=G0, BS=self.batch_size) # 512-256
+        h2, G2, r2, basis2 = self.down_modules[1](h1, Gin=G1, BS=self.batch_size) # 256-128
+        h3, G3, r3, basis3 = self.down_modules[2](h2, Gin=G2, BS=self.batch_size) # 128-64
+        h4, G4, r4, basis4 = self.down_modules[3](h3, Gin=G3, BS=self.batch_size) # 64-32
 
         # decoding
         if not self.encoder_only:
-            h3 = self.up_modules[0](h3, G=G3, r=r3, basis=basis3, uph=h4, upG=G4) # 64
-            h2 = self.up_modules[1](h2, G=G2, r=r2, basis=basis2, uph=h3, upG=G3) # 128
-            h1 = self.up_modules[2](h1, G=G1, r=r1, basis=basis1, uph=h2, upG=G2) # 256
-            h  = self.up_modules[3](h0, G=G0, r=r, basis=basis, uph=h1, upG=G1)    # 512
+            h3 = self.up_modules[0](h3, G=G3, r=r3, basis=basis3, uph=h4, upG=G4, BS=self.batch_size) # 64
+            h2 = self.up_modules[1](h2, G=G2, r=r2, basis=basis2, uph=h3, upG=G3, BS=self.batch_size) # 128
+            h1 = self.up_modules[2](h1, G=G1, r=r1, basis=basis1, uph=h2, upG=G2, BS=self.batch_size) # 256
+            h  = self.up_modules[3](h0, G=G0, r=r, basis=basis, uph=h1, upG=G1, BS=self.batch_size)    # 512
             if verbose:
                 i = 1 # choose your interested layer
                 print(f'--up{i} GraphFP: ', self.up_modules[i].Tblock[0].f_in.structure, self.up_modules[i].Tblock[0].f_out.structure)
@@ -539,7 +540,7 @@ class SE3TBlock(nn.Module):
         Gin: input graph
         """
         # Compute equivariant weight basis from relative positions
-        Gmid, Gout, xyz_ind = self.down_g(Gin)
+        Gmid, Gout, xyz_ind = self.down_g(Gin, BS=BS)
         basis, r = get_basis_and_r(Gmid, self.num_degrees-1)
 
         #  intermediate graph

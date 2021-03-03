@@ -52,7 +52,7 @@ class PointAEPoseAgent(BaseAgent):
                 if self.config.MODEL.num_channels_R > 1:
                     # [BS*N, C, 3] -> [Bs, N, C, 3] -> [Bs, 3, N, C]
                     BS, CS = target_R.shape[0], self.latent_vect['R'].shape[-2]
-                    self.output_R  = self.latent_vect['R'].view(BS, -1, CS, 3).contiguous().permute(0, 3, 1, 2).contiguous()# BS*N, C, 3
+                    self.output_R = self.latent_vect['R'].view(BS, -1, CS, 3).contiguous().permute(0, 3, 1, 2).contiguous()# BS*N, C, 3
                 else:
                     self.output_R = self.latent_vect['R'].squeeze().view(target_R.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous() # B, 3, N
                 self.output_R_pooled = self.latent_vect['1'].permute(0, 2, 1).contiguous() # B, 3, 1

@@ -281,7 +281,7 @@ class HandDatasetAEGraph(HandDataset):
         g = dgl.DGLGraph((src_idx, dst_idx))
         g.ndata['x'] = pos[0][uniq]
         g.ndata['f'] = feat[0][uniq].unsqueeze(-1)
-        g.edata['d'] = pos[0][dst_idx] - pos[0][src_idx] #[num_atoms,3] but we only supervise the half
+        g.edata['d'] = pos[0][uniq][dst_idx] - pos[0][uniq][src_idx] #[num_atoms,3] but we only supervise the half
         up_axis = torch.matmul(torch.tensor([[0.0, 1.0, 0.0]]).float(), RR)
 
         # return g, gt_points.transpose(1, 0), instance_name, RR # 3*3, gt_points is complete NOCS
@@ -404,7 +404,7 @@ class HandDatasetAEGraph(HandDataset):
             g = dgl.DGLGraph((src_idx, dst_idx))
             g.ndata['x'] = pos[0][uniq]
             g.ndata['f'] = torch.from_numpy(feat[0][uniq].astype(np.float32)[:, :, np.newaxis])
-            g.edata['d'] = pos[0][dst_idx] - pos[0][src_idx] #[num_atoms,3]
+            g.edata['d'] = pos[0][uniq][dst_idx] - pos[0][uniq][src_idx] #[num_atoms,3]
             g_sets.append(g)
 
         g_raw, g_real = g_sets
