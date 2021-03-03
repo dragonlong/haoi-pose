@@ -124,11 +124,12 @@ class InterDownGraph(nn.Module): #
         G: input Graph
         BS: batch size
         """
+        glist              = dgl.unbatch(G)
+        BS = len(glist)
         pos = G.ndata['x'].view(BS, -1, 3).contiguous()
         B, N, _ = pos.shape
         xyz_ind, xyz_query = self.n_sampler(pos)    # downsample
         neighbors_ind      = self.e_sampler(pos, xyz_query)
-        glist              = dgl.unbatch(G)
         for i in range(BS):
             src = neighbors_ind[i].contiguous().view(-1)
             dst = xyz_ind[i].view(-1, 1).repeat(1, self.num_samples).view(-1)
@@ -139,8 +140,8 @@ class InterDownGraph(nn.Module): #
             dst_idx = inv_idx[src.shape[0]:]
             """
             glist[i].remove_edges( np.arange( len(glist[i].all_edges()[0]) ).tolist())
-            glist[i].add_edges(src, dst)
-            glist[i].edata['d'] = pos[i][dst] - pos[i][src]
+            glist[i].add_edges(src.long(), dst.long())
+            glist[i].edata['d'] = pos[i][dst.long()] - pos[i][src.long()]
         Gmid = dgl.batch(glist)
 
         """
@@ -171,7 +172,7 @@ class InterDownGraph(nn.Module): #
         for i in range(B):
             src = neighbors_ind[i].contiguous().view(-1).cpu()
             dst = torch.arange(pos[i].shape[0]).view(-1, 1).repeat(1, self.num_samples).view(-1)
-            g = dgl.DGLGraph((src.cpu(), dst.cpu()))
+            g = dgl.DGLGraph((src.long(), dst.long())).to(pos.device)
             g.ndata['x'] = pos[i]
             g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
             g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()] #[num_atoms,3] but we only supervise the half
