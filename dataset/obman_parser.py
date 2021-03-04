@@ -71,15 +71,15 @@ def breakpoint():
     import pdb;pdb.set_trace()
 
 def collate_graph(samples):
-    graphs, gt_points, instance_names, Rx, center_offsets = map(list, zip(*samples))
+    graphs, gt_points, instance_names, Rx, center_offsets, idx = map(list, zip(*samples))
     batched_graph = dgl.batch(graphs)
     gt_points = torch.stack(gt_points, 0)
     Rx = torch.stack(Rx, 0)
     Tx = torch.stack(center_offsets, 0)
-    return {'G': batched_graph, "points": gt_points, "id": instance_names, 'R': Rx, 'T':Tx}
+    return {'G': batched_graph, "points": gt_points, "id": instance_names, 'R': Rx, 'T': Tx, 'idx': idx}
 
 def collate_graph_partial(samples):
-    graphs_raw, graphs_real, n_arr, c_arr, m_arr, gt_points, instance_name, instance_name1, RR, center_offsets = map(list, zip(*samples))
+    graphs_raw, graphs_real, n_arr, c_arr, m_arr, gt_points, instance_name, instance_name1, RR, center_offsets, idx = map(list, zip(*samples))
     batched_graph_raw = dgl.batch(graphs_raw)
     batched_graph_real = dgl.batch(graphs_real)
     gt_points = torch.stack(gt_points, 0)
@@ -88,17 +88,17 @@ def collate_graph_partial(samples):
     m_arr     = torch.stack(m_arr, 0)
     Rx        = torch.stack(RR, 0)
     Tx        = torch.stack(center_offsets, 0)
-    return {'G': batched_graph_raw, "points": n_arr, "C": c_arr, "id": instance_name, 'R': Rx, 'T':Tx}
+    return {'G': batched_graph_raw, "points": n_arr, "C": c_arr, "id": instance_name, 'R': Rx, 'T':Tx, 'idx': idx}
 
 def collate_graph_gan(samples):
     # g, n_arr, gt_points, instance_name, instance_name1
-    graphs_raw, graphs_real, n_arr, gt_points, instance_name, instance_name1, RR = map(list, zip(*samples))
+    graphs_raw, graphs_real, n_arr, gt_points, instance_name, instance_name1, RR, idx = map(list, zip(*samples))
     batched_graph_raw = dgl.batch(graphs_raw)
     batched_graph_real = dgl.batch(graphs_real)
     gt_points = torch.stack(gt_points, 0)
     n_arr     = torch.stack(n_arr, 0)
     Rx        = torch.stack(RR, 0)
-    return {'G_raw': batched_graph_raw, 'G_real': batched_graph_real, "raw": n_arr, "real": gt_points, "raw_id": instance_name, "real_id": instance_name1, 'R': Rx}
+    return {'G_raw': batched_graph_raw, 'G_real': batched_graph_real, "raw": n_arr, "real": gt_points, "raw_id": instance_name, "real_id": instance_name1, 'R': Rx, 'idx': idx}
 
 def get_dataset(cfg,
                 dset_name,
@@ -253,7 +253,7 @@ class ObmanParser(Parser):
                 collate_fn=collate,
                 num_workers=int(cfg.DATASET.workers / len(cfg.DATASET.val_datasets)),
                 pin_memory=True,
-                drop_last=False,
+                drop_last=True,
             )
         else:
             self.validloader = None

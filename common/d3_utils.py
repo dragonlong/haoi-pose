@@ -902,7 +902,8 @@ def axis_diff_degree(v1, v2):
     v2 = v2.reshape(-1)
     r_diff = np.arccos(np.sum(v1*v2)/(np.linalg.norm(v1) * np.linalg.norm(v2))) * 180 / np.pi
     # print(r_diff)
-    return min(r_diff, 180-r_diff)
+    return np.abs(r_diff)
+    # return min(r_diff, 180-r_diff)
 
 def rot_diff_degree(rot1, rot2, up=False):
     if up:
