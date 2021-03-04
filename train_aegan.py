@@ -220,7 +220,6 @@ def main(cfg):
             # train step
             torch.cuda.empty_cache()
             tr_agent.train_func(data)
-
             # visualize
             if cfg.vis and clock.step % cfg.vis_frequency == 0:
                 tr_agent.visualize_batch(data, "train")
@@ -246,12 +245,14 @@ def main(cfg):
                         break
                     losses, infos = tr_agent.eval_func(test_data)
                     degree_err    = tr_agent.degree_err.cpu().detach().numpy()
-                    best100_ind   = np.argsort(degree_err, axis=1)
-                    best100_err   = degree_err[0, best100_ind[0][:100]].mean() + degree_err[1, best100_ind[1][:100]].mean()
+                    best100_ind   = np.argsort(degree_err, axis=1)  # [B, N]
+                    best100_ind = best100_ind[:, :100]
+                    best100_err = degree_err[np.arange(best100_ind.shape[0]).reshape(-1, 1), best100_ind].mean()
+                    # best100_err   = degree_err[0, best100_ind[0][:100]].mean() + degree_err[1, best100_ind[1][:100]].mean()
                     # 1. whole R loss in degree;
                     track_dict['averageR'].append(degree_err.mean())
                     # 2. better R estimation;
-                    track_dict['100bestR'].append(best100_err/2)
+                    track_dict['100bestR'].append(best100_err)
                     # 3. more confident estimations
                 # print('>>>>>>during testing: ', np.array(track_dict['averageR']).mean(), np.array(track_dict['100bestR']).mean())
                 if cfg.use_wandb:

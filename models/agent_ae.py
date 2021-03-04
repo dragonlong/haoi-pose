@@ -101,7 +101,7 @@ class PointAEPoseAgent(BaseAgent):
                 regressionR_loss = compute_vect_loss(self.output_R, target_R.unsqueeze(-1))
                 min_loss, min_indices =  torch.min(regressionR_loss, dim=-1)
                 self.regressionR_loss = min_loss
-                self.output_R =  self.output_R[torch.arange(2), :, :, min_indices[:]]
+                self.output_R =  self.output_R[torch.arange(len(min_indices)), :, :, min_indices[:]]
             elif self.config.rotation_use_dense:
                 self.regressionR_loss = compute_vect_loss(self.output_R, target_R, confidence=confidence) # B
             else:
