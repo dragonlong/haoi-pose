@@ -419,11 +419,13 @@ class HandDatasetAEGraph(HandDataset):
         else:
             return n_arr, gt_points, instance_name, instance_name1
 
+        """
         if idx not in self.r_dict:
             RR = torch.from_numpy(r.astype(np.float32))
             self.r_dict[idx] = RR
         else:
             RR = self.r_dict[idx]
+        """
         up_axis = torch.from_numpy(up_axis).float()
         return g_raw, g_real, n_arr, c_arr, m_arr, gt_points, instance_name, instance_name1, up_axis, center_offset, idx
 
