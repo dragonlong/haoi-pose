@@ -377,6 +377,7 @@ class SE3Transformer(nn.Module):
             down_module = SE3TBlock(**args)
             self.down_modules.append(down_module)
 
+
         # if Up modules
         if not self.encoder_only:
             self.up_modules     = nn.ModuleList()
@@ -436,6 +437,7 @@ class SE3Transformer(nn.Module):
             h = h4
             G, r, basis = G4, r4, basis4
 
+        # middle
         pred_S   = self.Oblock[0](h, G=G, r=r, basis=basis) # only one mode
         pred_R   = self.Oblock[1](h, G=G, r=r, basis=basis) #
         pred_T   = self.Oblock[2](h, G=G, r=r, basis=basis) # 1. dense type 1 feature for T
@@ -656,7 +658,8 @@ class GraphFPSumModule(nn.Module):
             new_features = new_features.view(new_features.shape[0], nC, -1)
             h_interpolated[key] = new_features
 
-        h = self.add(h, h_interpolated)
+        h = self.add(h, h_interpolated) # TODO
+        # h = h_interpolated
         for i, layer in enumerate(self.Tblock):
             h = layer(h, G=G, r=r, basis=basis)
 

@@ -436,6 +436,8 @@ class HandDatasetAEGraph(HandDataset):
     def __getitem__(self, idx, verbose=False):
         try:
             if 'adversarial' in self.task or 'partial' in self.task:
+                if self.cfg.subset_samples:
+                    idx = idx % 100
                 idx = self.all_ids[idx]
                 sample = self.get_sample_pair(idx, verbose=verbose)
             else:

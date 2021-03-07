@@ -189,7 +189,7 @@ def save_pose_pred(all_rts, filename):
         print('mean rotation err of part {}: \n'.format(j), 'baseline: {}'.format(np.array(r_raw_err['baseline'][j]).mean()))
         print('mean translation err of part {}: \n'.format(j), 'baseline: {}'.format(np.array(t_raw_err['baseline'][j]).mean()))
 
-def prepare_pose_eval(save_exp, args, num_parts=2):
+def prepare_pose_eval(save_exp, args, num_parts=2, extra_key=None):
     file_name       = my_dir + '/results/test_pred/{}/{}_{}_{}_rt_pn_general.npy'.format(args.item, save_exp, args.domain, args.nocs)
     save_path       = my_dir + '/results/test_pred/{}/'.format(args.item)
     if not os.path.exists(save_path):
@@ -210,7 +210,7 @@ def prepare_pose_eval(save_exp, args, num_parts=2):
         s_raw_err   = {'baseline': [[], [], [], []], 'nonlinear': [[], [], [], []]}
     return all_rts, file_name, mean_err, r_raw_err, t_raw_err, s_raw_err
 
-def post_summary(all_rts, file_name=None, args=None, r_raw_err=None, t_raw_err=None):
+def post_summary(all_rts, file_name=None, args=None, r_raw_err=None, t_raw_err=None, extra_key=None):
     if args.save:
         print('--saving to ', file_name)
         np.save(file_name, arr=all_rts)
@@ -241,8 +241,12 @@ def post_summary(all_rts, file_name=None, args=None, r_raw_err=None, t_raw_err=N
     print('category\trotation error\ttranslation error')
     for category in all_categorys:
         print(f'{categories_id[category]}\t{np.array(rpy_err_dict[category]).mean():0.4f}\t{np.array(xyz_err_dict[category]).mean():0.4f}')
-    plot_distribution(rpy_err_dict[category_name], labelx='r_err', labely='frequency', title_name='rotation_error', sub_name=args.exp_num, save_fig=True)
-    plot_distribution(xyz_err_dict[category_name], labelx='t_err', labely='frequency', title_name='translation_error', sub_name=args.exp_num, save_fig=True)
+    if extra_key is not None:
+        plot_distribution(rpy_err_dict[category_name], labelx='r_err', labely='frequency', title_name=f'rotation_error_{extra_key}', sub_name=args.exp_num, save_fig=True)
+        plot_distribution(xyz_err_dict[category_name], labelx='t_err', labely='frequency', title_name=f'translation_error_{extra_key}', sub_name=args.exp_num, save_fig=True)
+    else:
+        plot_distribution(rpy_err_dict[category_name], labelx='r_err', labely='frequency', title_name='rotation_error', sub_name=args.exp_num, save_fig=True)
+        plot_distribution(xyz_err_dict[category_name], labelx='t_err', labely='frequency', title_name='translation_error', sub_name=args.exp_num, save_fig=True)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

@@ -28,7 +28,7 @@ multimodal: True
 cont: False
 ckpt: latest
 vis: False
-save_frequency: 500
+save_frequency: 1
 save_step_frequency: 1000
 val_frequency: 10
 eval_frequency: 1000

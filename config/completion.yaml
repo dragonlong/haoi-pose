@@ -39,6 +39,7 @@ pred_mode: False
 rotation_use_dense: False
 pred_sym_axis: False
 use_hand_occupancy: False
+check_consistency: True
 
 # loss
 rotation_loss_type: 0
@@ -49,10 +50,13 @@ use_objective_N: False
 use_objective_C: False
 use_objective_M: False # for R mode selection
 use_confidence_R: False
+use_objective_V: False # variance
 confidence_loss_type: 0
 confidence_loss_multiplier: 0.01
+consistency_loss_multiplier: 1.0
 
 # data control
+subset_samples: False
 fetch_cache: False
 use_preprocess: False
 preprocess: False
@@ -72,6 +76,7 @@ eval: False
 split: 'val'
 pretrained_path: ''
 is_testing: False
+use_gt_M: False
 
 # general, gpu, print
 use_wandb: False

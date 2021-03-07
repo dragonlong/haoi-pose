@@ -1,3 +1,10 @@
+ssh -p 8127 lxiaol9@128.173.88.229
+ssh cc
+yj
+Hao // xl’s workspace
+interact --partition=v100_dev_q --nodes=1 --ntasks-per-node=12 --gres=gpu:1 -A CESCA-CV
+
+
 roscore
 conda deactivate
 conda deactivate
@@ -242,4 +249,8 @@ rclone sync . --include "{2.40941,2.4058,2.406971}/checkpoints/*" drive:Object_a
 2.4058(R, L2)
 2.406971(T voting)
 
+cd /home/dragon/Documents/ICML2021/results/preds
+EXP=2.409196 # 2.40584 validation_9000*
+mkdir ${EXP}
+scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/obman/${EXP}/generation/test* ./${EXP}
 #

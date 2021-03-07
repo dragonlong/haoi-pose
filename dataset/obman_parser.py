@@ -300,8 +300,8 @@ def main(cfg):
         # val_loader   = iter(val_loader)
         # data = next(val_loader)
         if 'partial' in cfg.task:
-            for j in range(10):
-                g_raw, g_real, n_arr, c_arr, m_arr, gt_points, instance_name, instance_name1, up_axis, center_offset = dset.__getitem__(j, verbose=True)
+            for j in range(100):
+                g_raw, g_real, n_arr, c_arr, m_arr, gt_points, instance_name, instance_name1, up_axis, center_offset, idx = dset.__getitem__(j, verbose=True)
                 input = g_raw.ndata['x'].numpy()
                 gt    = n_arr.transpose(1, 0).numpy()
                 c_arr = c_arr.cpu().numpy()
