@@ -303,7 +303,7 @@ def main(cfg):
         extra_key = 'pred'
         if cfg.use_gt_M:
             extra_key = 'gt'
-        # post_summary(all_rts, file_name, args=cfg, extra_key=extra_key)
+        post_summary(all_rts, file_name, args=cfg, extra_key=extra_key)
         for key, value in infos_all.items():
             value = np.array(value)
             if len(value.shape)>2:
