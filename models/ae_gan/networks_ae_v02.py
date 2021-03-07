@@ -225,7 +225,7 @@ class PointNetplusplus(nn.Module):
     """PointNet++ with multiple heads"""
     def __init__(self, cfg):
         super().__init__()
-        self.backbone   = PointNet2Segmenter(num_classes=3, use_random_ball_query=True)
+        self.backbone   = PointNet2Segmenter(num_classes=3, use_random_ball_query=cfg.MODEL.use_ball_query)
         net_header, head_names  = ModelBuilder.build_header(layer_specs=cfg.HEAD)
         self.head       = net_header
         self.head_names = head_names

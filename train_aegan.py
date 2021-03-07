@@ -312,7 +312,7 @@ def main(cfg):
             else:
                 plot_distribution(value.reshape(-1), labelx=key, labely='frequency', title_name=f'rotation_error_{key}', sub_name=cfg.exp_num, save_fig=True)
         return
-
+    best_R_error = 100
     val_loader   = cycle(val_loader)
     for e in range(clock.epoch, cfg.nr_epochs):
         # begin iteration
@@ -353,8 +353,13 @@ def main(cfg):
                     track_dict['averageR'].append(degree_err.mean())
                     # 2. better R estimation;
                     track_dict['100bestR'].append(best100_err/2)
+
                     # 3. more confident estimations
                 # print('>>>>>>during testing: ', np.array(track_dict['averageR']).mean(), np.array(track_dict['100bestR']).mean())
+                if np.array(track_dict['averageR']).mean() < best_R_error:
+                    best_R_error = np.array(track_dict['averageR']).mean()
+                    tr_agent.save_ckpt('best')
+
                 if cfg.use_wandb:
                     for key, value in track_dict.items():
                         wandb.log({f'test/{key}': np.array(value).mean(), 'step': clock.step})

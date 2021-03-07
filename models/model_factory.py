@@ -126,7 +126,7 @@ class ModelBuilder:
         elif arch == 'meteornet':
             net_decoder = MeteorNet(nframe, radius_list=params.radius, num_class=num_class, knn=params.knn)
         elif arch == 'kaolin':
-            net_decoder = PointNet2Segmenter(num_classes=params.num_classes, use_random_ball_query=True)
+            net_decoder = PointNet2Segmenter(num_classes=params.num_classes, use_random_ball_query=False) # TODO
         elif arch == 'pointnet2':
             print(f'net_decoder has {num_class} classes')
             net_decoder = PointMotionBaseModel(options, 'pointnet2_charlesmsg', num_classes=num_class)

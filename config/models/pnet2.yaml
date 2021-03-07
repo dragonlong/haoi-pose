@@ -2,18 +2,21 @@
 MODEL:
   use_xyz: True
   num_classes: 4
+  num_channels_R: 1
   arch_encoder: "identical"
   arch_decoder: "kaolin" # "pointnet2_single"
   arch_head: "segmentation"
   weights_encoder: ""
   weights_decoder: ""
   weights_header: ""
+  use_ball_query: True
 
 HEAD:
   R: [128, 128, 3, None]
   T: [128, 128, 3, None]
   N: [128, 128, 3, None]
-  # C: [128, 128, 2, 'softmax']
+  M: [128, 128, 2, 'softmax']
+  C: [128, 128, 2, 'softmax']
   # nocs_per_point : [128, 64, None, 'sigmoid']
   # gocs_per_point : [128, 3, 'sigmoid']
   # handheatmap_per_point :  [128, 128, 21, 'sigmoid']

@@ -316,20 +316,20 @@ class global_info(object):
         self.group_path= group_path
         self.project_path= project_path
         self.categories_list = ['02876657', '03797390', '02880940', '02946921', '03593526', '03624134', '02992529', '02942699', '04074963']
-        self.categories = { 'bottle': '02876657', # 498
-                            'mug': '03797390', # 214
-                            'bowl': '02880940', # 186
-                            'can': '02946921', # 108
-                            'jar':  '03593526', # 596
-                            'knife': '03624134', # 424
+        self.categories = { 'bottle': '02876657',   # 498
+                            'mug': '03797390',      # 214
+                            'bowl': '02880940',     # 186
+                            'can': '02946921',      # 108
+                            'jar':  '03593526',     # 596
+                            'knife': '03624134',    # 424
                             'cellphone': '02992529',# 831
-                            'camera': '02942699', #113,
-                            'remote': '04074963', #66
+                            'camera': '02942699',   # 113,
+                            'remote': '04074963',   # 66
                             }
         self.categories_id = { '02876657': 'bottle', # 498
-                            '03797390': 'mug', # 214
-                            '02880940': 'bowl', # 186
-                            '02946921': 'can' , # 108
+                            '03797390': 'mug',  # 214, pointNet++
+                            '02880940': 'bowl', # 186, vectors partial-dataset, try
+                            '02946921': 'can' , # 108, vector 2-vector
                             '03593526': 'jar'  , # 596
                             '03624134': 'knife' , # 424
                             '02992529': 'cellphone' ,# 831

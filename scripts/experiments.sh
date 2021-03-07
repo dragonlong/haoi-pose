@@ -122,6 +122,7 @@ python train.py verbose=True gpu=1 name_model='votenet' exp_num='0.95' MODEL.arc
 
   # 1.45, ca212
   python train.py gpu=1 exp_num='1.45' use_pretrain=True pretrained_path='/groups/CESCA-CV/ICML2021/model/obman/1.45' TRAIN.lr_encoder=0.01 TRAIN.lr_decoder=0.01 target_category='bottle' use_1vN_nocs=True 2>&1 | tee outputs/train_1.45.log1
+  python train.py gpu=1 exp_num='1.455' use_pretrain=True pretrained_path='/groups/CESCA-CV/ICML2021/model/obman/1.45' TRAIN.lr_encoder=0.01 TRAIN.lr_decoder=0.01 target_category='bottle' use_1vN_nocs=True 2>&1 | tee outputs/train_1.455.log
   python pred_check.py --exp_num=1.45 --item='obman' --domain='unseen' --target_category='bottle' --is_special --save
 
   # can 1.451, ca201, 0
