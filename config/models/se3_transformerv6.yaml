@@ -8,7 +8,6 @@ MODEL:
   num_degrees: 2
   edge_dim: 0
   encoder_only: False
-  n_heads: 1
   middle_pool: False
   down_conv:
       module_type: SE3TBlock
@@ -29,10 +28,10 @@ MODEL:
                   [16, 32, 32, 32], # 256 -> 128
               ],
               [
-                  [32, 64, 64, 64], #
+                  [32, 64, 64, 64, 64, 64], #
               ],
               [
-                  [64, 128, 128, 128],
+                  [64, 128, 128, 128, 128, 128],
               ],
           ]
   up_conv:

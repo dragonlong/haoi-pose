@@ -1,7 +1,63 @@
+export PATH="/home/lxiaol9/anaconda3/bin:$PATH"
+cd
+. scripts/ai_power1.sh
+module load cuda/10.1.168
+source activate merl
+
+
 # 2.4058 multiple instance, dynamic graph, with augmentation, L2
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
 $TRAIN_OBJ task='pcloud_pose' target_category='bottle' exp_num='2.4058' DATASET.train_batch=2 DATASET.test_batch=2 \
 use_objective_R=True augment=True rotation_loss_type=1 eval=True save=True
+use_wandb=True
+
+# 2.40581 encoder-only v3, dense one-mode prediction
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='pcloud_pose' target_category='bottle' exp_num='2.40581' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+vis_frequency=1000 vis=True \
+models=se3_transformerv3 \
+MODEL.num_channels_R=1 MODEL.encoder_only=True \
+use_wandb=True
+
+# 2.40582 encoder-only v3, dense two-mode prediction
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='pcloud_pose' target_category='bottle' exp_num='2.40582' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+vis_frequency=1000 vis=True \
+models=se3_transformerv3 \
+MODEL.num_channels_R=2 MODEL.encoder_only=True \
+pred_mode=True use_objective_M=True \
+use_wandb=True
+
+# 2.40583 (later for dense prediction visualization & evaluation) v3, use pooled predictions
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='pcloud_pose' target_category='bottle' exp_num='2.40583' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True \
+vis_frequency=1000 vis=True \
+models=se3_transformerv3 \
+MODEL.num_channels_R=1 MODEL.encoder_only=True \
+use_wandb=True
+
+# 2.40584, encoder-decoder full training, use 2 mode, dense prediction
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='pcloud_pose' target_category='bottle' exp_num='2.40584' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+vis_frequency=1000 vis=True \
+MODEL.down_conv.npoint='[256, 64, 32, 16]' \
+MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
+MODEL.num_channels_R=2 MODEL.encoder_only=False \
+pred_mode=True use_objective_M=True \
+use_wandb=True
+
+# 2.40585, encoder-decoder full training, pooled prediction, 1 mode
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='pcloud_pose' target_category='bottle' exp_num='2.40585' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True \
+vis_frequency=1000 vis=True \
+MODEL.down_conv.npoint='[256, 64, 32, 16]' \
+MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
+MODEL.num_channels_R=1 MODEL.encoder_only=False \
 use_wandb=True
 
 # 2.406971, multiple instance, dynamic graph, with augmentation, T voting
@@ -45,6 +101,27 @@ $TRAIN_OBJ task='pcloud_pose' target_category='jar' exp_num='2.414' DATASET.trai
 use_objective_R=True augment=True rotation_loss_type=1 \
 use_wandb=True
   eval=True save=True
+
+  2.4141: # encoder only, modal=2, with classifyM loss
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='jar' exp_num='2.4141' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+vis_frequency=1000 vis=True \
+models=se3_transformerv3 \
+MODEL.num_channels_R=2 MODEL.encoder_only=True \
+pred_mode=True use_objective_M=True \
+use_wandb=True
+
+2.4142:
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='jar' exp_num='2.4142' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+vis_frequency=1000 vis=True \
+MODEL.down_conv.npoint='[256, 64, 32, 16]' \
+MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
+MODEL.num_channels_R=2 MODEL.encoder_only=False \
+pred_mode=True use_objective_M=True \
+use_wandb=True
 
   2.415: # multiple instance, dynamic graph, with augmentation, T voting, jar
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
@@ -96,6 +173,27 @@ $TRAIN_OBJ task='pcloud_pose' target_category='camera' exp_num='2.451' DATASET.t
 use_objective_R=True augment=True rotation_loss_type=1 \
 use_wandb=True
    eval=True save=True
+
+   2.4511: # encoder only, modal=2, with classifyM loss
+ TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+ $TRAIN_OBJ task='partial_pcloud_pose' target_category='camera' exp_num='2.4511' DATASET.train_batch=2 DATASET.test_batch=2 \
+ augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+ vis_frequency=1000 vis=True \
+ models=se3_transformerv3 \
+ MODEL.num_channels_R=2 MODEL.encoder_only=True \
+ pred_mode=True use_objective_M=True \
+ use_wandb=True
+
+ 2.4512:  # encoder + decoder, modal=2, with classifyM loss
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='camera' exp_num='2.4512' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+vis_frequency=1000 vis=True \
+MODEL.down_conv.npoint='[256, 64, 32, 16]' \
+MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
+MODEL.num_channels_R=2 MODEL.encoder_only=False \
+pred_mode=True use_objective_M=True \
+use_wandb=True
 
   2.452: # 2.406971, multiple instance, dynamic graph, with augmentation, T voting, camera
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
@@ -175,6 +273,7 @@ pred_conf=True use_confidence_R=True confidence_loss_type=1 confidence_loss_mult
 vis_frequency=1000 vis=True \
 MODEL.down_conv.npoint='[256, 64, 32, 16]' \
 MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
+eval=True save=True use_gt_M=True
 use_wandb=True
 
 2.409161:  # encoder + decoder, modal=5, with classifyM loss
@@ -182,10 +281,11 @@ TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=5
 $TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.409161' DATASET.train_batch=2 DATASET.test_batch=2 \
 augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
 vis_frequency=1000 vis=True \
-MODEL.down_conv.npoint='[256, 64, 32, 16]' \
+MODEL.down_conv.npoint='[256, 64, 32*3, 16*3, pooling 1]' \
 MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
 MODEL.num_channels_R=5 MODEL.encoder_only=False \
 pred_mode=True use_objective_M=True \
+eval=True save=True use_gt_M=True
 use_wandb=True
 
 2.409162:  # encoder + decoder, modal=2, with classifyM loss
@@ -197,6 +297,81 @@ MODEL.down_conv.npoint='[256, 64, 32, 16]' \
 MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
 MODEL.num_channels_R=2 MODEL.encoder_only=False \
 pred_mode=True use_objective_M=True \
+eval=True save=True use_gt_M=True
+use_wandb=True
+
+2.4091621:  # encoder + decoder, modal=2, with classifyM loss, add mode regularization
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.4091621' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+vis_frequency=1000 vis=True \
+MODEL.down_conv.npoint='[256, 64, 32, 16]' \
+MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
+MODEL.num_channels_R=2 MODEL.encoder_only=False \
+pred_mode=True use_objective_M=True use_objective_V=True consistency_loss_multiplier=1.0 \
+eval=True save=True use_gt_M=True 2>&1 | tee results/eval_2.4091621.log
+use_wandb=True
+
+
+2.40916211:  # encoder + decoder, modal=2, with classifyM loss, add mode regularization, encoder + decoder, modal=2, with classifyM loss, add mode regularization, no loss added
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.40916211' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+vis_frequency=1000 vis=True \
+MODEL.down_conv.npoint='[256, 64, 32, 16]' \
+MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
+MODEL.num_channels_R=2 MODEL.encoder_only=False \
+pred_mode=True use_objective_M=True check_consistency=True consistency_loss_multiplier=1.0 \
+eval=True save=True use_gt_M=True 2>&1 | tee results/eval_2.4091621.log
+use_wandb=True
+
+# overfit 100 examples
+2.40916212:  # encoder + decoder, modal=2, with classifyM loss, add mode regularization,
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.40916212' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+vis_frequency=1000 vis=True \
+MODEL.down_conv.npoint='[256, 64, 32, 16]' \
+MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
+MODEL.num_channels_R=2 MODEL.encoder_only=False \
+pred_mode=True use_objective_M=True use_objective_V=True consistency_loss_multiplier=1.0 \
+subset_samples=True \
+use_wandb=True
+eval=True save=True use_gt_M=True 2>&1 | tee results/eval_2.4091621.log
+
+2.4091622:  # encoder + decoder, modal=2, with classifyM loss, add mode regularization
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.4091622' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+vis_frequency=1000 vis=True \
+MODEL.down_conv.npoint='[256, 64, 32, 16]' \
+MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
+MODEL.num_channels_R=2 MODEL.encoder_only=False \
+pred_mode=True use_objective_M=True use_objective_V=True consistency_loss_multiplier=0.1 \
+use_wandb=True \
+# to eval on full test set, just add below
+eval=True save=True use_gt_M=True 2>&1 | tee results/eval_2.4091622.log
+
+#
+2.4091623:  # encoder + decoder, modal=2, with classifyM loss, add mode regularization
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.4091623' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+vis_frequency=1000 vis=True \
+models=se3_transformerv2 \
+MODEL.num_channels_R=2 MODEL.encoder_only=False \
+pred_mode=True use_objective_M=True use_objective_V=True consistency_loss_multiplier=0.1 \
+eval=True save=True use_gt_M=True 2>&1 | tee results/eval_2.4091623.log
+use_wandb=True
+
+2.4091624:  # no skip link, encoder + decoder, modal=2, with classifyM loss, add mode regularization
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.4091624' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+vis_frequency=1000 vis=True \
+models=se3_transformerv2 \
+MODEL.num_channels_R=2 MODEL.encoder_only=False \
+pred_mode=True use_objective_M=True use_objective_V=True consistency_loss_multiplier=0.1 \
 use_wandb=True
 
 2.40917: # train for partial shape, bottle, object pts only, R, L2, dense, use confidence type 1, confidence_loss_multiplier=0.1, bigger receptive field;
@@ -206,7 +381,6 @@ augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
 pred_conf=True use_confidence_R=True confidence_loss_type=1 confidence_loss_multiplier=0.1 \
 vis_frequency=1000 vis=True \
 models=se3_transformerv1 \
-
 use_wandb=True
 
 2.40918: # train for partial shape, bottle, object pts only, R, L2, dense, use confidence type 1, confidence_loss_multiplier=0.1, bigger receptive field;
@@ -227,6 +401,7 @@ models=se3_transformerv3 \
 MODEL.num_channels_R=2 MODEL.encoder_only=True \
 pred_mode=True use_objective_M=True \
 use_wandb=True
+eval=True save=True
 
 2.409191: # encoder only, modal=5, with classifyM loss
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
@@ -236,6 +411,7 @@ vis_frequency=1000 vis=True \
 models=se3_transformerv3 \
 MODEL.num_channels_R=5 MODEL.encoder_only=True \
 pred_mode=True use_objective_M=True \
+eval=True save=True
 use_wandb=True
 
 2.409192: # encoder only, modal=5, with classifyM loss
@@ -247,11 +423,100 @@ models=se3_transformerv3 \
 MODEL.num_channels_R=5 MODEL.encoder_only=True MODEL.down_conv.npoint='[256, 64, 16, 4]' \
 MODEL.down_conv.nsamples='[[16], [16], [15], [3]]' \
 pred_mode=True use_objective_M=True \
+eval=True save=True
+use_wandb=True
+
+2.409193: # encoder only, modal=2, with classifyM loss, v4
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.409193' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+vis_frequency=1000 vis=True \
+models=se3_transformerv4 \
+MODEL.num_channels_R=2 MODEL.encoder_only=True \
+pred_mode=True use_objective_M=True \
+eval=True save=True use_gt_M=True
+use_wandb=True
+
+2.409194: # encoder only, modal=2, with classifyM loss, v5
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.409194' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+vis_frequency=1000 vis=True \
+models=se3_transformerv5 \
+MODEL.num_channels_R=2 MODEL.encoder_only=True \
+pred_mode=True use_objective_M=True \
+eval=True save=True use_gt_M=True
+use_wandb=True
+
+2.409195: # encoder only, modal=2, with classifyM loss, v6
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.409195' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+vis_frequency=1000 vis=True \
+models=se3_transformerv6 \
+MODEL.num_channels_R=2 MODEL.encoder_only=True \
+pred_mode=True use_objective_M=True \
+eval=True save=True use_gt_M=True
+use_wandb=True
+
+2.409196: #(killed)  encoder only, modal=2, with classifyM loss, v3 with pooling;
+# another round with different pooling( normalize before averaging )
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.409196' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True \
+vis_frequency=1000 vis=True \
+models=se3_transformerv3 \
+MODEL.num_channels_R=2 MODEL.encoder_only=True \
+pred_mode=True use_objective_M=True \
+eval=True save=True use_gt_M=True
+use_wandb=True
+
+2.409197: # (killed) encoder only, modal=2, with classifyM loss, v4 with pooling;
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.409197' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True \
+vis_frequency=1000 vis=True \
+models=se3_transformerv4 \
+MODEL.num_channels_R=2 MODEL.encoder_only=True \
+pred_mode=True use_objective_M=True \
+eval=True save=True use_gt_M=True
+use_wandb=True
+
+2.409198: #  encoder only, modal=2, with classifyM loss, v5 with pooling;
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.409198' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True \
+vis_frequency=1000 vis=True \
+models=se3_transformerv5 \
+MODEL.num_channels_R=2 MODEL.encoder_only=True \
+pred_mode=True use_objective_M=True \
+eval=True save=True use_gt_M=True
+use_wandb=True
+
+2.409199: #  encoder only, modal=2, with classifyM loss, v3_1 with pooling;
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.409199' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True \
+vis_frequency=1000 vis=True \
+models=se3_transformerv3_1 \
+MODEL.num_channels_R=2 MODEL.encoder_only=True \
+pred_mode=True use_objective_M=True \
+eval=True save=True use_gt_M=True
+use_wandb=True
+
+2.4091991: # (killed) encoder only, modal=2, with classifyM loss, v3_2 with pooling;
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.4091991' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True \
+vis_frequency=1000 vis=True \
+models=se3_transformerv3_2 \
+MODEL.num_channels_R=2 MODEL.encoder_only=True \
+pred_mode=True use_objective_M=True \
+eval=True save=True use_gt_M=True
 use_wandb=True
 
 
-
-  2.4092: # train for partial shape, bottle, object pts only, T voting
+2.4092: # train for partial shape, bottle, object pts only, T voting
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
 $TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.4092' DATASET.train_batch=2 DATASET.test_batch=2 \
 use_objective_T=True \
