@@ -348,8 +348,9 @@ MODEL.down_conv.npoint='[256, 64, 32, 16]' \
 MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
 MODEL.num_channels_R=2 MODEL.encoder_only=False \
 pred_mode=True use_objective_M=True use_objective_V=True consistency_loss_multiplier=0.1 \
-eval=True save=True use_gt_M=True 2>&1 | tee results/eval_2.4091622.log
 use_wandb=True
+# to eval on full test set, just add below 
+eval=True save=True use_gt_M=True 2>&1 | tee results/eval_2.4091622.log
 
 #
 2.4091623:  # encoder + decoder, modal=2, with classifyM loss, add mode regularization
