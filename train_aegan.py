@@ -239,6 +239,10 @@ def main(cfg):
 
             if clock.step % cfg.eval_frequency == 0:
                 track_dict = {'averageR': [], '100bestR': []}
+
+                if cfg.MODEL.num_channels_R > 1:
+                    track_dict.update({'mode_accuracy': [], 'chosenR': []})
+
                 for num, test_data in enumerate(test_loader):
                     # print('--going over ', num)
                     if num > 100: # we only evaluate 100 data every 1000 steps
@@ -254,6 +258,11 @@ def main(cfg):
                     # 2. better R estimation;
                     track_dict['100bestR'].append(best100_err)
                     # 3. more confident estimations
+                    if cfg.MODEL.num_channels_R > 1:
+                        mode_acc = tr_agent.classifyM_acc.cpu().detach().numpy().mean()
+                        chosen_deg_err = tr_agent.degree_err_chosen.cpu().detach().numpy().mean()
+                        track_dict['mode_accuracy'].append(mode_acc)
+                        track_dict['chosenR'].append(chosen_deg_err)
                 # print('>>>>>>during testing: ', np.array(track_dict['averageR']).mean(), np.array(track_dict['100bestR']).mean())
                 if cfg.use_wandb:
                     for key, value in track_dict.items():

@@ -101,7 +101,8 @@ class PointAEPoseAgent(BaseAgent):
                 regressionR_loss = compute_vect_loss(self.output_R, target_R.unsqueeze(-1))
                 min_loss, min_indices =  torch.min(regressionR_loss, dim=-1)
                 self.regressionR_loss = min_loss
-                self.output_R =  self.output_R[torch.arange(len(min_indices)), :, :, min_indices[:]]
+                self.output_R_full = self.output_R
+                self.output_R =  self.output_R_full[torch.arange(len(min_indices)), :, :, min_indices[:]]
             elif self.config.rotation_use_dense:
                 self.regressionR_loss = compute_vect_loss(self.output_R, target_R, confidence=confidence) # B
             else:
@@ -129,6 +130,14 @@ class PointAEPoseAgent(BaseAgent):
 
             if self.config.pred_mode and self.config.MODEL.num_channels_R > 1:
                 self.classifyM_loss = compute_miou_loss(self.output_M, min_indices.unsqueeze(1).repeat(1, self.output_R.shape[-1]).contiguous().view(-1).contiguous(), loss_type='xentropy')
+                self.output_M_label = torch.argmax(self.output_M, dim=-1)  # [B * N] in [0...M-1]
+                self.classifyM_acc = (self.output_M_label == min_indices.unsqueeze(1).repeat(1, self.output_R.shape[-1]).contiguous().view(-1).contiguous()).float().mean()
+
+                B, N = len(min_indices), self.output_R.shape[-1]
+                # [B, 3, N, M]
+                self.output_R_chosen = self.output_R_full[torch.arange(B).reshape(-1, 1), :,
+                                       torch.arange(N).reshape(1, -1), self.output_M_label.reshape(B, N)].permute(0, 2, 1)  # [B, N, 3]
+                self.degree_err_chosen = torch.acos(torch.sum(self.output_R_chosen * target_R, dim=1)) * 180 / np.pi
 
         if 'completion' in self.config.task:
             if isinstance(self.latent_vect, dict):
