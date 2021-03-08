@@ -15,6 +15,7 @@ from common import handutils
 from common.data_utils import fast_load_obj
 from common.d3_utils import calculate_3d_backprojections, align_rotation
 from common.vis_utils import plot_imgs
+from common.yj_utils import print_composite
 
 from utils.external import binvox_rw, voxels
 from utils.external.libmesh import check_mesh_contains
@@ -184,12 +185,30 @@ class ObMan:
                 self.split, self.mini_factor, self.mode
             ),
         )
+        file_to_match = [] if not os.path.exists(self.cache_folder) else os.listdir(self.cache_folder)
+        cache_chunk_prefix = f'{self.split}_{self.mini_factor}_{self.mode}'
+        cache_chunk_files = [file for file in file_to_match if file.startswith(cache_chunk_prefix) and file.endswith('.pkl')]
+        cache_chunk_files = sorted(cache_chunk_files, key=lambda file: int(file.split('.')[-2].split('_')[-1]))
         if os.path.exists(cache_path) and self.use_cache:
             with open(cache_path, "rb") as cache_f:
                 annotations = pickle.load(cache_f)
             print(
                 "Cached information for dataset {} loaded from {}".format(
                     self.name, cache_path
+                )
+            )
+        elif len(cache_chunk_files) > 0:
+            annotations = {}
+            for filename in cache_chunk_files:
+                with open(os.path.join(self.cache_folder, filename), "rb") as cache_f:
+                    cur_anno = pickle.load(cache_f)
+                for key, value in cur_anno.items():
+                    if key not in annotations:
+                        annotations[key] = []
+                    annotations[key] += value
+            print(
+                "Cached information for dataset {} loaded from {}".format(
+                    self.name, cache_chunk_files
                 )
             )
         else:
@@ -220,6 +239,8 @@ class ObMan:
             obj_transforms = []
             meta_infos = []
             depth_infos = []
+
+            # for debugging
             for idx, prefix in enumerate(tqdm(prefixes)):
                 meta_path = os.path.join(
                     self.meta_folder, "{}.pkl".format(prefix)
@@ -303,13 +324,31 @@ class ObMan:
                     ).shape
                 )
             )
-            with open(cache_path, "wb") as fid:
-                pickle.dump(annotations, fid)
-            print(
-                "Wrote cache for dataset {} to {}".format(
-                    self.name, cache_path
+            if group_path.startswith('/orion'):
+                total = len(prefixes)
+                chunk_size = 20000
+                num_chunks = (total + chunk_size - 1) // chunk_size
+                for i_chunk in range(num_chunks):
+                    end = min(total, (i_chunk + 1) * chunk_size)
+                    cur_anno = {key: value[i_chunk * chunk_size: end] for key, value in annotations.items()}
+                    cache_chunk_path = os.path.join(self.cache_folder,
+                                                    f'{self.split}_{self.mini_factor}_{self.mode}_{i_chunk}.pkl')
+                    with open(cache_chunk_path, "wb") as fid:
+                        pickle.dump(cur_anno, fid)
+                    print(
+                        "Wrote cache [{}:{}] for dataset {} to {}".format(
+                            i_chunk * chunk_size, end,
+                            self.name, cache_chunk_path
+                        )
+                    )
+            else:
+                with open(cache_path, "wb") as fid:
+                    pickle.dump(annotations, fid)
+                print(
+                    "Wrote cache for dataset {} to {}".format(
+                        self.name, cache_path
+                    )
                 )
-            )
 
         # Set dataset attributes
         all_objects = [

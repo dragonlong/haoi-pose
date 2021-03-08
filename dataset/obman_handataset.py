@@ -31,6 +31,7 @@ def bp():
 infos           = global_info()
 my_dir          = infos.base_path
 project_path    = infos.project_path
+external_path = os.path.join(infos.group_path, 'external')
 categories_id   = infos.categories_id
 
 def bbox_from_joints(joints):
@@ -157,7 +158,7 @@ class HandDataset(Dataset):
                 self.class2category[class_id] = self.categories[-1]
                 self.models.append(samples)
             except:
-                class_path = class_path.replace('/groups/CESCA-CV/external', '/home/dragon/Documents/external')
+                class_path = class_path.replace('/groups/CESCA-CV/external', external_path)
                 samples = sorted(os.listdir(class_path))
                 self.categories.append(class_path.split('/')[-1])
                 self.class2category[class_id] = self.categories[-1]

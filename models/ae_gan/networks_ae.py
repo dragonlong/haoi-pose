@@ -95,7 +95,12 @@ class InterDownGraph(nn.Module): #
         for i in range(BS):
             src = neighbors_ind[i].contiguous().view(-1)
             dst = xyz_ind[i].view(-1, 1).repeat(1, self.num_samples).view(-1)
-            g = dgl.DGLGraph((src.cpu(), dst.cpu()))
+            g = dgl.graph((src.long(), dst.long()), num_nodes=len(pos[i])).to(pos.device)
+            g.ndata['x'] = pos[i]
+            g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
+            g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()]
+            """
+            g = dgl.DGLGraph((src.long(), dst.long())).to(pos.device)
             try:
                 g.ndata['x'] = pos[i] # dgl._ffi.base.DGLError: Expect number of features to match number of nodes (len(u)). Got 256 and 249 instead.
                 g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
@@ -105,11 +110,14 @@ class InterDownGraph(nn.Module): #
                 print('nodes neighborhoods: ', neighbors_ind[i].shape)
                 g = dgl.unbatch(G)[i]
                 g.remove_edges( np.arange( len(g.all_edges()[0]) ).tolist()) # this line comes with bug
-                g.add_edges(src.cpu().long(), dst.cpu().long())
+                g.add_edges(src.long(), dst.long())
                 g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()]
+            """
+
             glist.append(g)
 
         Gmid = dgl.batch(glist)
+
 
         # updated graph
         glist = []
@@ -118,7 +126,7 @@ class InterDownGraph(nn.Module): #
         for i in range(B):
             src = neighbors_ind[i].contiguous().view(-1).cpu()
             dst = torch.arange(pos[i].shape[0]).view(-1, 1).repeat(1, self.num_samples).view(-1)
-            g = dgl.DGLGraph((src.cpu(), dst.cpu()))
+            g = dgl.graph((src.long(), dst.long()), num_nodes=len(pos[i])).to(pos.device)
             g.ndata['x'] = pos[i]
             g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
             g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()] #[num_atoms,3] but we only supervise the half
@@ -338,7 +346,7 @@ class SE3Transformer(nn.Module):
         |-- downsampling -- |submodule| -- upsampling --|
 
     """
-    def __init__(self, cfg, latent_dim: int=128, div: float=4, pooling: str='avg', n_heads: int=1, **kwargs):
+    def __init__(self, cfg, latent_dim: int=128, div: float=4, pooling: str='avg', n_heads: int=1, vector_attention=False, **kwargs):
         super().__init__()
         # Build the network
         self.num_nlayers  = cfg.MODEL.num_nlayers
@@ -352,7 +360,9 @@ class SE3Transformer(nn.Module):
         self.div        = div
         self.pooling    = pooling
         self.n_heads    = n_heads
+        self.vector_attention = vector_attention
         self.latent_dim = latent_dim
+        self.batch_size = cfg.DATASET.train_batch
 
         self.fibers = {'in': Fiber(1, self.num_in_channels),
                        'mid': Fiber(self.num_degrees, self.num_mid_channels),         # should match with first downsample layer input
@@ -368,7 +378,8 @@ class SE3Transformer(nn.Module):
         self.pre_modules    = nn.ModuleList()
         self.down_modules   = nn.ModuleList()
 
-        self.pre_modules.append( GSE3Res(fibers['in'], fibers['mid'], edge_dim=self.edge_dim, div=self.div, n_heads=self.n_heads) )
+        self.pre_modules.append( GSE3Res(fibers['in'], fibers['mid'], edge_dim=self.edge_dim, div=self.div,
+                                         n_heads=self.n_heads, vector_attention=self.vector_attention) )
         self.pre_modules.append( GNormSE3(fibers['mid']) )
 
         # Down modules
@@ -385,6 +396,8 @@ class SE3Transformer(nn.Module):
                 args = self._fetch_arguments(opt.up_conv, i, "UP")
                 if opt.up_conv.module_type == 'GraphFPModule':
                     up_module = GraphFPModule(**args)
+                elif opt.up_conv.module_type == 'GraphFPResNoSkipLinkModule':
+                    up_module = GraphFPResNoSkipLinkModule(**args)
                 else:
                     up_module = GraphFPSumModule(**args)
                 self.up_modules.append(up_module)
@@ -418,17 +431,17 @@ class SE3Transformer(nn.Module):
             h0 = self.pre_modules[i](h0, G=G, r=r, basis=basis)
 
         # encoding
-        h1, G1, r1, basis1 = self.down_modules[0](h0, Gin=G0) # 512-256
-        h2, G2, r2, basis2 = self.down_modules[1](h1, Gin=G1) # 256-128
-        h3, G3, r3, basis3 = self.down_modules[2](h2, Gin=G2) # 128-64
-        h4, G4, r4, basis4 = self.down_modules[3](h3, Gin=G3) # 64-32
+        h1, G1, r1, basis1 = self.down_modules[0](h0, Gin=G0, BS=self.batch_size) # 512-256
+        h2, G2, r2, basis2 = self.down_modules[1](h1, Gin=G1, BS=self.batch_size) # 256-128
+        h3, G3, r3, basis3 = self.down_modules[2](h2, Gin=G2, BS=self.batch_size) # 128-64
+        h4, G4, r4, basis4 = self.down_modules[3](h3, Gin=G3, BS=self.batch_size) # 64-32
 
         # decoding
         if not self.encoder_only:
-            h3 = self.up_modules[0](h3, G=G3, r=r3, basis=basis3, uph=h4, upG=G4) # 64
-            h2 = self.up_modules[1](h2, G=G2, r=r2, basis=basis2, uph=h3, upG=G3) # 128
-            h1 = self.up_modules[2](h1, G=G1, r=r1, basis=basis1, uph=h2, upG=G2) # 256
-            h  = self.up_modules[3](h0, G=G0, r=r, basis=basis, uph=h1, upG=G1)    # 512
+            h3 = self.up_modules[0](h3, G=G3, r=r3, basis=basis3, uph=h4, upG=G4, BS=self.batch_size) # 64
+            h2 = self.up_modules[1](h2, G=G2, r=r2, basis=basis2, uph=h3, upG=G3, BS=self.batch_size) # 128
+            h1 = self.up_modules[2](h1, G=G1, r=r1, basis=basis1, uph=h2, upG=G2, BS=self.batch_size) # 256
+            h  = self.up_modules[3](h0, G=G0, r=r, basis=basis, uph=h1, upG=G1, BS=self.batch_size)    # 512
             if verbose:
                 i = 1 # choose your interested layer
                 print(f'--up{i} GraphFP: ', self.up_modules[i].Tblock[0].f_in.structure, self.up_modules[i].Tblock[0].f_out.structure)
@@ -485,7 +498,8 @@ class SE3Transformer(nn.Module):
         return args
 
 class SE3TBlock(nn.Module):
-    def __init__(self, npoint, nsample, radius, down_conv_nn, num_degrees=2, edge_dim=0, div=4, n_heads=1, knn=True, use_xyz=True, module_type='mid_layer', index=0):
+    def __init__(self, npoint, nsample, radius, down_conv_nn, num_degrees=2, edge_dim=0, div=4, n_heads=1, knn=True,
+                 use_xyz=True, module_type='mid_layer', index=0, vector_attention=False):
         super(SE3TBlock, self).__init__()
         self.nsample = nsample
         self.npoint  = npoint
@@ -508,7 +522,7 @@ class SE3TBlock(nn.Module):
         for i in range(len(out_channels)):
             fibers.append( Fiber(num_degrees, out_channels[i]) )
             Tblock.append(GSE3Res(fibers[-2], fibers[-1], edge_dim=self.edge_dim,
-                                  div=self.div, n_heads=self.n_heads))
+                                  div=self.div, n_heads=self.n_heads, vector_attention=vector_attention))
             Tblock.append(GNormSE3(fibers[-1]))
 
         self.stage1 = nn.ModuleList(Tblock[:2]) # for inter
@@ -520,7 +534,7 @@ class SE3TBlock(nn.Module):
         Gin: input graph
         """
         # Compute equivariant weight basis from relative positions
-        Gmid, Gout, xyz_ind = self.down_g(Gin)
+        Gmid, Gout, xyz_ind = self.down_g(Gin, BS=BS)
         basis, r = get_basis_and_r(Gmid, self.num_degrees-1)
 
         #  intermediate graph
@@ -542,7 +556,7 @@ class SE3TBlock(nn.Module):
         return h, Gout, r, basis
 
 class GraphFPModule(nn.Module):
-    def __init__(self, up_conv_nn, num_degrees=2, edge_dim=0, div=4, n_heads=1, knn=False, use_xyz=True, module_type='mid_layer', index=0):
+    def __init__(self, up_conv_nn, num_degrees=2, edge_dim=0, div=4, n_heads=1, knn=False, use_xyz=True, module_type='mid_layer', index=0, vector_attention=False):
         super(GraphFPModule, self).__init__()
         self.module_type = module_type
         self.use_xyz = use_xyz
@@ -602,7 +616,8 @@ class GraphFPModule(nn.Module):
         return h
 
 class GraphFPSumModule(nn.Module):
-    def __init__(self, up_conv_nn, num_degrees=2, edge_dim=0, div=4, n_heads=1, knn=False, use_xyz=True, module_type='mid_layer', index=0):
+    def __init__(self, up_conv_nn, num_degrees=2, edge_dim=0, div=4, n_heads=1, knn=False, use_xyz=True,
+                 module_type='mid_layer', index=0, vector_attention=False):
         super(GraphFPSumModule, self).__init__()
         self.module_type = module_type
         self.use_xyz = use_xyz
@@ -621,7 +636,8 @@ class GraphFPSumModule(nn.Module):
             fibers.append( Fiber(num_degrees, out_channels[i]) )
 
         for i in range(len(out_channels)):
-            Tblock.append(GSE3Res(fibers[i], fibers[i+1], edge_dim=self.edge_dim))
+            Tblock.append(GSE3Res(fibers[i], fibers[i+1], edge_dim=self.edge_dim, n_heads=self.n_heads,
+                                  vector_attention=vector_attention))
             Tblock.append(GNormSE3(fibers[i+1]))
         self.Tblock = nn.ModuleList(Tblock)
         self.add = GSum(fibers[0], fibers[-1])
@@ -666,12 +682,77 @@ class GraphFPSumModule(nn.Module):
         return h
 
 
+class GraphFPResNoSkipLinkModule(nn.Module):
+    def __init__(self, up_conv_nn, num_degrees=2, edge_dim=0, div=4, n_heads=1, knn=False, use_xyz=True, module_type='mid_layer', index=0):
+        super(GraphFPResNoSkipLinkModule, self).__init__()
+        self.module_type = module_type
+        self.use_xyz = use_xyz
+        self.edge_dim= edge_dim
+        self.div=div
+        self.n_heads=n_heads
+        self.num_degrees = num_degrees
+        self.index = index
+
+        # 2. add SE3-layer over intermediate graph, and abstract Graph
+        Tblock = []
+        in_channels  = eval(up_conv_nn[0]) # concatenated channels
+        out_channels = up_conv_nn[1:]
+        fibers  = [Fiber(num_degrees, in_channels)]
+        for i in range(len(out_channels)):
+            fibers.append( Fiber(num_degrees, out_channels[i]) )
+
+        for i in range(len(out_channels)):
+            Tblock.append(GSE3Res(fibers[i], fibers[i+1], edge_dim=self.edge_dim, n_heads=self.n_heads))
+            Tblock.append(GNormSE3(fibers[i+1]))
+        self.Tblock = nn.ModuleList(Tblock)
+
+    def forward(self, h, G, r, basis, uph=None, upG=None, BS=2):
+        """
+        h: input skip feature, with type 0: [BS*N, C, 1], type 0: [BS*N, C, 1]
+        G, input skip graph,
+        r: relative distance
+        basis: basis function in SE3 layer
+        upG: previous layer Graph, need upsampling;
+        uph: previous layer, need upsampling;
+        """
+        xyz_prev = upG.ndata['x'].view(BS, -1, 3).contiguous()
+        xyz = G.ndata['x'].view(BS, -1, 3).contiguous()
+
+        # upsampling + concatenation
+        dist, ind = three_nn(xyz, xyz_prev)
+        dist = dist * dist
+        dist[dist < 1e-10] = 1e-10
+        inverse_dist = 1.0 / (dist + 1e-8)
+        norm = torch.sum(inverse_dist, dim=2, keepdim=True)
+        weights = inverse_dist / norm
+        keys = h.keys()
+        h_interpolated = {}
+        for key in keys:
+            nC, nF= uph[key].shape[-2], uph[key].shape[-1]
+            fp    = uph[key].view(uph[key].shape[0], -1).contiguous() # BS*N, C, 1/3 -> BS*N, C
+            fp    = fp.view(BS, -1, fp.shape[-1]).contiguous().permute(0, 2, 1).contiguous() # BS, C, N
+            new_features = torch.sum(group_gather_by_index(fp, ind) * weights.unsqueeze(1), dim=3) # BS, C, N
+            nC1   = new_features.shape[1]
+            assert nC1 == nC * nF
+            new_features = new_features.permute(0, 2, 1).contiguous().view(-1, nC1).contiguous()
+            new_features = new_features.view(new_features.shape[0], nC, -1)
+            h_interpolated[key] = new_features
+
+        h = h_interpolated  # no skip link at all
+        for i, layer in enumerate(self.Tblock):
+            h = layer(h, G=G, r=r, basis=basis)
+
+        return h
+
+
+
 class PointAE(nn.Module):
     def __init__(self, cfg):
         super(PointAE, self).__init__()
         self.encoder_type = cfg.encoder_type
         if 'se3' in self.encoder_type:
-             self.encoder = SE3Transformer(cfg=cfg, edge_dim=0, pooling='avg')
+             self.encoder = SE3Transformer(cfg=cfg, edge_dim=0, pooling='avg', n_heads=cfg.MODEL.n_heads,
+                                           vector_attention=cfg.MODEL.vector_attention)
         elif 'plus' in self.encoder_type:
             self.encoder = PointNetplusplus(cfg)
         else:

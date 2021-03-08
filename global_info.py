@@ -308,6 +308,12 @@ class global_info(object):
             # second_path = '/home/dragon/ARCwork'
             # mano_path = '/home/dragon/Downloads/ICML2021/YCB_Affordance/data/mano'
             mano_path = '/home/dragon/Dropbox/ICML2021/code/manopth/mano/models'
+        elif platform.uname()[1].endswith('stanford.edu'):
+            base_path = '/orion/u/yijiaw/projects/haoi/base'
+            second_path = '/orion/u/yijiaw/projects/haoi/base'
+            group_path ='/orion/u/yijiaw/projects/haoi'
+            project_path = '/orion/u/yijiaw/projects/haoi/code'
+            mano_path = '/orion/u/yijiaw/projects/haoi/code/manopth/mano/models'
         else:
             base_path = '/groups/CESCA-CV/ICML2021'
             group_path= '/groups/CESCA-CV'

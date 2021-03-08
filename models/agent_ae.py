@@ -5,7 +5,7 @@ import wandb
 import __init__
 from models.ae_gan import get_network
 from models.base import BaseAgent
-from utils.emd import earth_mover_distance
+# from utils.emd import earth_mover_distance
 from models.losses import loss_geodesic, loss_vectors, compute_vect_loss, compute_1vN_nocs_loss, compute_miou_loss
 from common.d3_utils import compute_rotation_matrix_from_euler, compute_euler_angles_from_rotation_matrices, compute_rotation_matrix_from_ortho6d
 from os import makedirs, remove
@@ -128,6 +128,8 @@ class PointAEPoseAgent(BaseAgent):
                 variance = torch.norm(self.output_R - mean_R, dim=1).mean()
                 self.consistency_loss = variance * self.config.consistency_loss_multiplier
                 self.infos['consistency'] = self.consistency_loss
+            else:
+                self.consistency_loss = 0.0
 
             if self.config.MODEL.num_channels_R > 1: # apply to all
                 if self.config.rotation_use_dense:
@@ -136,7 +138,9 @@ class PointAEPoseAgent(BaseAgent):
                     regressionR_loss = compute_vect_loss(self.output_R_pooled.unsqueeze(2), target_R.unsqueeze(2)) # [2, 3, 2], [2, 3, 1]
                 min_loss, min_indices = torch.min(regressionR_loss, dim=-1)
                 self.regressionR_loss = min_loss
-                self.output_R   =  self.output_R[torch.arange(target_R.shape[0]), :, :, min_indices[:]]
+
+                self.output_R_full = self.output_R
+                self.output_R   =  self.output_R_full[torch.arange(target_R.shape[0]), :, :, min_indices[:]]
                 self.degree_err =  self.degree_err[torch.arange(target_R.shape[0]), :, min_indices[:]] # B, N, C
             else: # we have confidence for hand points
                 if self.config.rotation_use_dense:
@@ -158,6 +162,14 @@ class PointAEPoseAgent(BaseAgent):
             if self.config.pred_mode and self.config.MODEL.num_channels_R > 1:
                 self.target_M = min_indices.unsqueeze(1).repeat(1, self.output_R.shape[-1]).contiguous().view(-1).contiguous()
                 self.classifyM_loss = compute_miou_loss(self.output_M, min_indices.unsqueeze(1).repeat(1, self.output_R.shape[-1]).contiguous().view(-1).contiguous(), loss_type='xentropy')
+                self.output_M_label = torch.argmax(self.output_M, dim=-1)  # [B * N] in [0...M-1]
+                self.classifyM_acc = (self.output_M_label == min_indices.unsqueeze(1).repeat(1, self.output_R.shape[-1]).contiguous().view(-1).contiguous()).float().mean()
+
+                B, N = len(min_indices), self.output_R.shape[-1]
+                # [B, 3, N, M]
+                self.output_R_chosen = self.output_R_full[torch.arange(B).reshape(-1, 1), :,
+                                       torch.arange(N).reshape(1, -1), self.output_M_label.reshape(B, N)].permute(0, 2, 1)  # [B, N, 3]
+                self.degree_err_chosen = torch.acos(torch.sum(self.output_R_chosen * target_R, dim=1)) * 180 / np.pi
 
         if 'completion' in self.config.task:
             if isinstance(self.latent_vect, dict):
