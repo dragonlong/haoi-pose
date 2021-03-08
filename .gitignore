@@ -8,3 +8,6 @@ __pycache__
 .log
 /outputs
 wandb
+.so
+.pyc
+/results

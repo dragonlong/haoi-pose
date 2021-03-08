@@ -81,6 +81,43 @@ class InterDownGraph(nn.Module): #
         self.n_sampler   = Sample(npoint)
         self.e_sampler   = SampleNeighbors(r, self.num_samples, knn=knn)
 
+    # def forward(self, G, BS=2):
+    #     """
+    #     G: input Graph
+    #     BS: batch size
+    #     """
+    #     glist = []
+    #     pos = G.ndata['x'].view(BS, -1, 3).contiguous() # it should be 256, but only got 249, then the input doesn't have enough points
+    #     B, N, _ = pos.shape
+    #     xyz_ind, xyz_query = self.n_sampler(pos)        # downsample, might be that I actually sampled 256 > 249, so that
+    #     neighbors_ind      = self.e_sampler(pos, xyz_query) #
+    #     glist              = []                          # works for all complete shapes
+    #     for i in range(BS):
+    #         src = neighbors_ind[i].contiguous().view(-1)
+    #         dst = xyz_ind[i].view(-1, 1).repeat(1, self.num_samples).view(-1)
+    #         g = dgl.graph((src.long(), dst.long()), num_nodes=len(pos[i])).to(pos.device)
+    #         g.ndata['x'] = pos[i]
+    #         g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
+    #         g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()]
+    #         glist.append(g)
+    #
+    #     Gmid = dgl.batch(glist)
+    #     # updated graph
+    #     glist = []
+    #     pos   = xyz_query
+    #     neighbors_ind = self.e_sampler(pos, pos)
+    #     for i in range(B):
+    #         src = neighbors_ind[i].contiguous().view(-1).cpu()
+    #         dst = torch.arange(pos[i].shape[0]).view(-1, 1).repeat(1, self.num_samples).view(-1)
+    #         g = dgl.graph((src.long(), dst.long()), num_nodes=len(pos[i])).to(pos.device)
+    #         g.ndata['x'] = pos[i]
+    #         g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
+    #         g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()] #[num_atoms,3] but we only supervise the half
+    #         glist.append(g)
+    #     Gout = dgl.batch(glist)
+    #
+    #     return Gmid, Gout, xyz_ind
+
     def forward(self, G, BS=2):
         """
         G: input Graph
@@ -95,12 +132,7 @@ class InterDownGraph(nn.Module): #
         for i in range(BS):
             src = neighbors_ind[i].contiguous().view(-1)
             dst = xyz_ind[i].view(-1, 1).repeat(1, self.num_samples).view(-1)
-            g = dgl.graph((src.long(), dst.long()), num_nodes=len(pos[i])).to(pos.device)
-            g.ndata['x'] = pos[i]
-            g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
-            g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()]
-            """
-            g = dgl.DGLGraph((src.long(), dst.long())).to(pos.device)
+            g = dgl.DGLGraph((src.cpu(), dst.cpu()))
             try:
                 g.ndata['x'] = pos[i] # dgl._ffi.base.DGLError: Expect number of features to match number of nodes (len(u)). Got 256 and 249 instead.
                 g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
@@ -110,14 +142,11 @@ class InterDownGraph(nn.Module): #
                 print('nodes neighborhoods: ', neighbors_ind[i].shape)
                 g = dgl.unbatch(G)[i]
                 g.remove_edges( np.arange( len(g.all_edges()[0]) ).tolist()) # this line comes with bug
-                g.add_edges(src.long(), dst.long())
+                g.add_edges(src.cpu().long(), dst.cpu().long())
                 g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()]
-            """
-
             glist.append(g)
 
         Gmid = dgl.batch(glist)
-
 
         # updated graph
         glist = []
@@ -126,7 +155,7 @@ class InterDownGraph(nn.Module): #
         for i in range(B):
             src = neighbors_ind[i].contiguous().view(-1).cpu()
             dst = torch.arange(pos[i].shape[0]).view(-1, 1).repeat(1, self.num_samples).view(-1)
-            g = dgl.graph((src.long(), dst.long()), num_nodes=len(pos[i])).to(pos.device)
+            g = dgl.DGLGraph((src.cpu(), dst.cpu()))
             g.ndata['x'] = pos[i]
             g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
             g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()] #[num_atoms,3] but we only supervise the half
@@ -377,9 +406,8 @@ class SE3Transformer(nn.Module):
         fibers = self.fibers
         self.pre_modules    = nn.ModuleList()
         self.down_modules   = nn.ModuleList()
-
         self.pre_modules.append( GSE3Res(fibers['in'], fibers['mid'], edge_dim=self.edge_dim, div=self.div,
-                                         n_heads=self.n_heads, vector_attention=self.vector_attention) )
+                                         n_heads=self.n_heads) ) # , vector_attention=self.vector_attention
         self.pre_modules.append( GNormSE3(fibers['mid']) )
 
         # Down modules
@@ -522,7 +550,7 @@ class SE3TBlock(nn.Module):
         for i in range(len(out_channels)):
             fibers.append( Fiber(num_degrees, out_channels[i]) )
             Tblock.append(GSE3Res(fibers[-2], fibers[-1], edge_dim=self.edge_dim,
-                                  div=self.div, n_heads=self.n_heads, vector_attention=vector_attention))
+                                  div=self.div, n_heads=self.n_heads)) #, vector_attention=vector_attention
             Tblock.append(GNormSE3(fibers[-1]))
 
         self.stage1 = nn.ModuleList(Tblock[:2]) # for inter
@@ -636,8 +664,7 @@ class GraphFPSumModule(nn.Module):
             fibers.append( Fiber(num_degrees, out_channels[i]) )
 
         for i in range(len(out_channels)):
-            Tblock.append(GSE3Res(fibers[i], fibers[i+1], edge_dim=self.edge_dim, n_heads=self.n_heads,
-                                  vector_attention=vector_attention))
+            Tblock.append(GSE3Res(fibers[i], fibers[i+1], edge_dim=self.edge_dim, n_heads=self.n_heads)) # vector_attention=vector_attention
             Tblock.append(GNormSE3(fibers[i+1]))
         self.Tblock = nn.ModuleList(Tblock)
         self.add = GSum(fibers[0], fibers[-1])

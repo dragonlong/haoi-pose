@@ -515,6 +515,22 @@ use_wandb=True \
 # to eval on full test set, just add below
 eval=True save=True use_gt_M=True 2>&1 | tee results/eval_2.4096.log
 
+2.417:  # jar, encoder + decoder, modal=2, with classifyM loss, mode regularization, 4 heads
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.4091622' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+vis_frequency=1000 vis=True \
+MODEL.down_conv.npoint='[256, 64, 32, 16]' \
+MODEL.down_conv.n_heads=4 \
+MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
+MODEL.up_conv.n_heads=4 \
+MODEL.n_heads=4 \
+MODEL.num_channels_R=2 MODEL.encoder_only=False \
+pred_mode=True use_objective_M=True use_objective_V=True consistency_loss_multiplier=0.1 \
+use_wandb=True \
+# to eval on full test set, just add below
+eval=True save=True use_gt_M=True 2>&1 | tee results/eval_2.4091622.log
+
 2.452: # ca197 1 camera, encoder + decoder, modal=2, with classifyM loss, add mode regularization, with hand points, with segmentation;
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
 $TRAIN_OBJ task='partial_pcloud_pose' target_category='camera' exp_num='2.452' DATASET.train_batch=2 DATASET.test_batch=2 \
@@ -528,6 +544,7 @@ use_hand=True pred_seg=True use_objective_C=True \
 use_wandb=True \
 # to eval on full test set, just add below
 eval=True save=True use_gt_M=True 2>&1 | tee results/eval_2.4096.log
+
 
 2.47 # ca211 0 bowl, encoder + decoder, modal=2, with classifyM loss, add mode regularization, with hand points, with segmentation;
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
@@ -609,7 +626,7 @@ use_hand=True pred_seg=True use_wandb=True
 
 
 
-2.41:
+2.41:  #jar
   2.411 # jar, AE-Graph, synthetic complete pcloud
   TRAIN_OBJ='python train_aegan.py training=ae_gan use_wandb=True vis=True n_pts=256 name_model=ae dataset_class=HandDatasetAEGraph'
   $TRAIN_OBJ target_category='jar' exp_num='2.411'  DATASET.train_batch=2 DATASET.test_batch=2
