@@ -13,6 +13,7 @@ import dgl
 from collections import OrderedDict
 from tqdm import tqdm
 from dataset.obman_parser import ObmanParser
+from dataset.modelnet40_parser import ModelParser
 from common.train_utils import cycle
 from models import get_agent
 
@@ -36,7 +37,6 @@ categories_id = infos.categories_id
 project_path  = infos.project_path
 # training: ae_gan
 
-
 def vote_rotation_ransac(out_R, out_M, gt_R=None, gt_M=None, use_base=False, thres=5, verbose=True):
     """
     out_R is : [3, N, M];
@@ -59,7 +59,6 @@ def vote_rotation_ransac(out_R, out_M, gt_R=None, gt_M=None, use_base=False, thr
     R_best1 = out_R.reshape(3, -1)[:, np.argmax(score_weighted)]
     pred_M  = np.argmax(out_M, axis=-1) # N
     select_M  = np.bincount(pred_M).argmax()
-    # select_M = np.bincount(gt_M).argmax()
     print('---averaged mode is ', select_M)
     R_best2 = out_R[:, :, select_M][:, np.argmax(score[:, select_M])]
     if gt_R is not None:
@@ -109,7 +108,7 @@ def eval_func(tr_agent, data, all_rts, cfg):
         pred_dict['N'] = tr_agent.output_N.cpu().detach().numpy().transpose(0, 2, 1) # B, N, 3
         # ransac for pose
         for m in range(target_R.shape[0]):
-            basename  = f'{cfg.iteration}_' + data['id'][m] + f'{idx[m]}_' + categories[cfg.target_category]
+            basename  = f'{cfg.iteration}_' + data['id'][m] + f'{idx[m]}_' + data['class'][m]
             nocs_gt   = target_pts[m]
             nocs_pred = np.concatenate([2*np.ones_like(pred_dict['N'][m]), pred_dict['N'][m]], axis=1)
             part_idx_list_pred = [None, np.arange(nocs_pred.shape[0])]
@@ -124,16 +123,17 @@ def eval_func(tr_agent, data, all_rts, cfg):
         if cfg.rotation_use_dense:
             output_R = tr_agent.output_R_raw.cpu().detach().numpy()
             BS, NC = output_R.shape[0], cfg.MODEL.num_channels_R
-            gt_M     = tr_agent.target_M.cpu().detach().numpy().reshape(BS, -1)
-            output_M = tr_agent.output_M.cpu().detach().numpy().reshape(BS, -1, NC)
-
             if cfg.pred_mode:
+                gt_M     = tr_agent.target_M.cpu().detach().numpy().reshape(BS, -1)
+                output_M = tr_agent.output_M.cpu().detach().numpy().reshape(BS, -1, NC)
                 pred_dict['R'] = []
                 for m in range(BS):
                     R1, R2, mode_acc, good_ratio = vote_rotation_ransac(output_R[m], output_M[m], gt_R=target_R[m], gt_M=gt_M[m], use_base=False, thres=5, verbose=True)
                     pred_dict['R'].append(R2)
                     infos_dict['mode_acc'].append(mode_acc)
                     infos_dict['good_per_mode'].append(good_ratio)
+            else:
+                pred_dict['R'] = output_R.mean(axis=-1) # all as B, 3, N
         #
         elif cfg.MODEL.num_channels_R > 1:
             output_R = tr_agent.output_R_pooled.cpu().detach().numpy()
@@ -151,8 +151,8 @@ def eval_func(tr_agent, data, all_rts, cfg):
 
         # voting to get the final predictions
         for m in range(target_R.shape[0]):
-            basename  = f'{cfg.iteration}_' + data['id'][m] + f'{idx[m]}_' + categories[cfg.target_category]
-            # basename  = f'{cfg.iteration}_' + data['id'][m] + '_' + categories[cfg.target_category]
+            basename   = f'{cfg.iteration}_' + data['id'][m] + f'{idx[m]}_' + data['class'][m]
+            # basename  = f'{cfg.iteration}_' + data['id'][m] + '_' + data['class'][m]
             scale_dict = {'gt': [], 'baseline': [], 'nonlinear': []}
             r_dict     = {'gt': [], 'baseline': [], 'nonlinear': []}
             t_dict     = {'gt': [], 'baseline': [], 'nonlinear': []}
@@ -237,7 +237,10 @@ def main(cfg):
     if cfg.use_pretrain or cfg.eval:
         tr_agent.load_ckpt(cfg.ckpt)
 
-    parser = ObmanParser(cfg)
+    if cfg.name_dset == 'obman':
+        parser = ObmanParser(cfg)
+    else:
+        parser = ModelParser(cfg)
     train_loader = parser.trainloader
     val_loader   = parser.validloader
     test_loader  = parser.validloader
@@ -275,7 +278,7 @@ def main(cfg):
                         outputs = tr_agent.fake_pc
                         for m in range(data["raw"].shape[0]):
                             model_id  = data["raw_id"][m]
-                            taxonomy_id = categories[cfg.target_category]
+                            taxonomy_id = data['class'][m]
                             save_name = f'{cfg.log_dir}/generation/{cfg.split}/input_{taxonomy_id}_{model_id}.npy'
                             save_for_viz(['points', 'labels'], [data["raw"][m].cpu().numpy().T, np.ones((data["raw"][m].shape[1]))], save_name, type='np')
                             save_name = f'{cfg.log_dir}/generation/{cfg.split}/{cfg.module}_{taxonomy_id}_{model_id}.npy'
@@ -295,7 +298,7 @@ def main(cfg):
 
                         for m in range(data["points"].shape[0]):
                             model_id  = data['id'][m]
-                            taxonomy_id = categories[cfg.target_category]
+                            taxonomy_id = data['class'][m]
                             save_name = f'{cfg.log_dir}/generation/{cfg.split}/input_{taxonomy_id}_{model_id}.npy'
                             save_for_viz(['points', 'labels'], [data["points"][m].cpu().numpy().T, np.ones((data["points"][m].shape[1]))], save_name, type='np')
                             save_name = f'{cfg.log_dir}/generation/{cfg.split}/{cfg.module}_{taxonomy_id}_{model_id}.npy'

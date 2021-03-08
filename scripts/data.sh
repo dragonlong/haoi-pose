@@ -18,3 +18,4 @@ big enough, and also could pass to next layer, and even final layer;
   -  180, ambiguity;
 
 # 3. bottleneck concat,
+python modelnet40.py datasets=modelnet40

@@ -61,6 +61,7 @@ fetch_cache: False
 use_preprocess: False
 preprocess: False
 augment: False
+normalize: False
 single_instance: False
 verbose: False
 is_gen: False

@@ -276,6 +276,7 @@ def main(cfg):
     for category in all_categorys:
         print(f'{categories_id[category]}\t{np.array(rpy_err_dict[category]).mean():0.4f}\t{np.array(xyz_err_dict[category]).mean():0.4f}')
         all_bad_indexs = np.where(np.array(rpy_err_dict[category]) > 20)[0]
+        #
         # all_bad_indexs = np.where(np.array(xyz_err_dict[category]) > 5)[0]
         # for index in all_bad_indexs:
         #     # index = rpy_err_dict[category_name].index(max(rpy_err_dict[category_name]))
@@ -288,6 +289,31 @@ def main(cfg):
             #     plot3d_pts([[input], [pred], [gt]], [['input'], ['pred nocs'], ['gt nocs']],  title_name=['0', '1', '2'], s=4**2, dpi=300, axis_off=False, color_channel=[[gt], [gt], [gt]])
             # except:
             #     plot3d_pts([[input]], [['input']],  title_name=['0'], s=4**2, dpi=300, axis_off=False)
+    # 5 degrees accuracy
+    num_parts = 1
+    print('For {} object, {}, 5 degrees accuracy is: '.format(cfg.domain, cfg.nocs))
+    for category in all_categorys:
+        r_err = np.array(rpy_err_dict[category])
+        num_valid = r_err.shape[0]
+        r_acc = []
+        for j in range(num_parts):
+            idx = np.where(r_err < 5)[0]
+            acc   = len(idx) / num_valid
+            r_acc.append(acc)
+        print(categories_id[category], " ".join(["{:0.4f}".format(x) for x in r_acc]))
+    print('\n')
+    # 5 degrees & 0.05
+    print('For {} object, {}, 5 degrees, 5 cms accuracy is: '.format(cfg.domain, cfg.nocs))
+    for category in all_categorys:
+        num_valid = r_err.shape[0]
+        rt_acc = []
+        t_err  = np.array(xyz_err_dict[category])
+        for j in range(num_parts):
+            idx = np.where(r_err < 5)[0]
+            acc   = len(np.where( t_err[idx] < 0.05 )[0]) / num_valid
+            rt_acc.append(acc) # two modes
+        print(categories_id[category], " ".join(["{:0.4f}".format(x) for x in rt_acc]))
+    print('\n')
     plot_distribution(rpy_err_dict[category_name], labelx='r_err', labely='frequency', title_name='rotation_error', sub_name=cfg.exp_num, save_fig=True)
     plot_distribution(xyz_err_dict[category_name], labelx='t_err', labely='frequency', title_name='translation_error', sub_name=cfg.exp_num, save_fig=True)
     # values, bins = np.histogram(rpy_err_dict[category_name], bins=np.arange(0, 180, 10), density=True)

@@ -18,6 +18,7 @@ augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
 vis_frequency=1000 vis=True \
 models=se3_transformerv3 \
 MODEL.num_channels_R=1 MODEL.encoder_only=True \
+eval=True save=True
 use_wandb=True
 
 # 2.40582 encoder-only v3, dense two-mode prediction
@@ -39,7 +40,7 @@ models=se3_transformerv3 \
 MODEL.num_channels_R=1 MODEL.encoder_only=True \
 use_wandb=True
 
-# 2.40584, encoder-decoder full training, use 2 mode, dense prediction
+# 2.40584, encoder-decoder full training, use 2 mode, dense prediction, check visulizations and log
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
 $TRAIN_OBJ task='pcloud_pose' target_category='bottle' exp_num='2.40584' DATASET.train_batch=2 DATASET.test_batch=2 \
 augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
@@ -48,6 +49,7 @@ MODEL.down_conv.npoint='[256, 64, 32, 16]' \
 MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
 MODEL.num_channels_R=2 MODEL.encoder_only=False \
 pred_mode=True use_objective_M=True \
+eval=True save=True \
 use_wandb=True
 
 # 2.40585, encoder-decoder full training, pooled prediction, 1 mode
@@ -58,6 +60,7 @@ vis_frequency=1000 vis=True \
 MODEL.down_conv.npoint='[256, 64, 32, 16]' \
 MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
 MODEL.num_channels_R=1 MODEL.encoder_only=False \
+eval=True save=True 2>&1 | tee results/eval.2.40585.log
 use_wandb=True
 
 # 2.406971, multiple instance, dynamic graph, with augmentation, T voting
@@ -107,7 +110,7 @@ $TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.40734'
 augment=True rotation_loss_type=1 use_objective_R=True MODEL.num_channels_R=1 MODEL.use_ball_query=False \
 use_wandb=True
 
-2.40735: # ca210 0 add two modes, dense, knn
+2.40735: # (killed) ca210 0 add two modes, dense, knn
 TRAIN_OBJ='python train_aegan.py training=ae_gan models=pnet2 encoder_type='pnetplusplus' vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
 $TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.40735' DATASET.train_batch=2 DATASET.test_batch=2 \
 augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
@@ -425,11 +428,22 @@ use_wandb=True
 # use_wandb=True
 
 
-2.4092: # train for partial shape, bottle, object pts only, T voting
+# 2.4092: # train for partial shape, bottle, object pts only, T voting
+# TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+# $TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.4092' DATASET.train_batch=2 DATASET.test_batch=2 \
+# use_objective_T=True \
+# eval=True save=True \
+# use_wandb=True
+
+2.4092 # T_voting training
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
 $TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.4092' DATASET.train_batch=2 DATASET.test_batch=2 \
 use_objective_T=True \
+MODEL.down_conv.npoint='[256, 64, 32, 16]' \
+MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
 use_wandb=True
+
+eval=True save=True \
 
   --->2.4093: # use type 0 to predict NOCS
   TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 MODEL.num_degrees=2 MODEL.num_layers=12 MODEL.num_channels=32 name_model=ae dataset_class=HandDatasetAEGraph'
@@ -726,3 +740,87 @@ eval=True save=True
 2.46: knife
 
 2.47: bowl;
+
+
+# 3.11 different categories
+# airplane   bottle  cup      filelist.txt  lamp                        modelnet10_train.txt        night_stand  range_hood  table     wardrobe
+# bathtub    bowl    curtain  flower_pot    laptop                      modelnet40_shape_names.txt  person       sink        tent      xbox
+# bed        car     desk     glass_box     mantel                      modelnet40_test.txt         piano        sofa        toilet
+# bench      chair   door     guitar        modelnet10_shape_names.txt  modelnet40_train.txt        plant        stairs      tv_stand
+# bookshelf  cone    dresser  keyboard      modelnet10_test.txt         monitor                     radio        stool       vase
+
+3.1 # encoder-decoder full training, pooled prediction, 1 mode
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae datasets=modelnet40 dataset_class=AEGraph'
+$TRAIN_OBJ task='pcloud_pose' item='modelnet40' name_dset='modelnet40' exp_num='3.1' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True \
+vis_frequency=1000 vis=True \
+MODEL.down_conv.npoint='[256, 64, 32, 16]' \
+MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
+MODEL.num_channels_R=1 MODEL.encoder_only=False \
+use_wandb=True
+eval=True save=True 2>&1 | tee results/eval_default.log
+use_wandb=True
+
+3.11 # encoder-decoder, 2 mode, dense prediction, check visulizations and log
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae datasets=modelnet40 dataset_class=AEGraph'
+$TRAIN_OBJ task='pcloud_pose' item='modelnet40' name_dset='modelnet40' exp_num='3.11' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+vis_frequency=1000 vis=True \
+MODEL.down_conv.npoint='[256, 64, 32, 16]' \
+MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
+MODEL.num_channels_R=2 MODEL.encoder_only=False \
+pred_mode=True use_objective_M=True \
+use_wandb=True
+eval=True save=True \
+use_wandb=True
+
+3.12 # mode=1, category chair
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae datasets=modelnet40 dataset_class=AEGraph'
+$TRAIN_OBJ task='pcloud_pose' item='modelnet40' name_dset='modelnet40' target_category='chair' exp_num='3.12' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True \
+vis_frequency=1000 vis=True \
+MODEL.down_conv.npoint='[256, 64, 32, 16]' \
+MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
+MODEL.num_channels_R=1 MODEL.encoder_only=False \
+eval=True save=True 2>&1 | tee results/eval.2.40585.log
+use_wandb=True
+
+3.13 # mode=1, category monitor
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae datasets=modelnet40 dataset_class=AEGraph'
+$TRAIN_OBJ task='pcloud_pose' item='modelnet40' name_dset='modelnet40' target_category='monitor' exp_num='3.13' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 use_objective_R=True \
+vis_frequency=1000 vis=True \
+MODEL.down_conv.npoint='[256, 64, 32, 16]' \
+MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
+MODEL.num_channels_R=1 MODEL.encoder_only=False \
+eval=True save=True 2>&1 | tee results/eval.2.40585.log
+use_wandb=True
+
+3.2 # completion
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae datasets=modelnet40 dataset_class=AEGraph'
+$TRAIN_OBJ task='pcloud_completion' item='modelnet40' name_dset='modelnet40' exp_num='3.2' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 \
+vis_frequency=1000 vis=True \
+MODEL.down_conv.npoint='[256, 64, 32, 16]' \
+MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
+MODEL.num_channels_R=1 MODEL.encoder_only=False \
+use_wandb=True
+eval=True save=True 2>&1 | tee results/eval_default.log
+use_wandb=True
+
+3.21 # completion for chair
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae datasets=modelnet40 dataset_class=AEGraph'
+$TRAIN_OBJ task='pcloud_completion' item='modelnet40' name_dset='modelnet40' exp_num='3.21' target_category='chair' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 \
+vis_frequency=1000 vis=True \
+MODEL.down_conv.npoint='[256, 64, 32, 16]' \
+MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
+MODEL.num_channels_R=1 MODEL.encoder_only=False \
+use_wandb=True
+eval=True save=True 2>&1 | tee results/eval_default.log
+use_wandb=True
+
+
+3.3 unsupervised training
+
+3.4 GAN

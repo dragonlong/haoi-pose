@@ -240,7 +240,33 @@ def post_summary(all_rts, file_name=None, args=None, r_raw_err=None, t_raw_err=N
     all_categorys = xyz_err_dict.keys()
     print('category\trotation error\ttranslation error')
     for category in all_categorys:
-        print(f'{categories_id[category]}\t{np.array(rpy_err_dict[category]).mean():0.4f}\t{np.array(xyz_err_dict[category]).mean():0.4f}')
+        print(f'{category}\t{np.array(rpy_err_dict[category]).mean():0.4f}\t{np.array(xyz_err_dict[category]).mean():0.4f}')
+
+    num_parts = 1
+    print('For {} object, {}, 5 degrees accuracy is: '.format(args.domain, args.nocs))
+    for category in all_categorys:
+        r_err = np.array(rpy_err_dict[category])
+        num_valid = r_err.shape[0]
+        r_acc = []
+        for j in range(num_parts):
+            idx = np.where(r_err < 5)[0]
+            acc   = len(idx) / num_valid
+            r_acc.append(acc)
+        print(category, " ".join(["{:0.4f}".format(x) for x in r_acc]))
+    print('\n')
+    # 5 degrees & 0.05
+    print('For {} object, {}, 5 degrees, 5 cms accuracy is: '.format(args.domain, args.nocs))
+    for category in all_categorys:
+        num_valid = r_err.shape[0]
+        rt_acc = []
+        t_err  = np.array(xyz_err_dict[category])
+        for j in range(num_parts):
+            idx = np.where(r_err < 5)[0]
+            acc   = len(np.where( t_err[idx] < 0.05 )[0]) / num_valid
+            rt_acc.append(acc) # two modes
+        print(category, " ".join(["{:0.4f}".format(x) for x in rt_acc]))
+    print('\n')
+
     if extra_key is not None:
         plot_distribution(rpy_err_dict[category_name], labelx='r_err', labely='frequency', title_name=f'rotation_error_{extra_key}', sub_name=args.exp_num, save_fig=True)
         plot_distribution(xyz_err_dict[category_name], labelx='t_err', labely='frequency', title_name=f'translation_error_{extra_key}', sub_name=args.exp_num, save_fig=True)
