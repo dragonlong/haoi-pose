@@ -121,6 +121,8 @@ class PointAEPoseAgent(BaseAgent):
                 mean_R = torch.mean(self.output_R, dim=2, keepdim=True)
                 variance = torch.norm(self.output_R - mean_R, dim=1).mean()
                 self.consistency_loss = variance * self.config.consistency_loss_multiplier
+            else:
+                self.consistency_loss = 0.0
 
             if self.config.MODEL.num_channels_R > 1:
                 if self.config.rotation_use_dense:

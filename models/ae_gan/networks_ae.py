@@ -346,7 +346,7 @@ class SE3Transformer(nn.Module):
         |-- downsampling -- |submodule| -- upsampling --|
 
     """
-    def __init__(self, cfg, latent_dim: int=128, div: float=4, pooling: str='avg', n_heads: int=1, **kwargs):
+    def __init__(self, cfg, latent_dim: int=128, div: float=4, pooling: str='avg', n_heads: int=1, vector_attention=False, **kwargs):
         super().__init__()
         # Build the network
         self.num_nlayers  = cfg.MODEL.num_nlayers
@@ -360,6 +360,7 @@ class SE3Transformer(nn.Module):
         self.div        = div
         self.pooling    = pooling
         self.n_heads    = n_heads
+        self.vector_attention = vector_attention
         self.latent_dim = latent_dim
         self.batch_size = cfg.DATASET.train_batch
 
@@ -377,7 +378,8 @@ class SE3Transformer(nn.Module):
         self.pre_modules    = nn.ModuleList()
         self.down_modules   = nn.ModuleList()
 
-        self.pre_modules.append( GSE3Res(fibers['in'], fibers['mid'], edge_dim=self.edge_dim, div=self.div, n_heads=self.n_heads) )
+        self.pre_modules.append( GSE3Res(fibers['in'], fibers['mid'], edge_dim=self.edge_dim, div=self.div,
+                                         n_heads=self.n_heads, vector_attention=self.vector_attention) )
         self.pre_modules.append( GNormSE3(fibers['mid']) )
 
         # Down modules
@@ -496,7 +498,8 @@ class SE3Transformer(nn.Module):
         return args
 
 class SE3TBlock(nn.Module):
-    def __init__(self, npoint, nsample, radius, down_conv_nn, num_degrees=2, edge_dim=0, div=4, n_heads=1, knn=True, use_xyz=True, module_type='mid_layer', index=0):
+    def __init__(self, npoint, nsample, radius, down_conv_nn, num_degrees=2, edge_dim=0, div=4, n_heads=1, knn=True,
+                 use_xyz=True, module_type='mid_layer', index=0, vector_attention=False):
         super(SE3TBlock, self).__init__()
         self.nsample = nsample
         self.npoint  = npoint
@@ -519,7 +522,7 @@ class SE3TBlock(nn.Module):
         for i in range(len(out_channels)):
             fibers.append( Fiber(num_degrees, out_channels[i]) )
             Tblock.append(GSE3Res(fibers[-2], fibers[-1], edge_dim=self.edge_dim,
-                                  div=self.div, n_heads=self.n_heads))
+                                  div=self.div, n_heads=self.n_heads, vector_attention=vector_attention))
             Tblock.append(GNormSE3(fibers[-1]))
 
         self.stage1 = nn.ModuleList(Tblock[:2]) # for inter
@@ -553,7 +556,7 @@ class SE3TBlock(nn.Module):
         return h, Gout, r, basis
 
 class GraphFPModule(nn.Module):
-    def __init__(self, up_conv_nn, num_degrees=2, edge_dim=0, div=4, n_heads=1, knn=False, use_xyz=True, module_type='mid_layer', index=0):
+    def __init__(self, up_conv_nn, num_degrees=2, edge_dim=0, div=4, n_heads=1, knn=False, use_xyz=True, module_type='mid_layer', index=0, vector_attention=False):
         super(GraphFPModule, self).__init__()
         self.module_type = module_type
         self.use_xyz = use_xyz
@@ -613,7 +616,8 @@ class GraphFPModule(nn.Module):
         return h
 
 class GraphFPSumModule(nn.Module):
-    def __init__(self, up_conv_nn, num_degrees=2, edge_dim=0, div=4, n_heads=1, knn=False, use_xyz=True, module_type='mid_layer', index=0):
+    def __init__(self, up_conv_nn, num_degrees=2, edge_dim=0, div=4, n_heads=1, knn=False, use_xyz=True,
+                 module_type='mid_layer', index=0, vector_attention=False):
         super(GraphFPSumModule, self).__init__()
         self.module_type = module_type
         self.use_xyz = use_xyz
@@ -632,7 +636,8 @@ class GraphFPSumModule(nn.Module):
             fibers.append( Fiber(num_degrees, out_channels[i]) )
 
         for i in range(len(out_channels)):
-            Tblock.append(GSE3Res(fibers[i], fibers[i+1], edge_dim=self.edge_dim, n_heads=self.n_heads))
+            Tblock.append(GSE3Res(fibers[i], fibers[i+1], edge_dim=self.edge_dim, n_heads=self.n_heads,
+                                  vector_attention=vector_attention))
             Tblock.append(GNormSE3(fibers[i+1]))
         self.Tblock = nn.ModuleList(Tblock)
         self.add = GSum(fibers[0], fibers[-1])
@@ -746,7 +751,8 @@ class PointAE(nn.Module):
         super(PointAE, self).__init__()
         self.encoder_type = cfg.encoder_type
         if 'se3' in self.encoder_type:
-             self.encoder = SE3Transformer(cfg=cfg, edge_dim=0, pooling='avg', n_heads=cfg.MODEL.n_heads)
+             self.encoder = SE3Transformer(cfg=cfg, edge_dim=0, pooling='avg', n_heads=cfg.MODEL.n_heads,
+                                           vector_attention=cfg.MODEL.vector_attention)
         elif 'plus' in self.encoder_type:
             self.encoder = PointNetplusplus(cfg)
         else:
