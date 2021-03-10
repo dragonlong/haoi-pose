@@ -172,7 +172,6 @@ class ModelNetDataset(data.Dataset):
                                         # os.path.join(dir_point, token + '.ds'+str(self.num_gen_samples)+'.pt'),
                                         os.path.join(dir_point, token + '.idx')))
 
-
         # create NOCS dict
         manager = Manager()
         self.nocs_dict = manager.dict()
@@ -262,8 +261,10 @@ class ModelNetDataset(data.Dataset):
         g.edata['d'] = pos[0][dst_idx] - pos[0][src_idx] #[num_atoms,3] but we only supervise the half
         up_axis = torch.matmul(torch.tensor([[0.0, 1.0, 0.0]]).float(), RR)
 
-        # return g, gt_points.transpose(1, 0), instance_name, RR # 3*3, gt_points is complete NOCS
-        return g, gt_points.transpose(1, 0), instance_name, up_axis, center_offset, idx, category_name
+        if self.cfg.pred_6d:
+            return g, gt_points.transpose(1, 0), instance_name, RR, center_offset, idx, category_name
+        else:
+            return g, gt_points.transpose(1, 0), instance_name, up_axis, center_offset, idx, category_name
 
     def __getitem__(self, idx):
         # if idx in self.cache:

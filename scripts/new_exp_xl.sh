@@ -669,6 +669,7 @@ $TRAIN_OBJ task='partial_pcloud_pose' target_category='jar' exp_num='2.4171' DAT
 models=se3_transformer_default \
 augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
 pred_mode=True use_objective_M=True use_objective_V=True \
+eval=True save=True
 use_wandb=True \
 # to eval on full test set, just add below
 eval=True save=True use_gt_M=True 2>&1 | tee results/eval_2.4171.log
@@ -872,6 +873,7 @@ $TRAIN_OBJ task='partial_pcloud_pose' target_category='can' exp_num='2.481' DATA
 models=se3_transformer_default \
 augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
 pred_mode=True use_objective_M=True use_objective_V=True use_one2many=True \
+eval=True save=True
 use_wandb=True \
 # to eval on full test set, just add below
 eval=True save=True use_gt_M=True 2>&1 | tee results/eval_2.478.log
@@ -926,6 +928,7 @@ MODEL.num_channels_R=1 MODEL.encoder_only=False \
 eval=True save=True 2>&1 | tee results/eval.2.40585.log
 use_wandb=True
 
+
 3.2 # completion
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae datasets=modelnet40 dataset_class=AEGraph'
 $TRAIN_OBJ task='pcloud_completion' item='modelnet40' name_dset='modelnet40' exp_num='3.2' DATASET.train_batch=2 DATASET.test_batch=2 \
@@ -950,7 +953,29 @@ use_wandb=True
 eval=True save=True 2>&1 | tee results/eval_default.log
 use_wandb=True
 
+# try the same thing here!!!
+airplane, chair, car!!! same thing here
 
-3.3 unsupervised training
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> unsupervised completion <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+3.3 # unsupervised training on chair class
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae datasets=modelnet40 dataset_class=AEGraph'
+$TRAIN_OBJ task='unsupervised_pcloud_pose_completion' item='modelnet40' name_dset='modelnet40' exp_num='3.31' target_category='chair' DATASET.train_batch=2 DATASET.test_batch=2 \
+models=se3_transformer_default \
+augment=True rotation_loss_type=1 \
+pred_6d=True num_modes_R=1 MODEL.num_channels_R=2
+use_wandb=True
+eval=True save=True 2>&1 | tee results/eval_default.log
+use_wandb=True
+# pred_mode=True use_objective_M=True use_objective_V=True \
+
+2.471:  # bowl, encoder + decoder, modal=2, with classifyM loss, mode regularization, 4 heads, without hands, predict up axis is enough;
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True vis_frequency=1000 num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='bowl' exp_num='2.471' DATASET.train_batch=2 DATASET.test_batch=2 \
+models=se3_transformer_default \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+pred_mode=True use_objective_M=True use_objective_V=True \
+eval=True save=True eval_mode_r=1 2>&1 | tee results/eval_2.471.log
+use_wandb=True \
 
 3.4 GAN

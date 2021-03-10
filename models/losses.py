@@ -69,7 +69,6 @@ compute_multi_offsets_loss(vect, vect_gt, confidence=None): K=63
 
 chamfer_distance(S1: torch.Tensor, S2: torch.Tensor):
 directed_distance(S1: torch.Tensor, S2: torch.Tensor):
-
 compute_objectness_loss(end_points): Compute objectness loss for the proposals.
 compute_box_and_sem_cls_loss(end_points, config=None): Compute 3D bounding box and semantic classification loss.
 """

@@ -7,7 +7,7 @@ from models.ae_gan import get_network
 from models.base import BaseAgent
 from utils.emd import earth_mover_distance
 from models.losses import loss_geodesic, loss_vectors, compute_vect_loss, compute_1vN_nocs_loss, compute_miou_loss
-from common.d3_utils import compute_rotation_matrix_from_euler, compute_euler_angles_from_rotation_matrices, compute_rotation_matrix_from_ortho6d
+from common.d3_utils import compute_rotation_matrix_from_euler, compute_euler_angles_from_rotation_matrices, compute_rotation_matrix_from_ortho6d, chamfer_distance
 from os import makedirs, remove
 from os.path import exists, join
 
@@ -125,18 +125,6 @@ class PointAEPoseAgent(BaseAgent):
         if self.config.pred_seg:
             self.seg_loss = compute_miou_loss(self.output_C, target_C).mean()
 
-        if target_T is not None and self.config.use_objective_T:
-            self.regressionT_loss = compute_vect_loss(self.output_T, target_T, confidence=confidence).mean() # TYPE_LOSS='SOFT_L1'
-
-        if 'completion' in self.config.task:
-            if isinstance(self.latent_vect, dict):
-                self.output_pts = self.net.decoder(self.latent_vect['0'])
-            else:
-                self.output_pts = self.net.decoder(self.latent_vect)
-
-            self.emd_loss = earth_mover_distance(self.output_pts, target_pts)
-            self.emd_loss = torch.mean(self.emd_loss)
-
         if self.config.pred_nocs:
             self.nocs_loss= compute_1vN_nocs_loss(self.output_N, target_pts, target_category=self.config.target_category, num_parts=1, confidence=target_C)
             self.nocs_loss= self.nocs_loss.mean()
@@ -165,6 +153,7 @@ class PointAEPoseAgent(BaseAgent):
                     self.regressionR_loss = min_loss
                     self.degree_err = self.degree_err_full[torch.arange(BS), :, min_indices] # degree err is raw GT mode prediction
             else:
+                self.degree_err = self.degree_err_full.squeeze()
                 if self.config.rotation_use_dense:
                     self.regressionR_loss = self.degree_err_full.mean(dim=1)
                 else: # BS*M, 3, 3
@@ -212,6 +201,7 @@ class PointAEPoseAgent(BaseAgent):
                     self.regressionR_loss = compute_vect_loss(self.output_R, target_R, confidence=confidence, target_category=self.config.target_category, use_one2many=self.config.use_one2many) # B
                 else:
                     self.regressionR_loss = compute_vect_loss(self.output_R_pooled.unsqueeze(-1), target_R, target_category=self.config.target_category, use_one2many=self.config.use_one2many) # B, 3, N
+                self.infos['regressionR'] = self.regressionR_loss.mean()
 
             self.regressionR_loss = self.regressionR_loss.mean()
 
@@ -234,6 +224,27 @@ class PointAEPoseAgent(BaseAgent):
                 self.degree_err_chosen = torch.acos(torch.sum(self.output_R_chosen * target_R, dim=1)) * 180 / np.pi
 
 
+        if target_T is not None and self.config.use_objective_T:
+            self.regressionT_loss = compute_vect_loss(self.output_T, target_T, confidence=confidence).mean() # TYPE_LOSS='SOFT_L1'
+
+        if 'completion' in self.config.task:
+            if isinstance(self.latent_vect, dict):
+                self.output_pts = self.net.decoder(self.latent_vect['0'])
+            else:
+                self.output_pts = self.net.decoder(self.latent_vect)
+            self.emd_loss = earth_mover_distance(self.output_pts, target_pts)
+            self.emd_loss = torch.mean(self.emd_loss)
+            self.infos['canonical_recon_loss'] = self.emd_loss
+            if 'unsupervised' in self.config.task:
+                # B, 3, N
+                camera_pts = data['G'].ndata['x'].view(target_pts.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous()
+                pred_T = camera_pts - self.output_T
+                pred_T = pred_T.mean(dim=-1) # B, 3, 1
+                pred_R = self.output_R_pooled # B, 3, 3
+                self.output_pts = torch.matmul(self.output_pts.permute(0, 2, 1).contiguous() - 0.5, pred_R) + pred_T.unsqueeze(1).contiguous()  # RR
+                bp()
+                self.emd_cam_loss = earth_mover_distance(self.output_pts, camera_pts.permute(0, 2, 1).contiguous())
+                self.emd_cam_loss = torch.mean(self.emd_cam_loss)
     # seems vector is more stable
     def collect_loss(self):
         loss_dict = {}
@@ -253,8 +264,8 @@ class PointAEPoseAgent(BaseAgent):
             if self.config.use_objective_V:
                 loss_dict['consistency'] = self.consistency_loss
         if 'completion' in self.config.task:
-            loss_dict["emd"]=self.emd_loss
-
+            if 'unsupervised' in self.config.task:
+                loss_dict["emd"]=self.emd_cam_loss
         return loss_dict
 
     # seems vector is more stable

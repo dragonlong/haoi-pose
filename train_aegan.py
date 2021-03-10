@@ -267,7 +267,7 @@ def main(cfg):
         for iteration in range(num_iteration):
             cfg.iteration = iteration
             for b, data in enumerate(pbar):
-                if b > 769:
+                if cfg.target_category == 'bottle' and b > 769:
                     break
                 infos_dict = eval_func(tr_agent, data, all_rts, cfg)
 
@@ -365,7 +365,7 @@ def main(cfg):
                     # 2. better R estimation;
                     track_dict['100bestR'].append(best100_err)
                     # 3. more confident estimations
-                    if cfg.MODEL.num_channels_R > 1:
+                    if cfg.num_modes_R > 1:
                         mode_acc = tr_agent.classifyM_acc.cpu().detach().numpy().mean()
                         chosen_deg_err = tr_agent.degree_err_chosen.cpu().detach().numpy().mean()
                         track_dict['mode_accuracy'].append(mode_acc)
