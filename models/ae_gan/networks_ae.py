@@ -36,6 +36,7 @@ from kaolin.models.PointNet2 import fps_gather_by_index
 from kaolin.models.PointNet2 import ball_query
 from kaolin.models.PointNet2 import three_nn
 from kaolin.models.PointNet2 import group_gather_by_index
+from models.pointnet_lib.networks import PointTransformer
 from omegaconf import DictConfig, ListConfig
 import dgl
 
@@ -781,6 +782,9 @@ class PointAE(nn.Module):
                                            vector_attention=cfg.MODEL.vector_attention)
         elif 'plus' in self.encoder_type:
             self.encoder = PointNetplusplus(cfg)
+        elif 'point_transformer' in self.encoder_type:
+            self.encoder = PointTransformer(num_channels_R=cfg.MODEL.num_channels_R,
+                                            R_dim=6 if self.config.pred_6d else 3)
         else:
             self.encoder = EncoderPointNet(eval(cfg.enc_filters), cfg.latent_dim, cfg.enc_bn)
 
@@ -812,8 +816,10 @@ class PointAE(nn.Module):
             x = self.decoder(z['0'])   # shape recontruction
             p = self.regressor(z['1']) # R
             pred_dict = {'S':x, 'R': p, 'T': z['T']}
-        elif 'plusplus' in self.encoder_type:
+        # elif 'plusplus' in self.encoder_type:
+        else:
             pred_dict = z
+
         return pred_dict
 
 if __name__ == '__main__':

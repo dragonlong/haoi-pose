@@ -346,33 +346,47 @@ def main(cfg):
 
             if clock.step % cfg.eval_frequency == 0:
                 track_dict = {'averageR': [], '100bestR': []}
-
                 if cfg.num_modes_R > 1:
                     track_dict.update({'mode_accuracy': [], 'chosenR': []})
+                if cfg.pred_nocs:
+                    track_dict = {'rdiff': [], 'tdiff': [], 'sdiff': [],
+                                  '5deg': [], '5cm': [], '5deg5cm': []}
 
                 for num, test_data in enumerate(test_loader):
                     # print('--going over ', num)
                     if num > 100: # we only evaluate 100 data every 1000 steps
                         break
                     losses, infos = tr_agent.eval_func(test_data)
-                    degree_err    = tr_agent.degree_err.cpu().detach().numpy().squeeze()
-                    best100_ind   = np.argsort(degree_err, axis=1)  # [B, N]
-                    best100_ind = best100_ind[:, :100]
-                    best100_err = degree_err[np.arange(best100_ind.shape[0]).reshape(-1, 1), best100_ind].mean()
-                    # best100_err   = degree_err[0, best100_ind[0][:100]].mean() + degree_err[1, best100_ind[1][:100]].mean()
-                    # 1. whole R loss in degree;
-                    track_dict['averageR'].append(degree_err.mean())
-                    # 2. better R estimation;
-                    track_dict['100bestR'].append(best100_err)
-                    # 3. more confident estimations
-                    if cfg.MODEL.num_channels_R > 1:
-                        mode_acc = tr_agent.classifyM_acc.cpu().detach().numpy().mean()
-                        chosen_deg_err = tr_agent.degree_err_chosen.cpu().detach().numpy().mean()
-                        track_dict['mode_accuracy'].append(mode_acc)
-                        track_dict['chosenR'].append(chosen_deg_err)
+                    if cfg.pred_nocs:
+                        tr_agent.eval_nocs(test_data)
+                        pose_diff = tr_agent.pose_err
+                        for key in ['rdiff', 'tdiff', 'sdiff']:
+                            track_dict[key].append(pose_diff[key].cpu().numpy().mean())
+                        deg = pose_diff['rdiff'] <= 5.0
+                        cm = pose_diff['tdiff'] <= 0.05
+                        degcm = torch.logical_and(deg, cm)
+                        for key, value in zip(['5deg', '5cm', '5deg5cm'], [deg, cm, degcm]):
+                            track_dict[key].append(value.float().cpu().numpy().mean())
+                    else:
+                        degree_err    = tr_agent.degree_err.cpu().detach().numpy().squeeze()
+                        best100_ind   = np.argsort(degree_err, axis=1)  # [B, N]
+                        best100_ind = best100_ind[:, :100]
+                        best100_err = degree_err[np.arange(best100_ind.shape[0]).reshape(-1, 1), best100_ind].mean()
+                        # best100_err   = degree_err[0, best100_ind[0][:100]].mean() + degree_err[1, best100_ind[1][:100]].mean()
+                        # 1. whole R loss in degree;
+                        track_dict['averageR'].append(degree_err.mean())
+                        # 2. better R estimation;
+                        track_dict['100bestR'].append(best100_err)
+                        # 3. more confident estimations
+                        if cfg.MODEL.num_channels_R > 1:
+                            mode_acc = tr_agent.classifyM_acc.cpu().detach().numpy().mean()
+                            chosen_deg_err = tr_agent.degree_err_chosen.cpu().detach().numpy().mean()
+                            track_dict['mode_accuracy'].append(mode_acc)
+                            track_dict['chosenR'].append(chosen_deg_err)
                 # print('>>>>>>during testing: ', np.array(track_dict['averageR']).mean(), np.array(track_dict['100bestR']).mean())
-                if np.array(track_dict['averageR']).mean() < best_R_error:
-                    best_R_error = np.array(track_dict['averageR']).mean()
+                r_key = 'rdiff' if cfg.pred_nocs else ('chosen_R' if cfg.MODEL.num_channels_R > 1 else 'averageR')
+                if np.array(track_dict[r_key]).mean() < best_R_error:
+                    best_R_error = np.array(track_dict[r_key]).mean()
                     tr_agent.save_ckpt('best')
 
                 if cfg.use_wandb:

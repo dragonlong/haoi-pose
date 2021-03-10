@@ -10,7 +10,7 @@ from pointnet2_modules import knn_point, farthest_point_sample, gather_operation
 
 
 class MLP(nn.Module):
-    def __init__(self, dim, in_channel, mlp, use_bn=True, skip_last=True):
+    def __init__(self, dim, in_channel, mlp, use_bn=True, skip_last=True, last_acti=None):
         super(MLP, self).__init__()
         layers = []
         conv = nn.Conv1d if dim == 1 else nn.Conv2d
@@ -23,6 +23,13 @@ class MLP(nn.Module):
             if (not skip_last or i != len(mlp) - 1):
                 layers.append(nn.ReLU())
             last_channel = out_channel
+        if last_acti is not None:
+            if last_acti == 'softmax':
+                layers.append(nn.Softmax(dim=1))
+            elif last_acti == 'sigmoid':
+                layers.append(nn.Sigmoid())
+            else:
+                assert 0, f'Unsupported activation type {last_acti}'
         self.layers = nn.Sequential(*layers)
 
     def forward(self, x):

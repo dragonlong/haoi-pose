@@ -13,7 +13,7 @@ class PointTransformer(nn.Module):
     """
     Output: 128 channels
     """
-    def __init__(self, latent_channel=128, num_channels_R=2):
+    def __init__(self, num_channels_R=2, R_dim=3):
         super(PointTransformer, self).__init__()
         cfg = {
             "channel_mult": 4,
@@ -34,9 +34,10 @@ class PointTransformer(nn.Module):
                 "attn_num": [1, 1, 1, 1]
             },
             "heads": {
-                "N": [latent_channel],
-                "R": [num_channels_R * 3],
-                "T": [3]
+                "R": [128, num_channels_R * R_dim, None],
+                "T": [128, 3, None],
+                "N": [128, 3, 'sigmoid'],
+                "M": [128, num_channels_R, 'softmax'],
             }
         }
         k = cfg['channel_mult']
@@ -81,9 +82,10 @@ class PointTransformer(nn.Module):
         self.heads = nn.ModuleDict()
         head_cfg = cfg['heads']
         for key, mlp in head_cfg.items():
-            self.heads[key] = MLP(dim=1, in_channel=pre_module_channel * k, mlp=mlp, use_bn=True, skip_last=True)
+            self.heads[key] = MLP(dim=1, in_channel=pre_module_channel * k, mlp=mlp[:-1], use_bn=True, skip_last=True,
+                                  last_acti=mlp[-1])
 
-    def forward(self, xyz):
+    def forward(self, xyz):  # xyz: [B, 3, N]
         xyz_list, points_list = [], []
         points = self.pre_module[0](xyz)
         points = self.pre_module[1](xyz, points)
@@ -108,7 +110,7 @@ class PointTransformer(nn.Module):
 if __name__ == '__main__':
     model = PointTransformer()
 
-    input = torch.randn((1, 3, 512))
+    input = torch.randn((1, 1024, 3))
 
     output = model(input)
     for key, value in output.items():
