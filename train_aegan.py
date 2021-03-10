@@ -121,7 +121,7 @@ def eval_func(tr_agent, data, all_rts, cfg):
             all_rts[basename]  = rts_dict
     else:
         if cfg.rotation_use_dense:
-            output_R = tr_agent.output_R_raw.cpu().detach().numpy()
+            output_R = tr_agent.output_R_full.cpu().detach().numpy()
             BS, NC = output_R.shape[0], cfg.MODEL.num_channels_R
             if cfg.pred_mode:
                 gt_M     = tr_agent.target_M.cpu().detach().numpy().reshape(BS, -1)
@@ -129,7 +129,10 @@ def eval_func(tr_agent, data, all_rts, cfg):
                 pred_dict['R'] = []
                 for m in range(BS):
                     R1, R2, mode_acc, good_ratio = vote_rotation_ransac(output_R[m], output_M[m], gt_R=target_R[m], gt_M=gt_M[m], use_base=False, thres=5, verbose=True)
-                    pred_dict['R'].append(R2)
+                    if cfg.eval_mode_r==0:
+                        pred_dict['R'].append(R2)
+                    elif cfg.eval_mode_r==1:
+                        pred_dict['R'].append(R1)
                     infos_dict['mode_acc'].append(mode_acc)
                     infos_dict['good_per_mode'].append(good_ratio)
             else:
@@ -306,7 +309,7 @@ def main(cfg):
         extra_key = 'pred'
         if cfg.use_gt_M:
             extra_key = 'gt'
-        post_summary(all_rts, file_name, args=cfg, extra_key=extra_key)
+        post_summary(all_rts, file_name, args=cfg, extra_key=f'{extra_key}_{cfg.eval_mode_r}')
         for key, value in infos_all.items():
             value = np.array(value)
             if len(value.shape)>2:
@@ -344,7 +347,7 @@ def main(cfg):
             if clock.step % cfg.eval_frequency == 0:
                 track_dict = {'averageR': [], '100bestR': []}
 
-                if cfg.MODEL.num_channels_R > 1:
+                if cfg.num_modes_R > 1:
                     track_dict.update({'mode_accuracy': [], 'chosenR': []})
 
                 for num, test_data in enumerate(test_loader):
@@ -352,7 +355,7 @@ def main(cfg):
                     if num > 100: # we only evaluate 100 data every 1000 steps
                         break
                     losses, infos = tr_agent.eval_func(test_data)
-                    degree_err    = tr_agent.degree_err.cpu().detach().numpy()
+                    degree_err    = tr_agent.degree_err.cpu().detach().numpy().squeeze()
                     best100_ind   = np.argsort(degree_err, axis=1)  # [B, N]
                     best100_ind = best100_ind[:, :100]
                     best100_err = degree_err[np.arange(best100_ind.shape[0]).reshape(-1, 1), best100_ind].mean()
