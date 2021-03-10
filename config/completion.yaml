@@ -33,6 +33,7 @@ pred_joint: False
 pred_mano: False
 pred_joint_ind: False
 pred_nocs: False
+pred_6d: False
 pred_seg: False
 pred_conf: False
 pred_mode: False
@@ -42,7 +43,8 @@ use_hand_occupancy: False
 check_consistency: True
 
 # loss
-rotation_loss_type: 0
+num_modes_R: 2
+rotation_loss_type: 1
 use_1vN_nocs: False
 use_objective_T: False
 use_objective_R: False
@@ -53,7 +55,9 @@ use_confidence_R: False
 use_objective_V: False # variance
 confidence_loss_type: 0
 confidence_loss_multiplier: 0.01
-consistency_loss_multiplier: 1.0
+consistency_loss_multiplier: 0.1
+use_adaptive_mode: False
+use_one2many: False
 
 # data control
 subset_samples: False
@@ -78,6 +82,7 @@ split: 'val'
 pretrained_path: ''
 is_testing: False
 use_gt_M: False
+eval_mode_r: 0
 
 # general, gpu, print
 use_wandb: False

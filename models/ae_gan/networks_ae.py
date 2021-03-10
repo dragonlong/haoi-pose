@@ -132,14 +132,14 @@ class InterDownGraph(nn.Module): #
         for i in range(BS):
             src = neighbors_ind[i].contiguous().view(-1)
             dst = xyz_ind[i].view(-1, 1).repeat(1, self.num_samples).view(-1)
-            g = dgl.DGLGraph((src.cpu(), dst.cpu()))
+            g = dgl.DGLGraph((src.cpu().long(), dst.cpu().long()))
             try:
                 g.ndata['x'] = pos[i] # dgl._ffi.base.DGLError: Expect number of features to match number of nodes (len(u)). Got 256 and 249 instead.
                 g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
                 g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()] #[num_atoms,3] but we only supervise the half
             except:
-                print('nodes pos: ', pos[i].shape)
-                print('nodes neighborhoods: ', neighbors_ind[i].shape)
+                # print('nodes pos: ', pos[i].shape)
+                # print('nodes neighborhoods: ', neighbors_ind[i].shape)
                 g = dgl.unbatch(G)[i]
                 g.remove_edges( np.arange( len(g.all_edges()[0]) ).tolist()) # this line comes with bug
                 g.add_edges(src.cpu().long(), dst.cpu().long())
@@ -772,7 +772,6 @@ class GraphFPResNoSkipLinkModule(nn.Module):
         return h
 
 
-
 class PointAE(nn.Module):
     def __init__(self, cfg):
         super(PointAE, self).__init__()
@@ -794,7 +793,7 @@ class PointAE(nn.Module):
             if cfg.pred_conf:
                 self.regressor_confi= RegressorC1D(list(cfg.confi_features), cfg.latent_dim)
             if cfg.pred_mode:
-                self.classifier_mode= RegressorC1D(list(cfg.mode_features), cfg.latent_dim)
+                self.classifier_mode= RegressorC1D(list(cfg.mode_features), cfg.MODEL.num_channels_R)
         self.decoder = DecoderFC(eval(cfg.dec_features), cfg.latent_dim, cfg.n_pts, cfg.dec_bn)
 
     def encode(self, x):

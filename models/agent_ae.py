@@ -50,7 +50,9 @@ class PointAEPoseAgent(BaseAgent):
         self.infos = {}
 
         BS = target_R.shape[0]
-        M  = self.config.MODEL.num_channels_R
+        N  = target_T.shape[1]
+        M  = self.config.num_modes_R
+        CS = self.config.MODEL.num_channels_R
         target_R = target_R.permute(0, 2, 1).contiguous() # B, 3, 1
         target_T      = target_T.permute(0, 2, 1).contiguous() # B, 3, N
         if 'se3' in self.config.encoder_type:
@@ -59,12 +61,19 @@ class PointAEPoseAgent(BaseAgent):
 
             if self.config.pred_nocs:
                 self.output_N = self.net.regressor_nocs(self.latent_vect['N'].squeeze().view(target_R.shape[0], -1, self.latent_vect['N'].shape[1]).contiguous().permute(0, 2, 1).contiguous()) # assume to be B*N, 128? --> 3 channel
+            elif self.config.pred_6d: # if we add pred_6d, for some, R^T, R^T;
+                # [B*N, C, 3],  --> [B*N, M, 2, 3] --> B*N, M, 6 --> [B*N*M, 6]
+                self.output_R = self.latent_vect['R'].view(-1, M, 2, 3).contiguous().view(-1, M, 6).contiguous().view(-1, 6).contiguous()
+                self.output_R = compute_rotation_matrix_from_ortho6d(self.output_R)
+                # [B*M, 6]
+                self.output_R_pooled = self.latent_vect['1'].view(-1, M, 2, 3).contiguous().view(-1, M, 6).contiguous().view(-1, 6).contiguous() # dense by default!!! B, 2*C, 3
+                self.output_R_pooled = compute_rotation_matrix_from_ortho6d(self.output_R_pooled) #
             else:
                 if self.config.MODEL.num_channels_R > 1:
                     BS, CS = target_R.shape[0], self.latent_vect['R'].shape[-2]     # [BS*N, C, 3] -> [Bs, N, C, 3] -> [Bs, 3, N, C]
                     self.output_R  = self.latent_vect['R'].view(BS, -1, CS, 3).contiguous().permute(0, 3, 1, 2).contiguous()
                     self.output_R = self.output_R/(torch.norm(self.output_R, dim=1, keepdim=True) + epsilon)
-                    self.output_R_raw = self.output_R
+                    self.output_R_full = self.output_R
                     self.degree_err = torch.acos( torch.sum(self.output_R*target_R.unsqueeze(-1), dim=1)) * 180 / np.pi
                 else:
                     self.output_R = self.latent_vect['R'].squeeze().view(target_R.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous() # B, 3, N
@@ -74,15 +83,15 @@ class PointAEPoseAgent(BaseAgent):
                 self.output_R_pooled = self.output_R.mean(dim=2) #
                 # self.output_R_pooled = self.latent_vect['1'].permute(0, 2, 1).contiguous() # B, 3, 1
                 self.output_R_pooled = self.output_R_pooled/(torch.norm(self.output_R_pooled, dim=1, keepdim=True) + epsilon)
-                self.output_T = self.latent_vect['T'].permute(0, 2, 1).contiguous().squeeze().view(target_T.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous()# [B, 3, N]
 
+            self.output_T = self.latent_vect['T'].permute(0, 2, 1).contiguous().squeeze().view(target_T.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous()# [B, 3, N]
             if self.config.pred_seg:
                 self.output_C = self.net.classifier_seg(self.latent_vect['N'].squeeze().view(target_R.shape[0], -1, self.latent_vect['N'].shape[1]).contiguous().permute(0, 2, 1).contiguous())
 
             if self.config.pred_conf:
                 self.output_Cf = self.net.regressor_confi(self.latent_vect['N'].squeeze().view(target_R.shape[0], -1, self.latent_vect['N'].shape[1]).contiguous().permute(0, 2, 1).contiguous())
 
-            if self.config.pred_mode:
+            if self.config.pred_mode: # need to map 4 to 2?
                 self.output_M = self.net.classifier_mode(self.latent_vect['R0']).squeeze() # [BS * N, M, 1]-->[BS * N, M] --> [BS, M, N]
         else:
             # B, 3, N
@@ -96,7 +105,7 @@ class PointAEPoseAgent(BaseAgent):
                 if self.config.MODEL.num_channels_R > 1:
                     self.output_R  = self.latent_vect['R'].view(BS, self.config.MODEL.num_channels_R, 3, -1).contiguous().permute(0, 2, 3, 1).contiguous()# # [BS*N, C, 3] -> [Bs, N, C, 3] -> [Bs, 3, N, C]
                     self.output_R  = self.output_R/(torch.norm(self.output_R, dim=1, keepdim=True) + epsilon)
-                    self.output_R_raw = self.output_R
+                    self.output_R_full = self.output_R
                     self.degree_err = torch.acos( torch.sum(self.output_R*target_R.unsqueeze(-1), dim=1)) * 180 / np.pi
                 else:
                     self.output_R = self.latent_vect['R'] # B, 3, N
@@ -116,13 +125,68 @@ class PointAEPoseAgent(BaseAgent):
         if self.config.pred_seg:
             self.seg_loss = compute_miou_loss(self.output_C, target_C).mean()
 
+        if target_T is not None and self.config.use_objective_T:
+            self.regressionT_loss = compute_vect_loss(self.output_T, target_T, confidence=confidence).mean() # TYPE_LOSS='SOFT_L1'
+
+        if 'completion' in self.config.task:
+            if isinstance(self.latent_vect, dict):
+                self.output_pts = self.net.decoder(self.latent_vect['0'])
+            else:
+                self.output_pts = self.net.decoder(self.latent_vect)
+
+            self.emd_loss = earth_mover_distance(self.output_pts, target_pts)
+            self.emd_loss = torch.mean(self.emd_loss)
+
         if self.config.pred_nocs:
             self.nocs_loss= compute_1vN_nocs_loss(self.output_N, target_pts, target_category=self.config.target_category, num_parts=1, confidence=target_C)
             self.nocs_loss= self.nocs_loss.mean()
+
+        if self.config.pred_6d:
+            target_R_tiled  = target_R.unsqueeze(1).contiguous().unsqueeze(1).contiguous().repeat(1, N, M, 1, 1).contiguous().view(-1, 3, 3).contiguous()
+            geodesic_loss   = loss_geodesic(self.output_R, target_R_tiled)  # BS*N* C/2
+            self.degree_err_full = geodesic_loss.view(BS, N, M).contiguous()       # BS, N, M
+            self.output_R_full   = self.output_R.view(BS, N, M, 3, 3).contiguous() # BS, N, M, 3, 3
+            self.output_R   = self.output_R_full.squeeze()
+            if self.config.check_consistency: # BS, N, M, 3, 3
+                mean_R   = torch.mean(self.output_R_full, dim=1, keepdim=True)
+                variance = torch.norm(self.output_R_full - mean_R, dim=-1).mean()
+                self.consistency_loss = variance * self.config.consistency_loss_multiplier
+                self.infos['consistency'] = self.consistency_loss
+            else:
+                self.consistency_loss = 0.0
+            # degree err is raw GT mode prediction, degree_err_chosen is using predicted mode
+            if M > 1: # multi-mode dense
+                if self.config.use_adaptive_mode:
+                    min_loss, min_indices = torch.min(self.degree_err_full, dim=-1) # B, N
+                    self.regressionR_loss = min_loss.mean(dim=1)
+                    self.degree_err       = self.degree_err_full[torch.arange(BS).reshape(-1, 1), torch.arange(N).reshape(1, -1), min_indices].contiguous()
+                else:
+                    min_loss, min_indices = torch.min(self.degree_err_full.mean(dim=1), dim=-1) # we only allow one mode to be True
+                    self.regressionR_loss = min_loss
+                    self.degree_err = self.degree_err_full[torch.arange(BS), :, min_indices] # degree err is raw GT mode prediction
+            else:
+                if self.config.rotation_use_dense:
+                    self.regressionR_loss = self.degree_err_full.mean(dim=1)
+                else: # BS*M, 3, 3
+                    self.regressionR_loss = loss_geodesic(self.output_R_pooled, target_R)
+            self.regressionR_loss = self.regressionR_loss.mean()
+
+            # degree_err_full
+            correctness_mask = torch.zeros((self.degree_err.shape[0], self.degree_err.shape[1]), device=self.output_R.device) # B, N
+            correctness_mask[self.degree_err<THRESHOLD_GOOD] = 1.0
+            good_pred_ratio = torch.mean(correctness_mask, dim=1) # TODO
+            self.infos['good_pred_ratio'] = good_pred_ratio.mean() # scalar
+            if self.config.pred_mode and M > 1:
+                if self.config.use_adaptive_mode:
+                    self.target_M = min_indices.view(-1).contiguous().detach().clone()
+                else:
+                    self.target_M = min_indices.unsqueeze(1).repeat(1, N).contiguous().view(-1).contiguous().detach().clone()
+                self.classifyM_loss = compute_miou_loss(self.output_M, self.target_M, loss_type='xentropy')
+                self.output_M_label = torch.argmax(self.output_M, dim=-1)  # [B * N] in [0...M-1]
+                self.classifyM_acc  = (self.output_M_label == self.target_M).float().mean()
+                self.degree_err_chosen  = self.degree_err_full[torch.arange(BS).reshape(-1, 1), torch.arange(N).reshape(1, -1),  self.output_M_label.reshape(BS, N)].contiguous()
         else:
             confidence = target_C
-            #     self.regressionR_loss = loss_geodesic(compute_rotation_matrix_from_ortho6d( self.output_R[:, :, :2].permute(0, 2, 1).contiguous().reshape(target_R.shape[0], -1).contiguous() ), target_R) #
-            #     self.regressionR_loss = self.regressionR_loss.mean()
             if self.config.check_consistency: # on all points
                 mean_R = torch.mean(self.output_R, dim=2, keepdim=True)
                 variance = torch.norm(self.output_R - mean_R, dim=1).mean()
@@ -131,11 +195,12 @@ class PointAEPoseAgent(BaseAgent):
             else:
                 self.consistency_loss = 0.0
 
-            if self.config.MODEL.num_channels_R > 1: # apply to all
+            if self.config.MODEL.num_channels_R > 1: # apply to all, add
+                # add per-mode minimum calculation, using the symmetry type, when we have symmetry on z, x axis
                 if self.config.rotation_use_dense:
-                    regressionR_loss = compute_vect_loss(self.output_R, target_R.unsqueeze(-1))
+                    regressionR_loss = compute_vect_loss(self.output_R, target_R.unsqueeze(-1), target_category=self.config.target_category, use_one2many=self.config.use_one2many)
                 else:
-                    regressionR_loss = compute_vect_loss(self.output_R_pooled.unsqueeze(2), target_R.unsqueeze(2)) # [2, 3, 2], [2, 3, 1]
+                    regressionR_loss = compute_vect_loss(self.output_R_pooled.unsqueeze(2), target_R.unsqueeze(2), target_category=self.config.target_category, use_one2many=self.config.use_one2many) # [2, 3, 2], [2, 3, 1]
                 min_loss, min_indices = torch.min(regressionR_loss, dim=-1)
                 self.regressionR_loss = min_loss
 
@@ -144,14 +209,11 @@ class PointAEPoseAgent(BaseAgent):
                 self.degree_err =  self.degree_err[torch.arange(target_R.shape[0]), :, min_indices[:]] # B, N, C
             else: # we have confidence for hand points
                 if self.config.rotation_use_dense:
-                    self.regressionR_loss = compute_vect_loss(self.output_R, target_R, confidence=confidence) # B
+                    self.regressionR_loss = compute_vect_loss(self.output_R, target_R, confidence=confidence, target_category=self.config.target_category, use_one2many=self.config.use_one2many) # B
                 else:
-                    self.regressionR_loss = compute_vect_loss(self.output_R_pooled.unsqueeze(-1), target_R) # B, 3, N
+                    self.regressionR_loss = compute_vect_loss(self.output_R_pooled.unsqueeze(-1), target_R, target_category=self.config.target_category, use_one2many=self.config.use_one2many) # B, 3, N
 
             self.regressionR_loss = self.regressionR_loss.mean()
-
-            if target_T is not None and self.config.use_objective_T:
-                self.regressionT_loss = compute_vect_loss(self.output_T, target_T, confidence=confidence).mean() # TYPE_LOSS='SOFT_L1'
 
             dis = torch.norm(self.output_R - target_R, dim=1) # B, N
             correctness_mask = torch.zeros((dis.shape[0], dis.shape[1]), device=self.output_R.device)
@@ -171,14 +233,6 @@ class PointAEPoseAgent(BaseAgent):
                                        torch.arange(N).reshape(1, -1), self.output_M_label.reshape(B, N)].permute(0, 2, 1)  # [B, N, 3]
                 self.degree_err_chosen = torch.acos(torch.sum(self.output_R_chosen * target_R, dim=1)) * 180 / np.pi
 
-        if 'completion' in self.config.task:
-            if isinstance(self.latent_vect, dict):
-                self.output_pts = self.net.decoder(self.latent_vect['0'])
-            else:
-                self.output_pts = self.net.decoder(self.latent_vect)
-
-            self.emd_loss = earth_mover_distance(self.output_pts, target_pts)
-            self.emd_loss = torch.mean(self.emd_loss)
 
     # seems vector is more stable
     def collect_loss(self):
@@ -248,14 +302,13 @@ class PointAEPoseAgent(BaseAgent):
                     np.savetxt(save_name, save_arr[k])
         save_mode = True
         if save_mode and self.config.pred_mode:
-            BS, NC = self.output_R.shape[0], self.config.MODEL.num_channels_R
+            BS, M = self.output_R.shape[0], self.config.num_modes_R
 
-            output_M = self.output_M.cpu().detach().numpy().reshape(BS, -1, NC)
+            output_M = self.output_M.cpu().detach().numpy().reshape(BS, -1, M)
             save_path = f'{self.config.log_dir}/mode'
             if not exists(save_path):
                 print('making directories', save_path)
                 makedirs(save_path)
-
             for j in range(degree_err.shape[-1]): # modals
                 save_arr  = np.concatenate([input_pts, output_M[:, :, j:j+1]], axis=-1)
                 for k in range(output_M.shape[0]): # batch

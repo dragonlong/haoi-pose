@@ -285,7 +285,10 @@ class HandDatasetAEGraph(HandDataset):
         up_axis = torch.matmul(torch.tensor([[0.0, 1.0, 0.0]]).float(), RR)
 
         # return g, gt_points.transpose(1, 0), instance_name, RR # 3*3, gt_points is complete NOCS
-        return g, gt_points.transpose(1, 0), instance_name, up_axis, center_offset, idx, category_name
+        if self.cfg.pred_6d:
+            return g, gt_points.transpose(1, 0), instance_name, RR.permute(1, 0).contiguous(), center_offset, idx, category_name
+        else:
+            return g, gt_points.transpose(1, 0), instance_name, up_axis, center_offset, idx, category_name
 
     def get_sample_pair(self, idx, verbose=False):
         if self.cfg.single_instance:
@@ -427,7 +430,11 @@ class HandDatasetAEGraph(HandDataset):
             RR = self.r_dict[idx]
         """
         up_axis = torch.from_numpy(up_axis).float()
-        return g_raw, g_real, n_arr, c_arr, m_arr, gt_points, instance_name, instance_name1, up_axis, center_offset, idx, category_name
+
+        if self.cfg.pred_6d:
+            return g_raw, g_real, n_arr, c_arr, m_arr, gt_points, instance_name, instance_name1, torch.from_numpy(r.astype(np.float32)), center_offset, idx, category_name
+        else:
+            return g_raw, g_real, n_arr, c_arr, m_arr, gt_points, instance_name, instance_name1, up_axis, center_offset, idx, category_name
 
     def __len__(self):
         if 'adversarial' in self.task or 'partial' in self.task:

@@ -256,12 +256,33 @@ def compute_1vN_nocs_loss(nocs, nocs_gt, confidence=None, target_category='remot
     return loss_nocs
 
 def compute_vect_loss(vect, vect_gt, confidence=None, num_parts=2, mask_array=None, \
-        TYPE_LOSS='L2', return_mean=True):
-        """
-        vect   : [B, K, N]; K could be any number, we only need the confidence
-        vect_gt: [B, K, N];
-        confidence: [B, N]
-        """
+        TYPE_LOSS='L2', return_mean=True, target_category=None, use_one2many=False):
+    """
+    vect   : [B, 3, N, N1]; K could be any number, we only need the confidence
+    vect_gt: [B, 3, N, N1];
+    confidence: [B, N]
+    """
+    if use_one2many:
+        all_rmats = []
+        key = 'x'
+        M   = sym_type[target_category][key]
+        # for k in range(M):
+        #     rmat = rotate_about_axis(2 * np.pi * k / M, axis=key)
+        #     all_rmats.append(rmat)
+        # # reshape all_rmats into tensor array,
+        # rmats = torch.from_numpy(np.array(all_rmats).astype(np.float32)).cuda()
+        # # we get the updated  [M, 3, 3] * ([B, 3, 1, 1] --> B, 1, 3, 1) --> B, M, 3, N
+        # vect_gt_aug = torch.matmul(rmats, torch.squeeze(vect_gt, -1).unsqueeze(1))
+        vect_gt_aug = torch.stack([vect_gt, -vect_gt], dim=1)
+        diff_l2 = torch.norm(vect.unsqueeze(1).contiguous() - vect_gt_aug, dim=2)
+        # if len(vect_gt.shape) == 3:
+        #     diff_l2 = torch.norm(vect.unsqueeze(1).contiguous() - vect_gt_aug, dim=2)
+        # else:
+        #     diff_l2 = torch.norm(vect.unsqueeze(1).contiguous() - vect_gt_aug.unsqueeze(-1), dim=2) # B, M, N, C
+        if TYPE_LOSS=='L2':
+            select_loss, _ = torch.min(diff_l2, dim=1) # B, N, C
+            return torch.mean(select_loss, dim=1) # B, C or B
+    else:
         diff_l2 = torch.norm(vect - vect_gt, dim=1) # BxN
         diff_abs= torch.sum(torch.abs(vect - vect_gt), dim=1) # BxN xM
         diff_avg= torch.mean(torch.abs(vect - vect_gt), dim=1) # B*N xM
@@ -279,6 +300,7 @@ def compute_vect_loss(vect, vect_gt, confidence=None, num_parts=2, mask_array=No
                 return torch.mean(diff_avg, dim=1)
             elif TYPE_LOSS=='SOFT_L1':
                 return huber_loss(vect - vect_gt)
+
 
 def compute_multi_offsets_loss(vect, vect_gt, confidence=None):
     """
