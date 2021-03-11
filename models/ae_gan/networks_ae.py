@@ -784,7 +784,7 @@ class PointAE(nn.Module):
             self.encoder = PointNetplusplus(cfg)
         elif 'point_transformer' in self.encoder_type:
             self.encoder = PointTransformer(num_channels_R=cfg.MODEL.num_channels_R,
-                                            R_dim=6 if self.config.pred_6d else 3)
+                                            R_dim=6 if cfg.pred_6d else 3)
         else:
             self.encoder = EncoderPointNet(eval(cfg.enc_filters), cfg.latent_dim, cfg.enc_bn)
 

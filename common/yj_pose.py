@@ -226,7 +226,7 @@ def compute_pose_diff(nocs_gt, nocs_pred, target, category):
     rot_err = torch.min(rot_err, dim=-1)[0]  # [B]
 
     trans_err = gt_model['translation'] - pred_model['translation']  # [B, 3, 1]
-    trans_err = torch.sqrt((trans_err ** 2).sum(-1, -2))
+    trans_err = torch.sqrt((trans_err ** 2).sum((-1, -2)))
 
     scale_err = torch.abs(gt_model['scale'] - pred_model['scale'])
 

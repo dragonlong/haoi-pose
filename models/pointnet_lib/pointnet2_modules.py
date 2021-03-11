@@ -224,7 +224,7 @@ class PointNetSetAbstractionMsg(nn.Module):
 
         B, C, N = xyz.shape
         S = self.npoint
-        fps_idx = farthest_point_sample(xyz.permute(0, 2, 1), S)
+        fps_idx = farthest_point_sample(xyz.permute(0, 2, 1), S).int()
         new_xyz = gather_operation(xyz, fps_idx)  # [B, C, S]
         new_points_list = []
         for i, radius in enumerate(self.radius_list):

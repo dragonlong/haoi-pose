@@ -54,7 +54,7 @@ class PointTransformerTransitionDown(nn.Module):
         """
         B, C, N = xyz.shape
         S = self.npoint
-        fps_idx = farthest_point_sample(xyz.permute(0, 2, 1), S)
+        fps_idx = farthest_point_sample(xyz.permute(0, 2, 1), S).int()
         new_xyz = gather_operation(xyz, fps_idx)  # [B, C, S]
         _, group_idx = knn_point(self.nsample, new_xyz.transpose(-1, -2), xyz.transpose(-1, -2))
         grouped_xyz = group_operation(xyz, group_idx)  # [B, C, S, nsample]

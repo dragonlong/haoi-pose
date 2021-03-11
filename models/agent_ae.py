@@ -5,7 +5,7 @@ import wandb
 import __init__
 from models.ae_gan import get_network
 from models.base import BaseAgent
-from utils.emd import earth_mover_distance
+# from utils.emd import earth_mover_distance
 from models.losses import loss_geodesic, loss_vectors, compute_vect_loss, compute_1vN_nocs_loss, compute_miou_loss
 from common.d3_utils import compute_rotation_matrix_from_euler, compute_euler_angles_from_rotation_matrices, compute_rotation_matrix_from_ortho6d
 from common.yj_pose import compute_pose_diff
@@ -69,8 +69,8 @@ class PointAEPoseAgent(BaseAgent):
                                                                                                1).contiguous().cuda()
         pred_nocs = self.output_N
         gt_nocs = target_pts
-        print('target input', target_pts.shape, input_pts.shape, pred_nocs.shape)
-        self.pose_err = compute_pose_diff(nocs_gt=gt_nocs, nocs_pred=pred_nocs, target=input_pts,
+        self.pose_err = compute_pose_diff(nocs_gt=gt_nocs.transpose(-1, -2), 
+                nocs_pred=pred_nocs.transpose(-1, -2), target=input_pts.transpose(-1, -2),
                                           category=self.config.target_category)
 
     def forward(self, data, verbose=False):
@@ -301,6 +301,8 @@ class PointAEPoseAgent(BaseAgent):
 
     def visualize_batch(self, data, mode, **kwargs):
         tb = self.train_tb if mode == 'train' else self.val_tb
+        if self.config.pred_nocs:
+            return
 
         num = 2
 
