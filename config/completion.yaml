@@ -78,6 +78,7 @@ hand_only: False
 log_dir: '/model/${item}/${exp_num}'
 use_pretrain: False
 eval: False
+eval_mini: False
 split: 'val'
 pretrained_path: ''
 is_testing: False

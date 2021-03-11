@@ -223,12 +223,24 @@ def compute_pose_diff(nocs_gt, nocs_pred, target, category):
     pred_rot = pred_model['rotation']
     gt_rots = torch.matmul(gt_rot.unsqueeze(1), rmats.unsqueeze(0))  # [B, M, 3, 3]
     rot_err = rot_diff_degree(gt_rots, pred_rot.unsqueeze(1), chosen_axis=chosen_axis)  # [B, M]
-    rot_err = torch.min(rot_err, dim=-1)[0]  # [B]
-
-    trans_err = gt_model['translation'] - pred_model['translation']  # [B, 3, 1]
-    trans_err = torch.sqrt((trans_err ** 2).sum(-1, -2))
+    rot_err, rot_idx = torch.min(rot_err, dim=-1)  # [B], [B]
+    gt_rot = gt_rots[torch.tensor(np.arange(len(gt_rots))).to(rot_idx.device), rot_idx]  # [B, 3, 3]
 
     scale_err = torch.abs(gt_model['scale'] - pred_model['scale'])
+
+    def transform_center(rot, trans, scale):
+        center = torch.ones((1, 3, 1)).to(rot.device) * 0.5
+        return scale.unsqueeze(-1).unsqueeze(-1) * torch.matmul(rot, center) + trans
+
+    trans_err = (transform_center(gt_rot, gt_model['translation'], gt_model['scale']) -
+                 transform_center(pred_rot, pred_model['translation'], pred_model['scale']))
+
+    trans_err = torch.sqrt((trans_err ** 2).sum(-1, -2))
+
+    """
+    trans_err = gt_model['translation'] - pred_model['translation']  # [B, 3, 1]
+    trans_err = torch.sqrt((trans_err ** 2).sum(-1, -2))
+    """
 
     return {'rdiff': rot_err, 'tdiff': trans_err, 'sdiff': scale_err}
 
