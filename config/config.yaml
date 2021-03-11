@@ -9,6 +9,7 @@ defaults:
   - models: '${defaults.1.model_type}.yaml'
 
 eval: False
+eval_mini: False
 exp_num: '1'
 exp_name: 'default'
 task: 'category_pose' # hand_regression, obj_reconstruction, hand_reconstruction, contacts_vote

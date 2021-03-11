@@ -318,6 +318,25 @@ def main(cfg):
             else:
                 plot_distribution(value.reshape(-1), labelx=key, labely='frequency', title_name=f'rotation_error_{key}', sub_name=cfg.exp_num, save_fig=True)
         return
+    elif cfg.eval_mini:
+        track_dict = {'rdiff': [], 'tdiff': [], 'sdiff': [],
+                      '5deg': [], '5cm': [], '5deg5cm': []}
+
+        for num, test_data in enumerate(test_loader):
+            losses, infos = tr_agent.eval_func(test_data)
+            tr_agent.eval_nocs(test_data)
+            pose_diff = tr_agent.pose_err
+            for key in ['rdiff', 'tdiff', 'sdiff']:
+                track_dict[key].append(pose_diff[key].cpu().numpy().mean())
+            deg = pose_diff['rdiff'] <= 5.0
+            cm = pose_diff['tdiff'] <= 0.05
+            degcm = torch.logical_and(deg, cm)
+            for key, value in zip(['5deg', '5cm', '5deg5cm'], [deg, cm, degcm]):
+                track_dict[key].append(value.float().cpu().numpy().mean())
+        for key, value in track_dict.items():
+            print(key, ':', np.array(value).mean())
+        return
+
     best_R_error = 100
     val_loader   = cycle(val_loader)
     for e in range(clock.epoch, cfg.nr_epochs):
@@ -354,7 +373,7 @@ def main(cfg):
 
                 for num, test_data in enumerate(test_loader):
                     # print('--going over ', num)
-                    if num > 100: # we only evaluate 100 data every 1000 steps
+                    if num > 100:  # we only evaluate 100 data every 1000 steps
                         break
                     losses, infos = tr_agent.eval_func(test_data)
                     if cfg.pred_nocs:
