@@ -6,7 +6,8 @@ from abc import abstractmethod
 from tensorboardX import SummaryWriter
 from common.train_utils import TrainClock
 import wandb
-
+def bp():
+    import pdb;pdb.set_trace()
 class BaseAgent(object):
     """Base trainer that provides common training behavior.
         All customized trainer should be subclass of this class.
@@ -81,7 +82,13 @@ class BaseAgent(object):
 
     def load_ckpt(self, name=None):
         """load checkpoint from saved checkpoint"""
-        name = name if name == 'latest' else "ckpt_epoch{}".format(name)
+        """load checkpoint from saved checkpoint"""
+        if name == 'latest':
+            pass
+        elif name == 'best':
+            pass
+        else:
+            name = "ckpt_epoch{}".format(name)
         load_path = os.path.join(self.model_dir, "{}.pth".format(name))
         if not os.path.exists(load_path):
             raise ValueError("Checkpoint {} not exists.".format(load_path))
@@ -283,7 +290,12 @@ class GANzEAgent(object):
 
     def load_ckpt(self, name=None):
         """load checkpoint from saved checkpoint"""
-        name = name if name == 'latest' else "ckpt_epoch{}".format(name)
+        if name == 'latest':
+            pass
+        elif name == 'best':
+            pass
+        else:
+            name = "ckpt_epoch{}".format(name)
         load_path = os.path.join(self.model_dir, "{}.pth".format(name))
         if not os.path.exists(load_path):
             raise ValueError("Checkpoint {} not exists.".format(load_path))

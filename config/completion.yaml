@@ -34,9 +34,11 @@ pred_mano: False
 pred_joint_ind: False
 pred_nocs: False
 pred_6d: False
+pred_bb: False
 pred_seg: False
 pred_conf: False
 pred_mode: False
+pred_center: False
 rotation_use_dense: False
 pred_sym_axis: False
 use_hand_occupancy: False
@@ -83,6 +85,7 @@ pretrained_path: ''
 is_testing: False
 use_gt_M: False
 eval_mode_r: 0
+checkpoints_name: ''
 
 # general, gpu, print
 use_wandb: False

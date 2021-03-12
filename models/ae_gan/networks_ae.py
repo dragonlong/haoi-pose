@@ -29,6 +29,7 @@ try:
     from common.debugger import *
     from models.model_factory import ModelBuilder
     from models.decoders.pointnet_2 import PointNet2Segmenter
+    from models.decoders.equivariant_model import EquivariantDGCNN
 except:
     print('~need env paths~')
 from kaolin.models.PointNet2 import furthest_point_sampling
@@ -283,35 +284,6 @@ class PointNetplusplus(nn.Module):
                 pred_dict[self.head_names[i]] = self.head[i](net)
 
         return pred_dict
-
-# PointNet as Encoder
-##############################################################################
-class EncoderPointNet(nn.Module):
-    def __init__(self, n_filters=(64, 128, 128, 256), latent_dim=128, bn=True):
-        super(EncoderPointNet, self).__init__()
-        self.n_filters = list(n_filters) + [latent_dim]
-        self.latent_dim = latent_dim
-
-        model = []
-        prev_nf = 3
-        for idx, nf in enumerate(self.n_filters):
-            conv_layer = nn.Conv1d(prev_nf, nf, kernel_size=1, stride=1)
-            model.append(conv_layer)
-
-            if bn:
-                bn_layer = nn.BatchNorm1d(nf)
-                model.append(bn_layer)
-
-            act_layer = nn.LeakyReLU(inplace=True)
-            model.append(act_layer)
-            prev_nf = nf
-
-        self.model = nn.Sequential(*model)
-
-    def forward(self, x):
-        x = self.model(x)
-        x = torch.max(x, dim=2)[0]
-        return x
 
 class RegressorC1D(nn.Module):
     def __init__(self, out_channels=[256, 256, 3], latent_dim=128):
@@ -771,6 +743,62 @@ class GraphFPResNoSkipLinkModule(nn.Module):
 
         return h
 
+class en3_transformer(nn.Module):
+    """en3_transformer with multiple heads"""
+    def __init__(self, cfg):
+        super().__init__()
+        k = 16
+        C               = cfg.MODEL.num_mid_channels
+        C_in            = cfg.MODEL.num_in_channels
+        self.num_R      = cfg.MODEL.num_channels_R
+        C_out           = self.num_R                # for 6D rotation, use 2; for 3D rotation, use 1.
+        self.backbone   = EquivariantDGCNN(k, C, C_in, C_out) # k, C, C_in=1, C_out=2):
+        net_header, head_names  = ModelBuilder.build_header(layer_specs=cfg.HEAD)
+        self.head       = net_header
+        self.head_names = head_names
+
+
+    def forward(self, xyz):
+        BS, _, N = xyz.shape
+        x = torch.cat([xyz.double(), torch.ones((BS, 1, N), device=xyz.device).double()], dim=1)
+        x_out, f_out = self.backbone(x) # x: # [batch_size, C_out, 3, num_points];  f: [batch_size, 64, num_points]
+        pred_dict = {}
+        pred_dict['R'] = x_out[:, :self.num_R, :, :]# N, C, 3, N
+        pred_dict['T'] = x_out[:, -1, :, :]
+        for i, sub_head in enumerate(self.head):
+            pred_dict[self.head_names[i]] = self.head[i](f_out)
+
+        return pred_dict
+
+# PointNet as Encoder
+##############################################################################
+class EncoderPointNet(nn.Module):
+    def __init__(self, n_filters=(64, 128, 128, 256), latent_dim=128, bn=True):
+        super(EncoderPointNet, self).__init__()
+        self.n_filters = list(n_filters) + [latent_dim]
+        self.latent_dim = latent_dim
+
+        model = []
+        prev_nf = 3
+        for idx, nf in enumerate(self.n_filters):
+            conv_layer = nn.Conv1d(prev_nf, nf, kernel_size=1, stride=1)
+            model.append(conv_layer)
+
+            if bn:
+                bn_layer = nn.BatchNorm1d(nf)
+                model.append(bn_layer)
+
+            act_layer = nn.LeakyReLU(inplace=True)
+            model.append(act_layer)
+            prev_nf = nf
+
+        self.model = nn.Sequential(*model)
+
+    def forward(self, x):
+        x = self.model(x)
+        x = torch.max(x, dim=2)[0]
+        return x
+
 
 class PointAE(nn.Module):
     def __init__(self, cfg):
@@ -781,6 +809,11 @@ class PointAE(nn.Module):
                                            vector_attention=cfg.MODEL.vector_attention)
         elif 'plus' in self.encoder_type:
             self.encoder = PointNetplusplus(cfg)
+        elif 'en3' in self.encoder_type:
+            default_type = torch.DoubleTensor
+            #default_type = torch.FloatTensor
+            torch.set_default_tensor_type(default_type)
+            self.encoder = en3_transformer(cfg)
         else:
             self.encoder = EncoderPointNet(eval(cfg.enc_filters), cfg.latent_dim, cfg.enc_bn)
 

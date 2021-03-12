@@ -171,7 +171,6 @@ class ModelNetDataset(data.Dataset):
                                         # os.path.join(dir_point, token + '.qua'),
                                         # os.path.join(dir_point, token + '.ds'+str(self.num_gen_samples)+'.pt'),
                                         os.path.join(dir_point, token + '.idx')))
-
         # create NOCS dict
         manager = Manager()
         self.nocs_dict = manager.dict()
@@ -201,12 +200,13 @@ class ModelNetDataset(data.Dataset):
             Rz = rotate_about_axis(theta_z / 180 * np.pi, axis='z')
             RR = torch.from_numpy(np.matmul(Rx, Rz).astype(np.float32))
             TT = torch.from_numpy(np.random.rand(1,3).astype(np.float32))
+            # TT = torch.from_numpy(np.array([[0, 0, 0]]).astype(np.float32))
         else:
             RR = torch.from_numpy(rotate_about_axis(0, axis='x').astype(np.float32))
-            TT = 0
+            TT = torch.from_numpy(np.array([[0, 0, 0]]).astype(np.float32))
         if self.cfg.single_instance:
             idx= 2
-
+            TT = torch.from_numpy(np.array([[0, 0, 0]]).astype(np.float32))
         # category_name = model_path.split('/')[-4]
         # instance_name = model_path.split('/')[-3]
         fn  = self.datapath[idx]
@@ -227,6 +227,7 @@ class ModelNetDataset(data.Dataset):
             length_bb = np.linalg.norm(boundary_pts[0] - boundary_pts[1])
             # best,
             gt_points = (canon_pts - center_pt.reshape(1, 3)) / length_bb + 0.5
+            full_pts  = np.copy(gt_points)
             gt_points = np.random.permutation(gt_points)
             gt_points = gt_points[:self.npoints, :]
             gt_points = torch.from_numpy(gt_points.astype(np.float32)[:, :])
@@ -243,10 +244,16 @@ class ModelNetDataset(data.Dataset):
                 self.g_dict[idx] = [gt_points, src, dst]
 
         center_offset = pos[0].clone().detach()-0.5
+        center = torch.from_numpy(np.array([[0.5, 0.5, 0.5]])) # 1, 3
+        bb_pts = torch.from_numpy(np.max(full_pts, axis=0).reshape(1, 3))  # get up, top, right points
+        bb_offset  = bb_pts - pos[0] # 1, 3 - N, 3
         if self.augment:
-            pos[0] = torch.matmul(pos[0]-0.5, RR) + 0.5 # to have random rotation
+            pos[0] = torch.matmul(pos[0]-0.5, RR) # to have random rotation
             pos[0] = pos[0] + TT
+            center = TT
             center_offset = torch.matmul(center_offset, RR) # N, 3
+            bb_pts = torch.matmul(bb_pts-0.5, RR) + TT
+            bb_offset = torch.matmul(bb_offset, RR)
 
         # construct a graph for input
         unified = torch.cat([src, dst])
@@ -261,10 +268,26 @@ class ModelNetDataset(data.Dataset):
         g.edata['d'] = pos[0][dst_idx] - pos[0][src_idx] #[num_atoms,3] but we only supervise the half
         up_axis = torch.matmul(torch.tensor([[0.0, 1.0, 0.0]]).float(), RR)
 
-        if self.cfg.pred_6d:
-            return g, gt_points.transpose(1, 0), instance_name, RR, center_offset, idx, category_name
+        # if we use en3 model, the R/T would be different
+        if 'en3' in self.cfg.encoder_type:
+            if self.cfg.pred_6d:
+                return g, gt_points.transpose(1, 0), instance_name, RR, center, idx, category_name
+            elif self.cfg.pred_bb:
+                return g, gt_points.transpose(1, 0), instance_name, bb_offset, center, idx, category_name
+            else:
+                return g, gt_points.transpose(1, 0), instance_name, up_axis, center, idx, category_name
         else:
-            return g, gt_points.transpose(1, 0), instance_name, up_axis, center_offset, idx, category_name
+            if self.cfg.pred_6d:
+                return g, gt_points.transpose(1, 0), instance_name, RR, center_offset, idx, category_name
+            elif self.cfg.pred_bb:
+                return g, gt_points.transpose(1, 0), instance_name, bb_offset, center_offset, idx, category_name
+            else:
+                return g, gt_points.transpose(1, 0), instance_name, up_axis, center_offset, idx, category_name
+
+        # if self.cfg.pred_6d:
+        #     return g, gt_points.transpose(1, 0), instance_name, RR, center_offset, idx, category_name
+        # else:
+        #     return g, gt_points.transpose(1, 0), instance_name, up_axis, center_offset, idx, category_name
 
     def __getitem__(self, idx):
         # if idx in self.cache:

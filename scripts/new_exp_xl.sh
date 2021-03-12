@@ -15,8 +15,6 @@ source activate merl
 
 
 
-
-
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> 2.405: bottle complete <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 # # 2.4058 multiple instance, dynamic graph, with augmentation, L2
 # TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
@@ -127,8 +125,48 @@ use_wandb=True
 2.4074: # pointnet++ on complete data for NOCS
 TRAIN_OBJ='python train_aegan.py training=ae_gan models=pnet2 encoder_type='pnetplusplus' vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
 $TRAIN_OBJ task='pcloud_pose' target_category='bottle' exp_num='2.4074' DATASET.train_batch=2 DATASET.test_batch=2 \
-augment=True pred_nocs=True use_objective_N=True \
+augment=True pred_nocs=True use_objective_N=True  \
 eval=True save=True
+use_wandb=True
+
+TRAIN_OBJ='python train_aegan.py training=ae_gan models=pnet2 encoder_type='pnetplusplus' vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='2.4075' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 pred_nocs=True use_objective_N=True MODEL.use_ball_query=False \
+use_wandb=True
+
+TRAIN_OBJ='python train_aegan.py training=ae_gan models=pnet2 encoder_type='pnetplusplus' vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='jar' exp_num='2.4076' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 pred_nocs=True use_objective_N=True MODEL.use_ball_query=False \
+use_wandb=True
+
+TRAIN_OBJ='python train_aegan.py training=ae_gan models=pnet2 encoder_type='pnetplusplus' vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='can' exp_num='2.4077' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 pred_nocs=True use_objective_N=True MODEL.use_ball_query=False \
+use_wandb=True
+
+TRAIN_OBJ='python train_aegan.py training=ae_gan models=pnet2 encoder_type='pnetplusplus' vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='bowl' exp_num='2.4078' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 pred_nocs=True use_objective_N=True MODEL.use_ball_query=False \
+use_wandb=True
+
+TRAIN_OBJ='python train_aegan.py training=ae_gan models=pnet2 encoder_type='pnetplusplus' vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='camera' exp_num='2.4079' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 pred_nocs=True use_objective_N=True MODEL.use_ball_query=False \
+use_wandb=True
+
+TRAIN_OBJ='python train_aegan.py training=ae_gan models=pnet2 encoder_type='pnetplusplus' vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='remote' exp_num='2.40791' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 pred_nocs=True use_objective_N=True MODEL.use_ball_query=False \
+use_wandb=True
+
+TRAIN_OBJ='python train_aegan.py training=ae_gan models=pnet2 encoder_type='pnetplusplus' vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='cellphone' exp_num='2.40792' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 pred_nocs=True use_objective_N=True MODEL.use_ball_query=False \
+use_wandb=True
+
+TRAIN_OBJ='python train_aegan.py training=ae_gan models=pnet2 encoder_type='pnetplusplus' vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='knife' exp_num='2.40793' DATASET.train_batch=2 DATASET.test_batch=2 \
+augment=True rotation_loss_type=1 pred_nocs=True use_objective_N=True MODEL.use_ball_query=False \
 use_wandb=True
 #>>>>>>>>>>>>>>>>>>>>>>>>
 
@@ -194,7 +232,7 @@ use_wandb=True
 # vis_frequency=1000 vis=True \
 # MODEL.down_conv.npoint='[256, 64, 32, 16]' \
 # MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
-# eval=True save=True use_gt_M=True
+# eval=True save=True ckpt=latest eval_mode_r=0
 # use_wandb=True
 
   2.409161:  # encoder + decoder, modal=5, with classifyM loss
@@ -206,7 +244,7 @@ MODEL.down_conv.npoint='[256, 64, 32*3, 16*3, pooling 1]' \
 MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
 MODEL.num_channels_R=5 MODEL.encoder_only=False \
 pred_mode=True use_objective_M=True \
-eval=True save=True use_gt_M=True
+eval=True save=True ckpt=latest eval_mode_r=0
 use_wandb=True
 
   2.409162:  # encoder + decoder, modal=2, with classifyM loss
@@ -218,7 +256,7 @@ MODEL.down_conv.npoint='[256, 64, 32, 16]' \
 MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
 MODEL.num_channels_R=2 MODEL.encoder_only=False \
 pred_mode=True use_objective_M=True \
-eval=True save=True use_gt_M=True
+eval=True save=True ckpt=latest eval_mode_r=0
 use_wandb=True
 
 2.4091621:  # encoder + decoder, modal=2, with classifyM loss, add mode regularization
@@ -230,7 +268,7 @@ MODEL.down_conv.npoint='[256, 64, 32, 16]' \
 MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
 MODEL.num_channels_R=2 MODEL.encoder_only=False \
 pred_mode=True use_objective_M=True use_objective_V=True consistency_loss_multiplier=1.0 \
-eval=True save=True use_gt_M=True 2>&1 | tee results/eval_2.4091621.log
+eval=True save=True ckpt=latest eval_mode_r=0 2>&1 | tee results/eval_2.4091621.log
 use_wandb=True
 
 2.40916211:  # encoder + decoder, modal=2, with classifyM loss, add mode regularization, encoder + decoder, modal=2, with classifyM loss, add mode regularization, no loss added
@@ -242,7 +280,7 @@ MODEL.down_conv.npoint='[256, 64, 32, 16]' \
 MODEL.down_conv.nsamples='[[10], [16], [16], [15]]' \
 MODEL.num_channels_R=2 MODEL.encoder_only=False \
 pred_mode=True use_objective_M=True check_consistency=True consistency_loss_multiplier=1.0 \
-eval=True save=True use_gt_M=True 2>&1 | tee results/eval_2.4091621.log
+eval=True save=True ckpt=latest eval_mode_r=0 2>&1 | tee results/eval_2.4091621.log
 use_wandb=True
 
 # overfit 100 examples
@@ -257,7 +295,7 @@ use_wandb=True
 # pred_mode=True use_objective_M=True use_objective_V=True consistency_loss_multiplier=1.0 \
 # subset_samples=True \
 # use_wandb=True
-# eval=True save=True use_gt_M=True 2>&1 | tee results/eval_2.4091621.log
+# eval=True save=True ckpt=latest eval_mode_r=0 2>&1 | tee results/eval_2.4091621.log
 
 2.4091622:  # encoder + decoder, modal=2, with classifyM loss, add mode regularization
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
@@ -270,7 +308,7 @@ MODEL.num_channels_R=2 MODEL.encoder_only=False \
 pred_mode=True use_objective_M=True use_objective_V=True consistency_loss_multiplier=0.1 \
 use_wandb=True \
 # to eval on full test set, just add below
-eval=True save=True use_gt_M=True 2>&1 | tee results/eval_2.4091622.log
+eval=True save=True ckpt=latest eval_mode_r=0 2>&1 | tee results/eval_2.4091622.log
 
 #
 2.4091623:  # encoder + decoder, modal=2, with classifyM loss, add mode regularization
@@ -281,7 +319,7 @@ vis_frequency=1000 vis=True \
 models=se3_transformerv2 \
 MODEL.num_channels_R=2 MODEL.encoder_only=False \
 pred_mode=True use_objective_M=True use_objective_V=True consistency_loss_multiplier=0.1 \
-eval=True save=True use_gt_M=True 2>&1 | tee results/eval_2.4091623.log
+eval=True save=True ckpt=latest eval_mode_r=0 2>&1 | tee results/eval_2.4091623.log
 use_wandb=True
 
 2.4091624:  # no skip link, encoder + decoder, modal=2, with classifyM loss, add mode regularization
@@ -354,7 +392,7 @@ use_wandb=True
 # models=se3_transformerv4 \
 # MODEL.num_channels_R=2 MODEL.encoder_only=True \
 # pred_mode=True use_objective_M=True \
-# eval=True save=True use_gt_M=True
+# eval=True save=True ckpt=latest eval_mode_r=0
 # use_wandb=True
 #
 # 2.409194: # encoder only, modal=2, with classifyM loss, v5
@@ -365,7 +403,7 @@ use_wandb=True
 # models=se3_transformerv5 \
 # MODEL.num_channels_R=2 MODEL.encoder_only=True \
 # pred_mode=True use_objective_M=True \
-# eval=True save=True use_gt_M=True
+# eval=True save=True ckpt=latest eval_mode_r=0
 # use_wandb=True
 #
 # 2.409195: # encoder only, modal=2, with classifyM loss, v6
@@ -376,7 +414,7 @@ use_wandb=True
 # models=se3_transformerv6 \
 # MODEL.num_channels_R=2 MODEL.encoder_only=True \
 # pred_mode=True use_objective_M=True \
-# eval=True save=True use_gt_M=True
+# eval=True save=True ckpt=latest eval_mode_r=0
 # use_wandb=True
 #
 # 2.409196: #(killed)  encoder only, modal=2, with classifyM loss, v3 with pooling;
@@ -388,7 +426,7 @@ use_wandb=True
 # models=se3_transformerv3 \
 # MODEL.num_channels_R=2 MODEL.encoder_only=True \
 # pred_mode=True use_objective_M=True \
-# eval=True save=True use_gt_M=True
+# eval=True save=True ckpt=latest eval_mode_r=0
 # use_wandb=True
 #
 # 2.409197: # (killed) encoder only, modal=2, with classifyM loss, v4 with pooling;
@@ -399,7 +437,7 @@ use_wandb=True
 # models=se3_transformerv4 \
 # MODEL.num_channels_R=2 MODEL.encoder_only=True \
 # pred_mode=True use_objective_M=True \
-# eval=True save=True use_gt_M=True
+# eval=True save=True ckpt=latest eval_mode_r=0
 # use_wandb=True
 #
 # 2.409198: #  encoder only, modal=2, with classifyM loss, v5 with pooling;
@@ -410,7 +448,7 @@ use_wandb=True
 # models=se3_transformerv5 \
 # MODEL.num_channels_R=2 MODEL.encoder_only=True \
 # pred_mode=True use_objective_M=True \
-# eval=True save=True use_gt_M=True
+# eval=True save=True ckpt=latest eval_mode_r=0
 # use_wandb=True
 #
 # 2.409199: #  encoder only, modal=2, with classifyM loss, v3_1 with pooling;
@@ -421,7 +459,7 @@ use_wandb=True
 # models=se3_transformerv3_1 \
 # MODEL.num_channels_R=2 MODEL.encoder_only=True \
 # pred_mode=True use_objective_M=True \
-# eval=True save=True use_gt_M=True
+# eval=True save=True ckpt=latest eval_mode_r=0
 # use_wandb=True
 #
 # 2.4091991: # (killed) encoder only, modal=2, with classifyM loss, v3_2 with pooling;
@@ -432,7 +470,7 @@ use_wandb=True
 # models=se3_transformerv3_2 \
 # MODEL.num_channels_R=2 MODEL.encoder_only=True \
 # pred_mode=True use_objective_M=True \
-# eval=True save=True use_gt_M=True
+# eval=True save=True ckpt=latest eval_mode_r=0
 # use_wandb=True
 
 
@@ -505,7 +543,7 @@ pred_mode=True use_objective_M=True use_objective_V=True consistency_loss_multip
 use_hand=True pred_seg=True use_objective_C=True \
 use_wandb=True \
 # to eval on full test set, just add below
-eval=True save=True use_gt_M=True 2>&1 | tee results/eval_2.4096.log
+eval=True save=True ckpt=latest eval_mode_r=0 2>&1 | tee results/eval_2.4096.log
 
 2.4097: # R estimation, new best model, partial shape for, multiple instance
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
@@ -643,7 +681,7 @@ pred_mode=True use_objective_M=True use_objective_V=True consistency_loss_multip
 use_hand=True pred_seg=True use_objective_C=True \
 use_wandb=True \
 # to eval on full test set, just add below
-eval=True save=True use_gt_M=True 2>&1 | tee results/eval_2.4096.log
+eval=True save=True ckpt=latest eval_mode_r=0 2>&1 | tee results/eval_2.4096.log
 
   2.417:  # jar, encoder + decoder, modal=2, with classifyM loss, mode regularization, 4 heads, without hands, predict full R;
   #       (try to find multiple GT, use the minimum, R loss with multiple candidates)
@@ -660,7 +698,7 @@ MODEL.num_channels_R=2 MODEL.encoder_only=False \
 pred_mode=True use_objective_M=True use_objective_V=True consistency_loss_multiplier=0.1 \
 use_wandb=True \
 # to eval on full test set, just add below
-eval=True save=True use_gt_M=True 2>&1 | tee results/eval_2.4091622.log
+eval=True save=True ckpt=latest eval_mode_r=0 2>&1 | tee results/eval_2.4091622.log
 
 
 2.4171:  # jar, encoder + decoder, modal=2, with classifyM loss, mode regularization, 4 heads, without hands, predict up axis is enough;
@@ -669,15 +707,12 @@ $TRAIN_OBJ task='partial_pcloud_pose' target_category='jar' exp_num='2.4171' DAT
 models=se3_transformer_default \
 augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
 pred_mode=True use_objective_M=True use_objective_V=True \
-eval=True save=True
+eval=True save=True ckpt=latest eval_mode_r=1 2>&1 | tee results/eval_2.4171_latest_upside.log
 use_wandb=True \
 # to eval on full test set, just add below
-eval=True save=True use_gt_M=True 2>&1 | tee results/eval_2.4171.log
-
 
 2.42 # all categories, AE, synthetic complete pcloud
   python train_aegan.py training=ae_gan name_model=ae dataset_class='HandDatasetAEGan' exp_num='2.42'
-
 
 
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> 2.43: remote <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
@@ -702,7 +737,15 @@ augment=True pred_nocs=True use_objective_N=True \
 use_wandb=True
 eval=True save=True
 
-
+2.434:  # remote, use R, encoder + decoder, modal=2, with classifyM loss, mode regularization, 4 heads, without hands, predict up axis is enough;
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True vis_frequency=1000 num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='remote' exp_num='2.434' DATASET.train_batch=2 DATASET.test_batch=2 \
+models=se3_transformer_default \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+pred_mode=True use_objective_M=True use_objective_V=True use_adaptive_mode=True \
+pred_6d=True num_modes_R=5 MODEL.num_channels_R=10 mode_features='[5, 'softmax']' \
+eval=True save=True ckpt=latest eval_mode_r=0 2>&1 | tee results/eval_2.434.log
+use_wandb=True \
 
 
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> 2.44: cellphone, <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
@@ -714,13 +757,25 @@ augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
 pred_mode=True use_objective_M=True use_objective_V=True \
 use_wandb=True \
 # to eval on full test set, just add below
-eval=True save=True use_gt_M=True 2>&1 | tee results/eval_2.441.log
+eval=True save=True ckpt=latest eval_mode_r=0 2>&1 | tee results/eval_2.441.log
 
+2.442:  # ceelphone, use R^T, encoder + decoder, modal=2, with classifyM loss, mode regularization, 4 heads, without hands, predict up axis is enough;
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True vis_frequency=1000 num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='cellphone' exp_num='2.442' DATASET.train_batch=2 DATASET.test_batch=2 \
+models=se3_transformer_default \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+pred_mode=True use_objective_M=True use_adaptive_mode=True \
+pred_6d=True num_modes_R=5 MODEL.num_channels_R=10 mode_features='[5, 'softmax']' \
+use_wandb=True \
 
-
-
-
-
+2.443:  # ceelphone, use R^T, encoder + decoder, modal=2, with classifyM loss, mode regularization, 4 heads, without hands, predict up axis is enough;
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True vis_frequency=1000 num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='cellphone' exp_num='2.443' DATASET.train_batch=2 DATASET.test_batch=2 \
+models=se3_transformer_default \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+pred_mode=True use_objective_M=True use_objective_V=True \
+pred_6d=True num_modes_R=5 MODEL.num_channels_R=10 mode_features='[5, 'softmax']' \
+use_wandb=True \
 
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> 2.45: camera <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
   2.451: # multiple instance, dynamic graph, with augmentation, L2, camera
@@ -770,7 +825,7 @@ pred_mode=True use_objective_M=True use_objective_V=True consistency_loss_multip
 use_hand=True pred_seg=True use_objective_C=True \
 use_wandb=True \
 # to eval on full test set, just add below
-eval=True save=True use_gt_M=True 2>&1 | tee results/eval_2.4096.log
+eval=True save=True ckpt=latest eval_mode_r=0 2>&1 | tee results/eval_2.4096.log
 
 
   2.453: # use type 0 predict NOCS on complete shape, NOCS, camera
@@ -789,7 +844,7 @@ eval=True save=True
 # pred_6d=True num_modes_R=2 MODEL.num_channels_R=4 mode_features='[2, 'softmax']' \
 # use_wandb=True \
 # # to eval on full test set, just add below
-# eval=True save=True use_gt_M=True 2>&1 | tee results/eval_2.454.log
+# eval=True save=True ckpt=latest eval_mode_r=0 2>&1 | tee results/eval_2.454.log
 
 2.4541:  # camera, use R, adaptive mode, encoder + decoder, modal=2, with classifyM loss, mode regularization, 4 heads, without hands, predict up axis is enough;
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True vis_frequency=1000 num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
@@ -800,7 +855,7 @@ pred_mode=True use_objective_M=True use_objective_V=True use_adaptive_mode=True 
 pred_6d=True num_modes_R=2 MODEL.num_channels_R=4 mode_features='[2, 'softmax']' \
 use_wandb=True \
 # to eval on full test set, just add below
-eval=True save=True use_gt_M=True 2>&1 | tee results/eval_2.454.log
+eval=True save=True ckpt=latest eval_mode_r=0 2>&1 | tee results/eval_2.454.log
 
 2.4542:  # camera, use R^T, encoder + decoder, modal=2, with classifyM loss, mode regularization, 4 heads, without hands, predict up axis is enough;
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True vis_frequency=1000 num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
@@ -811,7 +866,7 @@ pred_mode=True use_objective_M=True use_objective_V=True \
 pred_6d=True num_modes_R=2 MODEL.num_channels_R=4 mode_features='[2, 'softmax']' \
 use_wandb=True \
 # to eval on full test set, just add below
-eval=True save=True use_gt_M=True 2>&1 | tee results/eval_2.454.log
+eval=True save=True ckpt=latest eval_mode_r=0 2>&1 | tee results/eval_2.454.log
 
 2.4543:  # camera, use R^T, encoder + decoder, modal=2, with classifyM loss, mode regularization, 4 heads, without hands, predict up axis is enough;
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True vis_frequency=1000 num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
@@ -839,8 +894,35 @@ augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
 MODEL.num_channels_R=2 HEAD.R='[128, 128, 6, None]' \
 pred_mode=True use_objective_M=True use_objective_V=True consistency_loss_multiplier=0.1 MODEL.use_ball_query=False \
 use_wandb=True
->>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> 2.46: knife <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
+2.4547:  # camera, use R^T, encoder + decoder, modal=2, with classifyM loss, mode regularization, 4 heads, without hands, predict up axis is enough;
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True vis_frequency=1000 num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='camera' exp_num='2.4547' DATASET.train_batch=2 DATASET.test_batch=2 \
+models=se3_transformer_default \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+pred_mode=True use_objective_M=True use_adaptive_mode=True \
+pred_6d=True num_modes_R=5 MODEL.num_channels_R=10 mode_features='[5, 'softmax']' \
+eval=True save=True ckpt=best eval_mode_r=0 2>&1 | tee results/eval_2.4547.log
+use_wandb=True \
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> 2.46: knife <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+2.461:  # ca226, 0 knife, use R^T, encoder + decoder, modal=2, with classifyM loss, mode regularization, 4 heads, without hands, predict up axis is enough;
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True vis_frequency=1000 num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='knife' exp_num='2.461' DATASET.train_batch=2 DATASET.test_batch=2 \
+models=se3_transformer_default \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+pred_mode=True use_objective_M=True use_objective_V=True \
+pred_6d=True num_modes_R=2 MODEL.num_channels_R=4 mode_features='[2, 'softmax']' \
+use_wandb=True \
+
+2.462:  # ca226, 1 knife, use R^T, encoder + decoder, modal=2, with classifyM loss, mode regularization, 4 heads, without hands, predict up axis is enough;
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True vis_frequency=1000 num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='knife' exp_num='2.462' DATASET.train_batch=2 DATASET.test_batch=2 \
+models=se3_transformer_default \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+pred_mode=True use_objective_M=True use_adaptive_mode=True \
+pred_6d=True num_modes_R=2 MODEL.num_channels_R=4 mode_features='[2, 'softmax']' \
+use_wandb=True \
 
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> 2.47: bowl <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 2.47 # ca211 0 bowl, encoder + decoder, modal=2, with classifyM loss, add mode regularization, with hand points, with segmentation;
@@ -855,7 +937,7 @@ pred_mode=True use_objective_M=True use_objective_V=True consistency_loss_multip
 use_hand=True pred_seg=True use_objective_C=True \
 use_wandb=True \
 # to eval on full test set, just add below
-eval=True save=True use_gt_M=True 2>&1 | tee results/eval_2.4096.log
+eval=True save=True ckpt=latest eval_mode_r=0 2>&1 | tee results/eval_2.4096.log
 
 2.471:  # bowl, encoder + decoder, modal=2, with classifyM loss, mode regularization, 4 heads, without hands, predict up axis is enough;
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True vis_frequency=1000 num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
@@ -876,9 +958,17 @@ pred_mode=True use_objective_M=True use_objective_V=True use_one2many=True \
 eval=True save=True
 use_wandb=True \
 # to eval on full test set, just add below
-eval=True save=True use_gt_M=True 2>&1 | tee results/eval_2.478.log
+eval=True save=True ckpt=latest eval_mode_r=0 2>&1 | tee results/eval_2.478.log
 
 
+2.482:  # can, encoder + decoder, modal=2, with classifyM loss, mode regularization, 4 heads, without hands, predict up axis is enough;
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True vis_frequency=1000 num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='can' exp_num='2.482' DATASET.train_batch=2 DATASET.test_batch=2 \
+models=se3_transformer_default \
+rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+pred_mode=True use_objective_M=True use_objective_V=True \
+eval=True save=True ckpt=best eval_mode_r=0 2>&1 | tee results/eval_2.482_best_0.log
+use_wandb=True \
 
 
 3.1 # encoder-decoder full training, pooled prediction, 1 mode

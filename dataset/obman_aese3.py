@@ -226,50 +226,44 @@ class HandDatasetAEGraph(HandDataset):
             pos = gt_points.clone().detach().unsqueeze(0)
             feat= torch.from_numpy(np.ones((pos.shape[0], pos.shape[1], 1)).astype(np.float32))
         else:
-            if self.cfg.use_preprocess: # 2. use disk saved results
-                gt_points = self.data_dict[instance_name][0]
-                group_idx = torch.from_numpy(self.data_dict[instance_name][1].astype(np.int)[:, 1:self.num_samples+1])
-                gt_points = torch.from_numpy(gt_points.astype(np.float32)[:, :]) # keep N, 3
+            model_path = self.unique_objs[idx].replace(
+                "model_normalized.pkl", "surface_points.pkl"
+            )
+            with open(model_path, "rb") as obj_f:
+                canon_pts = pickle.load(obj_f) #
 
-                pos = gt_points.clone().detach().unsqueeze(0)
-                feat= torch.from_numpy(np.ones((pos.shape[0], pos.shape[1], 1)).astype(np.float32))
-                src = group_idx.contiguous().view(-1)
-                centroids = torch.from_numpy(np.arange(gt_points.shape[0]).reshape(1, -1))
-                dst = centroids[0].view(-1, 1).repeat(1, self.num_samples).view(-1)
-            else:
-                model_path = self.unique_objs[idx].replace(
-                    "model_normalized.pkl", "surface_points.pkl"
-                )
-                with open(model_path, "rb") as obj_f:
-                    canon_pts = pickle.load(obj_f) #
+            boundary_pts = [np.min(canon_pts, axis=0), np.max(canon_pts, axis=0)]
+            center_pt = (boundary_pts[0] + boundary_pts[1])/2
+            length_bb = np.linalg.norm(boundary_pts[0] - boundary_pts[1])
 
-                boundary_pts = [np.min(canon_pts, axis=0), np.max(canon_pts, axis=0)]
-                center_pt = (boundary_pts[0] + boundary_pts[1])/2
-                length_bb = np.linalg.norm(boundary_pts[0] - boundary_pts[1])
+            # we care about the nomralized shape in NOCS
+            gt_points = (canon_pts - center_pt.reshape(1, 3)) / length_bb + 0.5
+            full_pts  = np.copy(gt_points)
+            gt_points = np.random.permutation(gt_points)
+            gt_points = gt_points[:self.num_gt, :]
+            gt_points = torch.from_numpy(gt_points.astype(np.float32)[:, :])
 
-                # we care about the nomralized shape in NOCS
-                gt_points = (canon_pts - center_pt.reshape(1, 3)) / length_bb + 0.5
-                # if self.split == 'train':
-                gt_points = np.random.permutation(gt_points)
-                gt_points = gt_points[:self.num_gt, :]
-                gt_points = torch.from_numpy(gt_points.astype(np.float32)[:, :])
+            pos = gt_points.clone().detach().unsqueeze(0)
+            centroids = torch.from_numpy(np.arange(gt_points.shape[0]).reshape(1, -1))
+            group_idx = self.frnn(pos, centroids)
 
-                pos = gt_points.clone().detach().unsqueeze(0)
-                centroids = torch.from_numpy(np.arange(gt_points.shape[0]).reshape(1, -1))
-                group_idx = self.frnn(pos, centroids)
-
-                src = group_idx[0].contiguous().view(-1)
-                dst = centroids[0].view(-1, 1).repeat(1, self.num_samples).view(-1) # real pair
-                feat      = torch.from_numpy(np.ones((pos.shape[0], pos.shape[1], 1)).astype(np.float32))
+            src = group_idx[0].contiguous().view(-1)
+            dst = centroids[0].view(-1, 1).repeat(1, self.num_samples).view(-1) # real pair
+            feat      = torch.from_numpy(np.ones((pos.shape[0], pos.shape[1], 1)).astype(np.float32))
 
             if self.fetch_cache and idx not in self.g_dict:
-                # print('caching!!!')
                 self.g_dict[idx] = [gt_points, src, dst]
         center_offset = pos[0].clone().detach()-0.5
+        center = torch.from_numpy(np.array([[0.5, 0.5, 0.5]])) # 1, 3
+        bb_pts = torch.from_numpy(np.max(full_pts, axis=0).reshape(1, 3))  # get up, top, right points
+        bb_offset  = bb_pts - pos[0] # 1, 3 - N, 3
         if self.augment:
-            pos[0] = torch.matmul(pos[0]-0.5, RR) + 0.5 # to have random rotation
+            pos[0] = torch.matmul(pos[0]-0.5, RR) # to have random rotation
             pos[0] = pos[0] + TT
+            center = TT
             center_offset = torch.matmul(center_offset, RR) # N, 3
+            bb_pts = torch.matmul(bb_pts-0.5, RR) + TT
+            bb_offset = torch.matmul(bb_offset, RR)
 
         # construct a graph for input
         unified = torch.cat([src, dst])
@@ -284,11 +278,16 @@ class HandDatasetAEGraph(HandDataset):
         g.edata['d'] = pos[0][uniq][dst_idx] - pos[0][uniq][src_idx] #[num_atoms,3] but we only supervise the half
         up_axis = torch.matmul(torch.tensor([[0.0, 1.0, 0.0]]).float(), RR)
 
-        # return g, gt_points.transpose(1, 0), instance_name, RR # 3*3, gt_points is complete NOCS
-        if self.cfg.pred_6d:
-            return g, gt_points.transpose(1, 0), instance_name, RR.permute(1, 0).contiguous(), center_offset, idx, category_name
+        # if we use en3 model, the R/T would be different
+        if 'en3' in self.cfg.encoder_type:
+            return g, gt_points.transpose(1, 0), instance_name, RR, center, idx, category_name
         else:
-            return g, gt_points.transpose(1, 0), instance_name, up_axis, center_offset, idx, category_name
+            if self.cfg.pred_6d:
+                return g, gt_points.transpose(1, 0), instance_name, RR, center_offset, idx, category_name
+            elif self.cfg.pred_bb:
+                return g, gt_points.transpose(1, 0), instance_name, bb_offset, center_offset, idx, category_name
+            else:
+                return g, gt_points.transpose(1, 0), instance_name, up_axis, center_offset, idx, category_name
 
     def get_sample_pair(self, idx, verbose=False):
         if self.cfg.single_instance:
@@ -345,6 +344,7 @@ class HandDatasetAEGraph(HandDataset):
         n_arr      = output_arr[0]
         p_arr      = output_arr[1]
         c_arr      = output_arr[2]
+        bb_pts     = np.max(n_arr, axis=0).reshape(1, 3)  # get up, top, right points
         perm       = np.random.permutation(n_total_points)
         n_arr      = n_arr[perm][:self.num_points] # nocs in canonical space, for partial reconstruction only
         p_arr      = p_arr[perm][:self.num_points] # point cloud in camera space
@@ -355,16 +355,20 @@ class HandDatasetAEGraph(HandDataset):
 
         s, r, t, _= estimateSimilarityUmeyama(n_arr.transpose(), p_arr.transpose()) # get GT Pose
         # center_offset = np.matmul(n_arr - 0.5, r)
-        center_offset = p_arr - s * np.matmul(np.array([[0.5, 0.5, 0.5]]), r) - t.reshape(1, 3)
-        up_axis = np.matmul(np.array([[0.0, 1.0, 0.0]]), r)
-
+        center    = s * np.matmul(np.array([[0.5, 0.5, 0.5]]), r)  + t.reshape(1, 3)
+        bb_pts    = s * np.matmul(bb_pts, r)  + t.reshape(1, 3)
+        center_offset = p_arr - center
+        bb_offset =  bb_pts - p_arr
+        up_axis   = np.matmul(np.array([[0.0, 1.0, 0.0]]), r)
         # if verbose:
         #     input   = p_arr
-        #     center  = input.mean(axis=0)
         #     inds = [np.where(m_arr[:, 1]==0)[0], np.where(m_arr[:, 1]>0)[0]]
-        #     gt_vect= {'p': center, 'v': up_axis}
-        #     vis_utils.plot3d_pts([[input[inds[0]], input[inds[1]]]], [['hand', 'object']], s=2**2, arrows=[[gt_vect, gt_vect]], dpi=300, axis_off=False)
-
+        #     gt_vect = {'p': center, 'v': up_axis}
+        #     bb_vect = {'p': p_arr, 'v': bb_offset*5}
+        #     bb_vect1= {'p': p_arr[1], 'v': bb_offset[1]*5}
+        #     transformed_pts =  s * np.matmul(n_arr, r)  + t.reshape(1, 3)
+        #     vis_utils.plot3d_pts([[input[inds[0]], input[inds[1]]]], [['hand', 'object']], s=2**2, arrows=[[bb_vect, bb_vect1]], dpi=300, axis_off=False)
+        #     vis_utils.plot3d_pts([[input], [transformed_pts]], [['input'], ['transformed']], s=2**2, dpi=300, axis_off=False)
         # 2048 full pts, random picking one for adversarial training
         idx1 = self.all_ids[random.randint(0, len(self)-1)]
         # idx1 = idx
@@ -393,8 +397,6 @@ class HandDatasetAEGraph(HandDataset):
 
             i = 0
             N = pos.shape[1]
-            center = torch.zeros((N))#.to(dev)
-            center[centroids[0]] = 1 # find the chosen query
             src = group_idx[0].contiguous().view(-1) # real pair
             dst = centroids[0].view(-1, 1).repeat(1, self.num_samples).view(-1) # real pair
 
@@ -418,23 +420,25 @@ class HandDatasetAEGraph(HandDataset):
             m_arr = torch.from_numpy(m_arr.astype(np.float32).transpose(1, 0)) #
             c_arr = torch.from_numpy(c_arr.astype(np.float32)) # class
             gt_points  = torch.from_numpy(gt_points.transpose(1, 0))
+            center = torch.from_numpy(center).float()
             center_offset = torch.from_numpy(center_offset).float()
+            RR = torch.from_numpy(r.astype(np.float32))
+            up_axis = torch.from_numpy(up_axis).float()
         else:
             return n_arr, gt_points, instance_name, instance_name1
 
-        """
-        if idx not in self.r_dict:
-            RR = torch.from_numpy(r.astype(np.float32))
-            self.r_dict[idx] = RR
+        if 'en3' in self.cfg.encoder_type:
+            if self.cfg.pred_6d:
+                return g_raw, g_real, n_arr, c_arr, m_arr, gt_points, instance_name, instance_name1, RR, center, idx, category_name
+            else:
+                return g_raw, g_real, n_arr, c_arr, m_arr, gt_points, instance_name, instance_name1, up_axis, center, idx, category_name
         else:
-            RR = self.r_dict[idx]
-        """
-        up_axis = torch.from_numpy(up_axis).float()
-
-        if self.cfg.pred_6d:
-            return g_raw, g_real, n_arr, c_arr, m_arr, gt_points, instance_name, instance_name1, torch.from_numpy(r.astype(np.float32)), center_offset, idx, category_name
-        else:
-            return g_raw, g_real, n_arr, c_arr, m_arr, gt_points, instance_name, instance_name1, up_axis, center_offset, idx, category_name
+            if self.cfg.pred_6d:
+                return g_raw, g_real, n_arr, c_arr, m_arr, gt_points, instance_name, instance_name1, RR, center_offset, idx, category_name
+            elif self.cfg.pred_bb:
+                pass
+            else:
+                return g_raw, g_real, n_arr, c_arr, m_arr, gt_points, instance_name, instance_name1, up_axis, center_offset, idx, category_name
 
     def __len__(self):
         if 'adversarial' in self.task or 'partial' in self.task:

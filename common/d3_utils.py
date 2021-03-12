@@ -9,7 +9,10 @@ from mpl_toolkits.mplot3d import Axes3D
 
 import __init__
 from utils.external.libkdtree import KDTree
-
+from global_info import global_info
+infos           = global_info()
+sym_type        = infos.sym_type # sym_type
+categories_id   = infos.categories_id
 """
 align_rotation: find the theta component along y axis; reduce the rotation around one axis;
 compute_iou(occ1, occ2): occupancy values for 3D IoU
@@ -60,7 +63,7 @@ coordinate2index(x, reso, coord_type='2d'):
 coord2index(p, vol_range, reso=None, plane='xz'):
 """
 
-def breakpoint():
+def bp():
     import pdb;pdb.set_trace()
 
 # to align the transformation,
@@ -897,13 +900,15 @@ def compute_RT_distances(RT_1, RT_2):
     else:
         return -1
 
-def axis_diff_degree(v1, v2):
+def axis_diff_degree(v1, v2, category=''):
     v1 = v1.reshape(-1)
     v2 = v2.reshape(-1)
     r_diff = np.arccos(np.sum(v1*v2)/(np.linalg.norm(v1) * np.linalg.norm(v2))) * 180 / np.pi
-    # print(r_diff)
-    return np.abs(r_diff)
-    # return min(r_diff, 180-r_diff)
+    if category in sym_type and len(sym_type[category].keys()) > 1: # when we have x or z sym besides y
+        print(f'for {category}, tolerate upside down')
+        return min(r_diff, 180-r_diff)
+    else:
+        return np.abs(r_diff)
 
 def rot_diff_degree(rot1, rot2, up=False):
     if up:
@@ -917,8 +922,22 @@ def rot_diff_degree(rot1, rot2, up=False):
         tv2 = transform_pcloud(y_axis, rot2)
         return tv1, tv2, rot_diff_rad(rot1, rot2) / np.pi * 180
 
-def rot_diff_rad(rot1, rot2):
-    return np.arccos( ( np.trace(np.matmul(rot1, rot2.T)) - 1 ) / 2 ) % (2*np.pi)
+def rot_diff_rad(rot1, rot2, category=''):
+    # default rot2 is gt
+    if category in sym_type and len(sym_type[category].keys()) > 0:
+        all_rmats = [np.eye(3)]
+        for key, M in sym_type[category].items():
+            next_rmats = []
+            for k in range(M):
+                rmat = rotate_about_axis(2 * np.pi * k / M, axis=key)
+                for old_rmat in all_rmats:
+                    next_rmats.append(np.matmul(rmat, old_rmat))
+            all_rmats = next_rmats
+        all_rmats = np.stack(all_rmats, axis=0) # N, 3, 3
+        rot2_group= np.matmul(all_rmats.transpose(0, 2, 1), rot2) # we need P R^T * r^T
+        return min(np.arccos( ( np.trace(np.matmul(rot2_group, rot1.T), axis1=1, axis2=2) - 1 ) / 2 ) % (2*np.pi))
+    else:
+        return np.arccos( ( np.trace(np.matmul(rot1, rot2.T)) - 1 ) / 2 ) % (2*np.pi)
 
 def rotate_points_with_rotvec(points, rot_vecs):
     """Rotate points by given rotation vectors.

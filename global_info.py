@@ -347,6 +347,9 @@ class global_info(object):
                             'cellphone': '02992529',# 831
                             'camera': '02942699',   # 113,
                             'remote': '04074963',   # 66
+                            'airplane': 'airplane',
+                            'chair': 'chair',
+                            'car': 'car'
                             }
         self.categories_id = { '02876657': 'bottle', # 498
                             '03797390': 'mug',  # 214, pointNet++
@@ -357,18 +360,24 @@ class global_info(object):
                             '02992529': 'cellphone' ,# 831
                             '02942699': 'camera', # 113,
                             '04074963': 'remote', # 66
+                            'airplane': 'airplane',
+                            'chair': 'chair',
+                            'car': 'car'
                             } # need further classification
         self.symmetry_dict = np.load(f'{self.project_path}/haoi-pose/dataset/data/symmetry.npy', allow_pickle=True).item()
         sym_type = {}
         sym_type['bottle'] = {'y': 36} # use up axis
         sym_type['bowl']   = {'y': 36} # up axis!!!
         sym_type['can']    = {'y': 36, 'x': 2, 'z': 2} # up axis could be also 180 upside down
-        sym_type['jar']    = {'y': 36} # up axis only, + another axis? or 2 * 6D representations
+        sym_type['jar']    = {'y': 36, 'x': 2} # up axis only, + another axis? or 2 * 6D representations
         sym_type['mug']    = {'y': 1}  # up axis + ;
-        sym_type['knife']  = {'y': 2}  # up axis + ;
+        sym_type['knife']  = {'y': 2, 'x': 2}  # up axis + ;
         sym_type['camera'] = {'y': 1}  # no symmetry; 6D predictions? or addtional axis!!!
         sym_type['remote'] = {'y': 2, 'x': 2}  # symmetric setting, 180 apply to R,
         sym_type['cellphone'] = {'y': 2, 'x': 2} # up axis has 2 groups, x axis has
+        sym_type['airplane']= {'y': 1}
+        sym_type['chair']= {'y': 1}
+        sym_type['car']= {'y': 1}
         self.sym_type = sym_type
 
         # bottle 33278

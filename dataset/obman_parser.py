@@ -301,7 +301,19 @@ def main(cfg):
         # data = next(val_loader)
         if 'partial' in cfg.task:
             for j in range(100):
-                g_raw, g_real, n_arr, c_arr, m_arr, gt_points, instance_name, instance_name1, up_axis, center_offset, idx = dset.__getitem__(j, verbose=True)
+                if 'en3' in cfg.encoder_type:
+                    g_raw, g_real, n_arr, c_arr, m_arr, gt_points, instance_name, instance_name1, RR, center, idx, category_name = dset.__getitem__(j, verbose=True)
+                    RR = RR.cpu().numpy().reshape(-1, 3)
+                    center  = center.cpu().numpy()
+                    print(center)
+                    center  = center.mean(axis=0)
+                else:
+                    g_raw, g_real, n_arr, c_arr, m_arr, gt_points, instance_name, instance_name1, RR, center_offset, idx, category_name = dset.__getitem__(j, verbose=True)
+                    RR = RR.cpu().numpy().reshape(-1, 3)
+                    center  = input - center_offset.cpu().numpy()
+                    print(center)
+                    center  = center.mean(axis=0)
+
                 input = g_raw.ndata['x'].numpy()
                 gt    = n_arr.transpose(1, 0).numpy()
                 c_arr = c_arr.cpu().numpy()
@@ -309,21 +321,20 @@ def main(cfg):
                 full_pts = gt_points.transpose(1, 0).numpy()
                 print(f'input: {input.shape}, gt: {gt.shape}')
                 inds = [np.where(m_arr[:, 1]==0)[0], np.where(m_arr[:, 1]>0)[0]]
-                up_axis = up_axis.cpu().numpy().reshape(1, 3)
+                if cfg.pred_6d:
+                    up_axis = np.matmul(np.array([[0.0, 1.0, 0.0]]), RR)
+                else:
+                    up_axis = RR
 
-                center  = input - center_offset.cpu().numpy()
-                print(center)
-                center  = center.mean(axis=0)
-                gt_vect= {'p': center, 'v': up_axis}
-                vis_utils.plot3d_pts([[input[inds[0]], input[inds[1]]]], [['hand', 'object']], s=2**2, arrows=[[gt_vect, gt_vect]], dpi=300, axis_off=False)
-
+                gt_vect= {'p': center, 'v': RR}
+                # vis_utils.plot3d_pts([[input[inds[0]], input[inds[1]]]], [['hand', 'object']], s=2**2, arrows=[[gt_vect, gt_vect]], dpi=300, axis_off=False)
                 # vis_utils.plot3d_pts([[input[inds[0]], input[inds[0]]], [gt]], [['input hand', 'hand'], ['gt NOCS']],  s=2**2, dpi=300, axis_off=False)
                 # vis_utils.plot3d_pts([[input], [gt]], [['input'], ['gt NOCS']],  s=2**2, dpi=300, axis_off=False, color_channel=[[gt], [gt]])
                 # vis_utils.plot3d_pts([[input], [full_pts]], [['input'], ['full shape']],  s=2**2, dpi=300, axis_off=False)
                 # vis_utils.visualize_pointcloud([input, gt], title_name='partial + complete', backend='pyrender')
         else:
             for j in range(10):
-                g_raw, n_arr, instance_name, up_axis, center_offset = dset.__getitem__(j)
+                g_raw, n_arr, instance_name, RR, center_offset = dset.__getitem__(j)
                 gt_points = n_arr
                 input = g_raw.ndata['x'].numpy()
                 gt    = n_arr.transpose(1, 0).numpy()
@@ -357,12 +368,7 @@ def main(cfg):
     #     # dset.visualize_3d_transformed(j)
     #     # dset.visualize_3d_proj(j)
 
-    # # dp = dset.__getitem__(0)
-    #     for name, value in dp.items():
-    #         try:
-    #             print(name, value.shape)
-    #         except:
-    #             print(name, value)
+
 
 
 if __name__ == '__main__':

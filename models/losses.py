@@ -231,12 +231,22 @@ def compute_1vN_nocs_loss(nocs, nocs_gt, confidence=None, target_category='remot
         mask_splits = [confidence.unsqueeze(1)]
     else:
         mask_splits = None
+
     # augment GT with category infos
-    all_rmats = []
+    all_rmats = [np.eye(3)]
     for key, M in sym_type[target_category].items():
+        next_rmats = []
         for k in range(M):
             rmat = rotate_about_axis(2 * np.pi * k / M, axis=key)
-            all_rmats.append(rmat)
+            for old_rmat in all_rmats:
+                next_rmats.append(np.matmul(rmat, old_rmat))
+        all_rmats = next_rmats
+    
+    # all_rmats = []
+    # for key, M in sym_type[target_category].items():
+    #     for k in range(M):
+    #         rmat = rotate_about_axis(2 * np.pi * k / M, axis=key)
+    #         all_rmats.append(rmat)
     # reshape all_rmats into tensor array,
     rmats = torch.from_numpy(np.array(all_rmats).astype(np.float32)).cuda()
 
