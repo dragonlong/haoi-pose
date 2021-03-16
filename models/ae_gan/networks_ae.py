@@ -16,6 +16,7 @@ import torch.nn as nn
 import sys
 
 import numpy as np
+from math import pi ,sin, cos, sqrt
 from dgl.nn.pytorch import GraphConv, NNConv
 from torch import nn
 from torch.nn import functional as F
@@ -28,8 +29,8 @@ from equivariant_attention.fibers import Fiber
 try:
     from common.debugger import *
     from models.model_factory import ModelBuilder
-    from models.decoders.pointnet_2 import PointNet2Segmenter
-    from models.decoders.equivariant_model import EquivariantDGCNN
+    # from models.decoders.pointnet_2 import PointNet2Segmenter
+    # from models.decoders.equivariant_model import EquivariantDGCNN
 except:
     print('~need env paths~')
 from kaolin.models.PointNet2 import furthest_point_sampling
@@ -849,21 +850,87 @@ class PointAE(nn.Module):
             pred_dict = z
         return pred_dict
 
+def rotate_about_axis(theta, axis='x'):
+    if axis == 'x':
+        R = np.array([[1, 0, 0],
+                      [0, cos(theta), -sin(theta)],
+                      [0, sin(theta), cos(theta)]])
+
+    elif axis == 'y':
+        R = np.array([[cos(theta), 0, sin(theta)],
+                      [0, 1, 0],
+                      [-sin(theta), 0, cos(theta)]])
+
+    elif axis == 'z':
+        R = np.array([[cos(theta), -sin(theta), 0],
+                      [sin(theta), cos(theta),  0],
+                      [0, 0, 1]])
+    return R
+
+# python networks_ae.py models=se3_transformer_default num_points=512
 if __name__ == '__main__':
     from hydra.experimental import compose, initialize
     initialize("../../config/", strict=True)
     cfg = compose("completion.yaml")
     gpu = 0
     deploy_device   = torch.device('cuda:{}'.format(gpu))
-    N    = 512
-    xyz1  = torch.rand(2, N, 3, requires_grad=False, device=deploy_device)
+    npoints = cfg.num_points
+    fixed_sampling = True
+    category_name = 'airplane'
+    instance_name = '002'
+
+    fn  = [category_name, '/groups/CESCA-CV/ICML2021/data/modelnet40/airplane/0_0_0.txt']
+    nx, ny, nz = 2, 1, 1
+    BS  = 1
+    xyzs= []
+    targets = []
+    builder = BuildGraph(num_samples=10)
+    for i in range(nx):
+        for j in range(ny):
+            for k in range(nz):
+                theta_x = 360/8 * int(i)
+                Rx = rotate_about_axis(theta_x / 180 * np.pi, axis='x')
+                theta_y = 360/8 * int(j)
+                Ry = rotate_about_axis(theta_y / 180 * np.pi, axis='y')
+                theta_z = 360/8 * int(k)
+                Rz = rotate_about_axis(theta_z / 180 * np.pi, axis='z')
+                r = np.matmul(Ry, Rx).astype(np.float32)
+                r = np.matmul(Rz, r).astype(np.float32)
+        point_normal_set = np.loadtxt(fn[1].replace('0_0_0', f'{i}_{j}_{k}'), delimiter=' ').astype(np.float32)
+        full_pts  = np.copy(point_normal_set[:, 0:3])
+        xyzs.append(full_pts)
+        targets.append(r)
+
+    # try pose
+    encoder = SE3Transformer(cfg=cfg, edge_dim=0, pooling='avg', n_heads=cfg.MODEL.n_heads).cuda()
+
+    inputs = []
+    for i in range(BS):
+        full_pts = xyzs[i]
+        if fixed_sampling:
+            pos = torch.from_numpy(np.copy(full_pts)[:npoints, :]).unsqueeze(0)
+        else:
+            pos = torch.from_numpy(np.random.permutation(np.copy(full_pts))[:npoints, :]).unsqueeze(0)
+        inputs.append(pos)
+
+    N    = 256
+    xyz1  = torch.rand(1, N, 3, requires_grad=False, device=deploy_device)
     builder = BuildGraph()
     G, _    = builder(xyz1)
     #
     encoder = SE3Transformer(cfg=cfg, edge_dim=0, pooling='avg').cuda()
+    torch.cuda.empty_cache()
     out = encoder(G)
     print(out)
+    #
+    # xyz1 = torch.cat(inputs, axis=0).cuda()
+    # G, _    = builder(xyz1)
+    # bp()
+    # print('G: \n', G)
+    # print('Net: \n', encoder)
+    # out = encoder(G)
 
+    #
     # n_sampler = Sample(256)
     # e_sampler = SampleNeighbors(0.1, 20, knn=True)
     #

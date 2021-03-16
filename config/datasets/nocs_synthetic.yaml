@@ -1,0 +1,11 @@
+# @package _global_
+DATASET:
+  batch_size: 2
+  num_points: 512
+  num_of_class: 10
+  data_path: '/groups/CESCA-CV/ICML2021/data/nocs/'
+  target_category: ''
+  num_gen_samples: 30
+  workers: 8
+  train_batch: 2
+  test_batch: 2

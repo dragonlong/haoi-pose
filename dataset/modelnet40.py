@@ -19,12 +19,28 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset
 from torchvision.transforms import functional as func_transforms
 from multiprocessing import Manager
+import open3d as o3d
 
 import dgl
 import __init__
 from global_info import global_info
-from common.d3_utils import align_rotation, rotate_about_axis, transform_pcloud
 
+def rotate_about_axis(theta, axis='x'):
+    if axis == 'x':
+        R = np.array([[1, 0, 0],
+                      [0, cos(theta), -sin(theta)],
+                      [0, sin(theta), cos(theta)]])
+
+    elif axis == 'y':
+        R = np.array([[cos(theta), 0, sin(theta)],
+                      [0, 1, 0],
+                      [-sin(theta), 0, cos(theta)]])
+
+    elif axis == 'z':
+        R = np.array([[cos(theta), -sin(theta), 0],
+                      [sin(theta), cos(theta),  0],
+                      [0, 0, 1]])
+    return R
 def bp():
     import pdb;pdb.set_trace()
 
@@ -43,7 +59,7 @@ def pc_normalize(pc):
 
 def square_distance(src, dst):
     '''
-    Adapted from https://github.com/yanx27/Pointnet_Pointnet2_pytorch
+    Adapted from htps://github.com/yanx27/Pointnet_Pointnet2_pytorch
     '''
     B, N, _ = src.shape
     _, M, _ = dst.shape
@@ -54,7 +70,7 @@ def square_distance(src, dst):
 
 def idx_points(points, idx):
     '''
-    Adapted from https://github.com/yanx27/Pointnet_Pointnet2_pytorch
+    Adapted from htps://github.com/yanx27/Pointnet_Pointnet2_pytorch
     '''
     device = points.device
     B = points.shape[0]
@@ -78,7 +94,7 @@ class FixedRadiusNearNeighbors(nn.Module):
 
     def forward(self, pos, centroids):
         '''
-        Adapted from https://github.com/yanx27/Pointnet_Pointnet2_pytorch
+        Adapted from htps://github.com/yanx27/Pointnet_Pointnet2_pytorch
         '''
         device = pos.device
         B, N, _ = pos.shape
@@ -116,18 +132,14 @@ class ModelNetDataset(data.Dataset):
         # augmentation
         self.normalize = cfg.normalize
         self.augment   = cfg.augment
+        self.use_partial    = cfg.use_partial
+        self.fixed_sampling = cfg.fixed_sampling
 
         self.catfile = os.path.join(self.root, 'modelnet'+str(self.num_of_class)+'_shape_names.txt')
         self.cat     = [line.rstrip() for line in open(self.catfile)]
         self.classes = dict(zip(self.cat, range(len(self.cat))))
 
-        if self.task == 'category_pose':
-            self.is_gen       = cfg.is_gen
-            self.is_debug     = cfg.is_debug
-            self.nocs_type    = cfg.nocs_type
-
         self.is_testing   = is_testing
-
         self.fetch_cache  = cfg.fetch_cache
         shape_ids = {}
 
@@ -173,80 +185,124 @@ class ModelNetDataset(data.Dataset):
                                         os.path.join(dir_point, token + '.idx')))
         # create NOCS dict
         manager = Manager()
-        self.nocs_dict = manager.dict()
-        self.cls_dict = manager.dict()
-        self.cloud_dict = manager.dict()
-        self.g_dict    = manager.dict()
-        self.r_dict    = manager.dict()
-        self.frnn  = FixedRadiusNearNeighbors(self.radius, self.num_samples, knn=True)
 
+        self.frnn  = FixedRadiusNearNeighbors(self.radius, self.num_samples, knn=True)
         if self.cfg.eval or self.split != 'train':
             np.random.seed(0)
             self.random_angle = np.random.rand(self.__len__(), 150, 3) * 360
             self.random_T     = np.random.rand(self.__len__(), 150, 3)
 
-    def get_sample_complete(self, idx, verbose=False):
+    def get_partial(self, idx, verbose=False):
+        fn  = self.datapath[idx]
+        cls = np.array([self.classes[fn[0]]]).astype(np.int32)
+        category_name = fn[0]
+        instance_name = '002'
+        i, j, k = fn[1].split('/')[-1].split('.')[0].split('_')
+        theta_x = 360/8 * int(i)
+        Rx = rotate_about_axis(theta_x / 180 * np.pi, axis='x')
+        theta_y = 360/8 * int(j)
+        Ry = rotate_about_axis(theta_y / 180 * np.pi, axis='y')
+        theta_z = 360/8 * int(k)
+        Rz = rotate_about_axis(theta_z / 180 * np.pi, axis='z')
+        r = np.matmul(Ry, Rx).astype(np.float32)
+        r = np.matmul(Rz, r).astype(np.float32)
+
+        point_normal_set = np.loadtxt(fn[1], delimiter=',').astype(np.float32)
+        full_pts  = np.copy(point_normal_set[:,0:3])
+
+        # graph building [1, N, 3]
+        if self.fixed_sampling:
+            pos = torch.from_numpy(np.copy(full_pts)[:self.npoints, :]).unsqueeze(0)
+        else:
+            pos = torch.from_numpy(np.random.permutation(np.copy(full_pts))[:self.npoints, :]).unsqueeze(0)
+
+        center_offset = pos[0].clone().detach() # no translation now
+        center = torch.from_numpy(np.array([[0.0, 0.0, 0.0]])) # 1, 3
+        bb_pts = torch.from_numpy(np.max(full_pts, axis=0).reshape(1, 3))  # get up, top, right points
+        bb_offset  = bb_pts - pos[0]      # 1, 3 - N, 3
+        up_axis= torch.tensor([[0.0, 1.0, 0.0]]).float()
+        RR     = torch.from_numpy(r.astype(np.float32))
+        TT     = torch.from_numpy(t.astype(np.float32))
+
+        pos[0] = torch.matmul(pos[0]-0.0, RR) # to have random rotation
+        pos[0] = pos[0] + TT
+        center = TT
+        center_offset = torch.matmul(center_offset, RR) # N, 3
+        bb_pts = torch.matmul(bb_pts-0.0, RR) + TT
+        bb_offset = torch.matmul(bb_offset, RR)
+        up_axis = torch.matmul(up_axis, RR)
+
+        g = self.__build_graph__(pos, centroids, k=self.num_samples)
+        if self.cfg.pred_6d:
+            return g, gt_points.transpose(1, 0), instance_name, RR, center_offset, idx, category_name
+        elif self.cfg.pred_bb:
+            return g, gt_points.transpose(1, 0), instance_name, bb_offset, center_offset, idx, category_name
+        else:
+            return g, gt_points.transpose(1, 0), instance_name, up_axis, center_offset, idx, category_name
+
+    def get_sample(self, idx, verbose=False):
         if self.cfg.eval or self.split != 'train':
             theta_x = self.random_angle[idx, self.cfg.iteration, 0]
             Rx = rotate_about_axis(theta_x / 180 * np.pi, axis='x')
             theta_z = self.random_angle[idx, self.cfg.iteration, 2]
             Rz = rotate_about_axis(theta_z / 180 * np.pi, axis='z')
-            RR = torch.from_numpy(np.matmul(Rx, Rz).astype(np.float32))
-            TT = torch.from_numpy(self.random_T[idx, self.cfg.iteration].reshape(1, 3).astype(np.float32))
-        elif self.augment and idx!=0:
+            r = np.matmul(Rx, Rz).astype(np.float32)
+            t = self.random_T[idx, self.cfg.iteration].reshape(1, 3).astype(np.float32)
+        elif self.augment:
             theta_x = random.randint(0, 180)
             Rx = rotate_about_axis(theta_x / 180 * np.pi, axis='x')
             theta_z = random.randint(0, 180)
             Rz = rotate_about_axis(theta_z / 180 * np.pi, axis='z')
-            RR = torch.from_numpy(np.matmul(Rx, Rz).astype(np.float32))
-            TT = torch.from_numpy(np.random.rand(1,3).astype(np.float32))
-            # TT = torch.from_numpy(np.array([[0, 0, 0]]).astype(np.float32))
+            r = np.matmul(Rx, Rz).astype(np.float32)
+            t = np.random.rand(1,3).astype(np.float32)
         else:
-            RR = torch.from_numpy(rotate_about_axis(0, axis='x').astype(np.float32))
-            TT = torch.from_numpy(np.array([[0, 0, 0]]).astype(np.float32))
+            r = torch.from_numpy(rotate_about_axis(0, axis='x').astype(np.float32))
+            t = torch.from_numpy(np.array([[0, 0, 0]]).astype(np.float32))
+
         if self.cfg.single_instance:
             idx= 2
-            TT = torch.from_numpy(np.array([[0, 0, 0]]).astype(np.float32))
-        # category_name = model_path.split('/')[-4]
-        # instance_name = model_path.split('/')[-3]
+            t  = np.array([[0, 0, 0]]).astype(np.float32)
+
         fn  = self.datapath[idx]
         cls = np.array([self.classes[fn[0]]]).astype(np.int32)
         category_name = fn[0]
         instance_name = fn[1].split('/')[-1].split('.')[0].split('_')[1]
 
-        if self.fetch_cache and idx in self.g_dict:
-            gt_points, src, dst = self.g_dict[idx]
-            pos = gt_points.clone().detach().unsqueeze(0)
-            feat= torch.from_numpy(np.ones((pos.shape[0], pos.shape[1], 1)).astype(np.float32))
+        point_normal_set = np.loadtxt(fn[1], delimiter=',').astype(np.float32)
+        canon_pts=point_normal_set[:,0:3]
+        #
+        boundary_pts = [np.min(canon_pts, axis=0), np.max(canon_pts, axis=0)]
+        center_pt = (boundary_pts[0] + boundary_pts[1])/2
+        length_bb = np.linalg.norm(boundary_pts[0] - boundary_pts[1])
+
+        # all normalize into 0
+        canon_pts = (canon_pts - center_pt.reshape(1, 3))/length_bb
+        full_pts  = np.copy(canon_pts)
+
+        # add partial data
+        if self.use_partial:
+            pcd = o3d.geometry.PointCloud()
+            pcd.points  = o3d.utility.Vector3dVector(canon_pts)
+            pcd.normals = o3d.utility.Vector3dVector(point_normal_set[:, 3:])
+            camera_location, radius = np.matmul(np.array([[2, 2, 2]]), r.T), 1000 # from randomly rotate
+            camera_location = camera_location.astype(np.float64).reshape(3, 1)
+            visible_pts = pcd.hidden_point_removal(camera_location, radius)
+            full_pts = full_pts[visible_pts[1]]
+
+        # graph building [1, N, 3]
+        if self.fixed_sampling:
+            pos = torch.from_numpy(np.copy(full_pts)[:self.npoints, :]).unsqueeze(0)
         else:
-            point_normal_set = np.loadtxt(fn[1], delimiter=',').astype(np.float32)
-            canon_pts=point_normal_set[:,0:3]
-            #
-            boundary_pts = [np.min(canon_pts, axis=0), np.max(canon_pts, axis=0)]
-            center_pt = (boundary_pts[0] + boundary_pts[1])/2
-            length_bb = np.linalg.norm(boundary_pts[0] - boundary_pts[1])
-            # best,
-            gt_points = (canon_pts - center_pt.reshape(1, 3)) / length_bb + 0.5
-            full_pts  = np.copy(gt_points)
-            gt_points = np.random.permutation(gt_points)
-            gt_points = gt_points[:self.npoints, :]
-            gt_points = torch.from_numpy(gt_points.astype(np.float32)[:, :])
-
-            pos = gt_points.clone().detach().unsqueeze(0)
-            centroids = torch.from_numpy(np.arange(gt_points.shape[0]).reshape(1, -1))
-            group_idx = self.frnn(pos, centroids)
-
-            src = group_idx[0].contiguous().view(-1)
-            dst = centroids[0].view(-1, 1).repeat(1, self.num_samples).view(-1) # real pair
-            feat      = torch.from_numpy(np.ones((pos.shape[0], pos.shape[1], 1)).astype(np.float32))
-
-            if self.fetch_cache and idx not in self.g_dict:
-                self.g_dict[idx] = [gt_points, src, dst]
+            pos = torch.from_numpy(np.random.permutation(np.copy(full_pts))[:self.npoints, :]).unsqueeze(0)
 
         center_offset = pos[0].clone().detach()-0.5
         center = torch.from_numpy(np.array([[0.5, 0.5, 0.5]])) # 1, 3
         bb_pts = torch.from_numpy(np.max(full_pts, axis=0).reshape(1, 3))  # get up, top, right points
-        bb_offset  = bb_pts - pos[0] # 1, 3 - N, 3
+        bb_offset  = bb_pts - pos[0]      # 1, 3 - N, 3
+        up_axis= torch.tensor([[0.0, 1.0, 0.0]]).float()
+        RR     = torch.from_numpy(r.astype(np.float32))
+        TT     = torch.from_numpy(t.astype(np.float32))
+
         if self.augment:
             pos[0] = torch.matmul(pos[0]-0.5, RR) # to have random rotation
             pos[0] = pos[0] + TT
@@ -254,68 +310,60 @@ class ModelNetDataset(data.Dataset):
             center_offset = torch.matmul(center_offset, RR) # N, 3
             bb_pts = torch.matmul(bb_pts-0.5, RR) + TT
             bb_offset = torch.matmul(bb_offset, RR)
+            up_axis = torch.matmul(up_axis, RR)
+
+        g = self.__build_graph__(pos, centroids, k=self.num_samples)
+        if self.cfg.pred_6d:
+            return g, gt_points.transpose(1, 0), instance_name, RR, center_offset, idx, category_name
+        elif self.cfg.pred_bb:
+            return g, gt_points.transpose(1, 0), instance_name, bb_offset, center_offset, idx, category_name
+        else:
+            return g, gt_points.transpose(1, 0), instance_name, up_axis, center_offset, idx, category_name
+
+    def __getitem__(self, idx):
+        if self.use_partial:
+            sample = self.get_partial(idx)
+        else:
+            sample = self.get_sample(idx)
+
+        return sample
+
+    def __build_graph__(self, pos, centroids, k=10):
+        centroids = torch.from_numpy(np.arange(pos.shape[1]).reshape(1, -1))
+        group_idx = self.frnn(pos, centroids)
+
+        src = group_idx[0].contiguous().view(-1)
+        dst = centroids[0].view(-1, 1).repeat(1, k).view(-1) # real pair
+        feat= torch.from_numpy(np.ones((pos.shape[0], pos.shape[1], 1)).astype(np.float32)) # if there is no feature
 
         # construct a graph for input
         unified = torch.cat([src, dst])
         uniq, inv_idx = torch.unique(unified, return_inverse=True)
         src_idx = inv_idx[:src.shape[0]]
         dst_idx = inv_idx[src.shape[0]:]
-        if verbose:
-            print('src_idx.shape', src_idx.shape, '\n', src_idx[0:100], '\n', 'dst_idx.shape', dst_idx.shape, '\n', dst_idx[0:100])
+
         g = dgl.DGLGraph((src_idx, dst_idx))
         g.ndata['x'] = pos[0][uniq]
         g.ndata['f'] = feat[0][uniq].unsqueeze(-1)
         g.edata['d'] = pos[0][dst_idx] - pos[0][src_idx] #[num_atoms,3] but we only supervise the half
-        up_axis = torch.matmul(torch.tensor([[0.0, 1.0, 0.0]]).float(), RR)
 
-        # if we use en3 model, the R/T would be different
-        if 'en3' in self.cfg.encoder_type:
-            if self.cfg.pred_6d:
-                return g, gt_points.transpose(1, 0), instance_name, RR, center, idx, category_name
-            elif self.cfg.pred_bb:
-                return g, gt_points.transpose(1, 0), instance_name, bb_offset, center, idx, category_name
-            else:
-                return g, gt_points.transpose(1, 0), instance_name, up_axis, center, idx, category_name
-        else:
-            if self.cfg.pred_6d:
-                return g, gt_points.transpose(1, 0), instance_name, RR, center_offset, idx, category_name
-            elif self.cfg.pred_bb:
-                return g, gt_points.transpose(1, 0), instance_name, bb_offset, center_offset, idx, category_name
-            else:
-                return g, gt_points.transpose(1, 0), instance_name, up_axis, center_offset, idx, category_name
-
-        # if self.cfg.pred_6d:
-        #     return g, gt_points.transpose(1, 0), instance_name, RR, center_offset, idx, category_name
-        # else:
-        #     return g, gt_points.transpose(1, 0), instance_name, up_axis, center_offset, idx, category_name
-
-    def __getitem__(self, idx):
-        # if idx in self.cache:
-        #     point_normal_set, lrf_set, ds_idx_set, wrong_ids, cls = self.cache[idx]
-        sample = self.get_sample_complete(idx)
-
-        return sample
+        return g
 
     def __len__(self):
         return len(self.datapath)
 
 @hydra.main(config_path="../config/completion.yaml")
 def main(cfg):
-    OmegaConf.set_struct(cfg, False)  # This allows getattr and hasattr methods to function correctly
+    OmegaConf.set_struct(cfg, False)  # This allows getatr and hasatr methods to function correctly
 
-    #>>>>>>>>>>>>>>>>> setting <<<<<<<<<<<<<<<<<<< #
+    #>>>>>>>>>>>>>>>>> seting <<<<<<<<<<<<<<<<<<< #
     os.chdir(utils.get_original_cwd())
     os.environ['MASTER_ADDR'] = '127.0.0.1'
     random.seed(30)
-    dset = ModelNetDataset(cfg=cfg, root=cfg.DATASET.data_path, split='train')
+    dset = ModelNetDataset(cfg=cfg, root='/home/dragon/Documents/ICML2021/data/modelnet40/', split='train')
     dp   = dset.__getitem__(0)
-    print(dp)
-    # parser = ObmanParser(cfg)
-    # val_dataset   = parser.valid_dataset
-    # train_dataset = parser.train_dataset
-    # val_loader   = parser.validloader
-    # train_loader   = parser.trainloader
 
+# python modelnet40.py datasets=modelnet40
 if __name__ == '__main__':
 
     main()

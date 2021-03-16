@@ -28,6 +28,10 @@ from dataset.obman_handataset import HandDataset
 from dataset.obman_completion import HandDatasetComplete
 from dataset.obman_aegan import HandDatasetAEGan # for point cloud auto-encoder
 from dataset.obman_aese3 import HandDatasetAEGraph
+# modelnet40
+# nocs
+from dataset.nocs_synthetic import NOCSDataset
+#
 from common.queries import BaseQueries, TransQueries
 from common.debugger import *
 from common import vis_utils
@@ -195,7 +199,7 @@ def get_queries(cfg):
     if cfg.DATASET.mano_lambda_joints2d:
         max_queries.append(TransQueries.joints2d)
     return max_queries
-
+#
 def summary(features):
     if isinstance(features, dict):
         for k, v in features.items():

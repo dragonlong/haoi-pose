@@ -8,10 +8,6 @@ from models.agent_gan import MainAgent
 def get_agent(config):
     if config.module == 'ae':
         return PointAEPoseAgent(config)
-        # if 'pose' in config.task:
-        #     return PointAEPoseAgent(config)
-        # else:
-        #     return PointAEAgent(config)
     elif config.module == 'vae':
         return PointVAEAgent(config)
     elif config.module == 'gan':

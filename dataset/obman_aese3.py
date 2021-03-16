@@ -190,6 +190,42 @@ class HandDatasetAEGraph(HandDataset):
             self.random_angle = np.random.rand(self.__len__(), 150, 3) * 360
             self.random_T     = np.random.rand(self.__len__(), 150, 3)
 
+        # pre_fetch some data
+        self.backup_cache = []
+        for idx in range(100):
+            model_path    = self.pose_dataset.obj_paths[idx].replace("model_normalized.pkl", "surface_points.pkl")
+            category_name = model_path.split('/')[-4]
+            instance_name = model_path.split('/')[-3]
+            depth   = self.pose_dataset.get_depth(idx)
+            camintr = self.pose_dataset.get_camintr(idx)
+            cloud = self.pose_dataset.get_pcloud(depth, camintr) # * 1000 - center3d
+            obj_segm = self.pose_dataset.get_segm(idx, ext_cmd='obj', debug=False) # only TODO
+            obj_segm[obj_segm>1.0] = 1.0
+            obj_hand_segm = (np.asarray(self.pose_dataset.get_segm(idx, debug=False)) / 255).astype(np.int)
+            segm = obj_hand_segm[:, :, 0] | obj_hand_segm[:, :, 1]
+
+            with open(model_path, "rb") as obj_f:
+                canon_pts = pickle.load(obj_f)
+
+            boundary_pts = [np.min(canon_pts, axis=0), np.max(canon_pts, axis=0)]
+            center_pt = (boundary_pts[0] + boundary_pts[1])/2
+            length_bb = np.linalg.norm(boundary_pts[0] - boundary_pts[1])
+            canon_pts = (canon_pts - center_pt.reshape(1, 3)) / length_bb + 0.5
+
+            pts_arr = cloud[np.where(segm>0)[0], np.where(segm>0)[1], :]
+            cls_arr = obj_segm[np.where(segm>0)[0], np.where(segm>0)[1]] # hand is 0, obj =1
+            nocs    = self.pose_dataset.get_nocs(idx, pts_arr, boundary_pts, sym_aligned_nocs=self.cfg.sym_aligned_nocs)
+            if not self.cfg.use_hand:
+                obj_cls    = 1
+                obj_inds   = np.where(cls_arr==obj_cls)[0]
+                nocs       = nocs[obj_inds]
+                pts_arr    = pts_arr[obj_inds]
+                cls_arr    = cls_arr[obj_inds]
+
+            if pts_arr.shape[0] > self.num_points:
+                output_arr = [nocs, pts_arr, cls_arr]
+                self.backup_cache.append([category_name, instance_name, output_arr, canon_pts, idx])
+
     def get_sample_mine(self, idx, verbose=False):
         """used only for points data"""
         if self.cfg.eval or self.split != 'train':
@@ -298,53 +334,56 @@ class HandDatasetAEGraph(HandDataset):
         instance_name = model_path.split('/')[-3]
 
         # fetch GT canonical points  NOCS, input pts_arr
-        if idx not in self.nocs_dict:
-            n_parts = self.n_max_parts
-            assert n_parts == 2
-            depth   = self.pose_dataset.get_depth(idx)
-            camintr = self.pose_dataset.get_camintr(idx)
-            cloud = self.pose_dataset.get_pcloud(depth, camintr) # * 1000 - center3d
-            obj_segm = self.pose_dataset.get_segm(idx, ext_cmd='obj', debug=False) # only TODO
-            obj_segm[obj_segm>1.0] = 1.0
-            obj_hand_segm = (np.asarray(self.pose_dataset.get_segm(idx, debug=False)) / 255).astype(np.int)
-            segm = obj_hand_segm[:, :, 0] | obj_hand_segm[:, :, 1]
 
-            with open(model_path, "rb") as obj_f:
-                canon_pts = pickle.load(obj_f)
+        n_parts = self.n_max_parts
+        assert n_parts == 2
+        depth   = self.pose_dataset.get_depth(idx)
+        camintr = self.pose_dataset.get_camintr(idx)
+        cloud = self.pose_dataset.get_pcloud(depth, camintr) # * 1000 - center3d
+        obj_segm = self.pose_dataset.get_segm(idx, ext_cmd='obj', debug=False) # only TODO
+        obj_segm[obj_segm>1.0] = 1.0
+        obj_hand_segm = (np.asarray(self.pose_dataset.get_segm(idx, debug=False)) / 255).astype(np.int)
+        segm = obj_hand_segm[:, :, 0] | obj_hand_segm[:, :, 1]
 
-            boundary_pts = [np.min(canon_pts, axis=0), np.max(canon_pts, axis=0)]
+        with open(model_path, "rb") as obj_f:
+            canon_pts = pickle.load(obj_f)
 
-            pts_arr = cloud[np.where(segm>0)[0], np.where(segm>0)[1], :]
-            cls_arr = obj_segm[np.where(segm>0)[0], np.where(segm>0)[1]] # hand is 0, obj =1
-            nocs    = self.pose_dataset.get_nocs(idx, pts_arr, boundary_pts, sym_aligned_nocs=self.cfg.sym_aligned_nocs)
-            if not self.cfg.use_hand:
-                obj_cls    = 1
-                obj_inds   = np.where(cls_arr==obj_cls)[0]
-                nocs       = nocs[obj_inds]
-                pts_arr    = pts_arr[obj_inds]
-                cls_arr    = cls_arr[obj_inds]
-            self.nocs_dict[idx]  = nocs
-            self.cloud_dict[idx] = pts_arr
-            self.cls_dict[idx]   = cls_arr
-        else:
-            nocs    = self.nocs_dict[idx]
-            pts_arr = self.cloud_dict[idx]
-            cls_arr = self.cls_dict[idx]
+        boundary_pts = [np.min(canon_pts, axis=0), np.max(canon_pts, axis=0)]
+        center_pt = (boundary_pts[0] + boundary_pts[1])/2
+        length_bb = np.linalg.norm(boundary_pts[0] - boundary_pts[1])
+        canon_pts = (canon_pts - center_pt.reshape(1, 3)) / length_bb + 0.5
 
+        pts_arr = cloud[np.where(segm>0)[0], np.where(segm>0)[1], :]
+        cls_arr = obj_segm[np.where(segm>0)[0], np.where(segm>0)[1]] # hand is 0, obj =1
+        nocs    = self.pose_dataset.get_nocs(idx, pts_arr, boundary_pts, sym_aligned_nocs=self.cfg.sym_aligned_nocs)
+        if not self.cfg.use_hand:
+            obj_cls    = 1
+            obj_inds   = np.where(cls_arr==obj_cls)[0]
+            nocs       = nocs[obj_inds]
+            pts_arr    = pts_arr[obj_inds]
+            cls_arr    = cls_arr[obj_inds]
+        # self.nocs_dict[idx]  = nocs
+        # self.cloud_dict[idx] = pts_arr
+        # self.cls_dict[idx]   = cls_arr
         output_arr       = [nocs, pts_arr, cls_arr]
         n_total_points   = nocs.shape[0]
 
         if n_total_points < self.num_points:
-            tile_n = int(self.num_points/n_total_points) + 1
-            n_total_points = tile_n * n_total_points
-            for j in range(len(output_arr)):
-                arr_tiled = np.concatenate([np.copy(output_arr[j])] * tile_n, axis=0)
-                output_arr[j] = arr_tiled
-
+            # print(f'---total {n_total_points} smaller than {self.num_points}')
+            # tile_n = int(self.num_points/n_total_points) + 1
+            # n_total_points = tile_n * n_total_points
+            # for j in range(len(output_arr)):
+            #     arr_tiled = np.concatenate([np.copy(output_arr[j])] * tile_n, axis=0)
+            #     output_arr[j] = arr_tiled
+            category_name, instance_name, output_arr, canon_pts, idx = self.backup_cache[random.randint(0, len(self.backup_cache)-1)]
+            n_total_points = output_arr[0].shape[0]
         n_arr      = output_arr[0]
         p_arr      = output_arr[1]
         c_arr      = output_arr[2]
-        bb_pts     = np.max(n_arr, axis=0).reshape(1, 3)  # get up, top, right points
+        bb_pts1    = np.max(canon_pts, axis=0).reshape(1, 3)  # get up, top, right points
+        bb_pts2    = np.min(canon_pts, axis=0).reshape(1, 3)
+        bb_pts2    = np.array([[bb_pts2[0, 0], bb_pts1[0, 1], bb_pts1[0, 2]]])
+        bb_pts     = np.concatenate([bb_pts1, bb_pts2], axis=0)
         perm       = np.random.permutation(n_total_points)
         n_arr      = n_arr[perm][:self.num_points] # nocs in canonical space, for partial reconstruction only
         p_arr      = p_arr[perm][:self.num_points] # point cloud in camera space
@@ -354,22 +393,22 @@ class HandDatasetAEGraph(HandDataset):
         m_arr[:, 0]= 0.0                           # will not consider hands during NOCS
 
         s, r, t, _= estimateSimilarityUmeyama(n_arr.transpose(), p_arr.transpose()) # get GT Pose
-        # center_offset = np.matmul(n_arr - 0.5, r)
         center    = s * np.matmul(np.array([[0.5, 0.5, 0.5]]), r)  + t.reshape(1, 3)
         bb_pts    = s * np.matmul(bb_pts, r)  + t.reshape(1, 3)
         center_offset = p_arr - center
-        bb_offset =  bb_pts - p_arr
+        bb_offset = bb_pts[np.newaxis, :, :] - p_arr[:, np.newaxis, :] # N, 2, 3
         up_axis   = np.matmul(np.array([[0.0, 1.0, 0.0]]), r)
-        # if verbose:
-        #     input   = p_arr
-        #     inds = [np.where(m_arr[:, 1]==0)[0], np.where(m_arr[:, 1]>0)[0]]
-        #     gt_vect = {'p': center, 'v': up_axis}
-        #     bb_vect = {'p': p_arr, 'v': bb_offset*5}
-        #     bb_vect1= {'p': p_arr[1], 'v': bb_offset[1]*5}
-        #     transformed_pts =  s * np.matmul(n_arr, r)  + t.reshape(1, 3)
-        #     vis_utils.plot3d_pts([[input[inds[0]], input[inds[1]]]], [['hand', 'object']], s=2**2, arrows=[[bb_vect, bb_vect1]], dpi=300, axis_off=False)
-        #     vis_utils.plot3d_pts([[input], [transformed_pts]], [['input'], ['transformed']], s=2**2, dpi=300, axis_off=False)
-        # 2048 full pts, random picking one for adversarial training
+
+        # print(bb_offset + p_arr[:, np.newaxis, :])
+        if verbose:
+            input   = p_arr
+            inds = [np.where(m_arr[:, 1]==0)[0], np.where(m_arr[:, 1]>0)[0]]
+            gt_vect = {'p': center, 'v': up_axis}
+            bb_vect = {'p': p_arr, 'v': bb_offset[:, 0, :]*5}
+            bb_vect1= {'p': p_arr, 'v': bb_offset[:, 1, :]*5}
+            transformed_pts =  s * np.matmul(n_arr, r)  + t.reshape(1, 3)
+            vis_utils.plot3d_pts([[input[inds[0]], input[inds[1]]]], [['hand', 'object']], s=2**2, arrows=[[bb_vect, bb_vect1]], dpi=300, axis_off=False)
+            vis_utils.plot3d_pts([[input], [transformed_pts]], [['input'], ['transformed']], s=2**2, dpi=300, axis_off=False)
         idx1 = self.all_ids[random.randint(0, len(self)-1)]
         # idx1 = idx
         model_path = self.pose_dataset.obj_paths[idx1].replace("model_normalized.pkl", "surface_points.pkl")
@@ -424,6 +463,7 @@ class HandDatasetAEGraph(HandDataset):
             center_offset = torch.from_numpy(center_offset).float()
             RR = torch.from_numpy(r.astype(np.float32))
             up_axis = torch.from_numpy(up_axis).float()
+            bb_offset = torch.from_numpy(bb_offset.astype(np.float32)) # N,2,3
         else:
             return n_arr, gt_points, instance_name, instance_name1
 
@@ -436,7 +476,7 @@ class HandDatasetAEGraph(HandDataset):
             if self.cfg.pred_6d:
                 return g_raw, g_real, n_arr, c_arr, m_arr, gt_points, instance_name, instance_name1, RR, center_offset, idx, category_name
             elif self.cfg.pred_bb:
-                pass
+                return g_raw, g_real, n_arr, c_arr, m_arr, gt_points, instance_name, instance_name1, bb_offset, center_offset, idx, category_name
             else:
                 return g_raw, g_real, n_arr, c_arr, m_arr, gt_points, instance_name, instance_name1, up_axis, center_offset, idx, category_name
 

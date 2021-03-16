@@ -50,6 +50,12 @@ def bp():
 def dist_tester():
     print('please use ')
 
+def check_path(save_path):
+    # save_path = self.cfg.log_dir + '/input'
+    if not exists(save_path):
+        print('not exist, creating the path')
+        makedirs(save_path)
+
 def print_group(values, names=None):
     if names is None:
         for j in range(len(values)):

@@ -2,7 +2,7 @@
 defaults:
   - training: grnet # it may contain specific parameters
     optional: True
-  - models: se3_transformer # for encoder setting only
+  - models: se3_transformer_default # for encoder setting only
     optional: True
   - datasets: obman
     optional: True
@@ -22,7 +22,7 @@ dataset_class: 'HandDataset'
 item: 'obman'
 target_category: ''
 n_max_parts : 2
-num_points: 2048
+num_points: 512
 nocs_type: 'A'
 use_hand: False
 num_expr: 0.01
@@ -75,6 +75,8 @@ use_noisy_nocs: True
 rot_align: False
 sym_aligned_nocs: False
 hand_only: False
+use_partial: False
+fixed_sampling: False
 
 # eval
 log_dir: '/model/${item}/${exp_num}'

@@ -25,3 +25,16 @@ tensorboardX 2.1
 conda install -c conda-forge igl
 
 pip install dgl-cu101==0.4.3.post2
+
+# add glic for open3d
+curl -O http://ftp.gnu.org/gnu/glibc/glibc-2.18.tar.gz
+tar -xzvf glibc-2.18.tar.gz
+cd glibc-2.18/
+mkdir build
+cd build/
+../configure --prefix=/home/lxiaol9/pkg/open3d
+make -j2
+make install
+
+
+cmake -DCMAKE_INSTALL_PREFIX=/home/lxiaol9/pkg/open3d ..
