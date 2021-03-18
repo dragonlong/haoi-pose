@@ -83,12 +83,10 @@ if __name__ == '__main__':
                 if num > end_num:
                     break
                 print(index_pair)
-                try:
-                    input_pts, _ = igl.read_triangle_mesh(index_pair[0])
-                    v1, f1 = igl.read_triangle_mesh(index_pair[1])
-                    v1 = v1 + np.array([0, 1, 0]).reshape(1, -1)
-                    pts = np.concatenate([input_pts, v1], axis=0)
-                    wandb.log({f"{set_name}: input+AE_GAN_output": [wandb.Object3D(pts)]})
-                    # wandb.log({f"{set_name}_input": [wandb.Object3D(input_pts)], f"{set_name}_AE_GAN_output": [wandb.Object3D(v1)]})
-                except:
-                    continue
+                input_pts, _ = igl.read_triangle_mesh(index_pair[0])
+                v1, f1 = igl.read_triangle_mesh(index_pair[1])
+                v1 = v1 + np.array([0, 1, 0]).reshape(1, -1)
+                pts = np.concatenate([input_pts, v1], axis=0)
+                bp()
+                wandb.log({f"{set_name}: input": wandb.Object3D('points': pts, "vectors": [{"start": [0,0,0], "end": [0.1,0.2,0.5]}] )})
+                # wandb.log({f"{set_name}_input": [wandb.Object3D(input_pts)], f"{set_name}_AE_GAN_output": [wandb.Object3D(v1)]})

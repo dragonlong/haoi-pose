@@ -223,7 +223,7 @@ pred_6d=True num_modes_R=5 MODEL.num_channels_R=10 mode_features='[5, 'softmax']
 eval=True save=True ckpt=best eval_mode_r=3 2>&1 | tee results/eval_2.4547_3.log
 use_wandb=True \
 
-0.53 :  # camera, use R^T, encoder + decoder, modal=2, with classifyM loss, mode regularization, 4 heads, without hands, predict up axis is enough;
+0.53 :  # single instance, airplane, fixed sampling
 TRAIN_OBJ='python train_aegan_mini.py training=ae_gan vis=True vis_frequency=1000 num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
 $TRAIN_OBJ task='partial_pcloud_pose' target_category='camera' exp_num='0.53' DATASET.train_batch=2 DATASET.test_batch=2 \
 models=se3_transformer_default \
@@ -232,7 +232,7 @@ pred_6d=True num_modes_R=1 MODEL.num_channels_R=2 \
 eval=True save=True ckpt=best eval_mode_r=3 2>&1 | tee results/eval_2.4547_3.log
 use_wandb=True \
 
-0.54 :  # camera, use R^T, encoder + decoder, modal=2, with classifyM loss, mode regularization, 4 heads, without hands, predict up axis is enough;
+0.54 :  # single instance, airplane, random sampling
 TRAIN_OBJ='python train_aegan_mini.py training=ae_gan vis=True vis_frequency=1000 num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
 $TRAIN_OBJ task='partial_pcloud_pose' target_category='airplane' exp_num='0.54' DATASET.train_batch=2 DATASET.test_batch=2 \
 models=se3_transformer_default \
@@ -242,7 +242,7 @@ use_wandb=True
 eval=True save=True ckpt=best eval_mode_r=3 2>&1 | tee results/eval_2.4547_3.log
 use_wandb=True \
 
-0.55 :  # airplane, fixed_sampling, use R^T, encoder + decoder, modal=2, with classifyM loss, mode regularization, 4 heads, without hands, predict up axis is enough;
+0.55 :  # airplane, fixed_sampling, all 3k instances
 TRAIN_OBJ='python train_aegan_mini.py training=ae_gan vis=True vis_frequency=1000 num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
 $TRAIN_OBJ task='partial_pcloud_pose' item='modelnet40' name_dset='modelnet40' target_category='airplane' exp_num='0.55' DATASET.train_batch=2 DATASET.test_batch=2 \
 models=se3_transformer_default \
@@ -252,7 +252,7 @@ fixed_sampling=True use_wandb=True
 eval=True save=True ckpt=best eval_mode_r=3 2>&1 | tee results/eval_2.4547_3.log
 use_wandb=True \
 
-0.56 :  # airplane, fixed_sampling, use R^T, encoder + decoder, modal=2, with classifyM loss, mode regularization, 4 heads, without hands, predict up axis is enough;
+0.56 :  # airplane, random sampling, all 3k instances
 TRAIN_OBJ='python train_aegan_mini.py training=ae_gan vis=True vis_frequency=1000 num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
 $TRAIN_OBJ task='partial_pcloud_pose' item='modelnet40' name_dset='modelnet40' target_category='airplane' exp_num='0.56' DATASET.train_batch=2 DATASET.test_batch=2 \
 models=se3_transformer_default \
@@ -262,25 +262,64 @@ fixed_sampling=False use_wandb=True
 eval=True save=True ckpt=best eval_mode_r=3 2>&1 | tee results/eval_2.4547_3.log
 use_wandb=True \
 
-# 0.57 :  # airplane, fixed_sampling, use R^T, encoder + decoder, modal=2, with classifyM loss, mode regularization, 4 heads, without hands, predict up axis is enough;
-# TRAIN_OBJ='python train_aegan_mini.py training=ae_gan vis=True vis_frequency=1000 num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
-# $TRAIN_OBJ task='partial_pcloud_pose' item='modelnet40' name_dset='modelnet40' target_category='airplane' exp_num='0.57' DATASET.train_batch=2 DATASET.test_batch=2 \
-# models=se3_transformer_default \
-# use_objective_T=True \
-# pred_6d=True num_modes_R=1 MODEL.num_channels_R=2 \
-# fixed_sampling=True use_wandb=True
-# eval=True save=True ckpt=best eval_mode_r=3 2>&1 | tee results/eval_2.4547_3.log
-# use_wandb=True \
-
-0.58 :  # airplane, fixed_sampling, use R^T, encoder + decoder, modal=2, with classifyM loss, mode regularization, 4 heads, without hands, predict up axis is enough;
-TRAIN_OBJ='python train_aegan_mini.py training=ae_gan vis=True vis_frequency=1000 num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
-$TRAIN_OBJ task='partial_pcloud_pose' item='modelnet40' name_dset='modelnet40' target_category='airplane' exp_num='0.58' DATASET.train_batch=2 DATASET.test_batch=2 \
+0.57 :  # airplane, fixed_sampling, use R^T, encoder + decoder, modal=2, with classifyM loss, mode regularization, 4 heads, without hands, predict up axis is enough;
+# single complete shape--> partial data test
+TRAIN_OBJ='python train_aegan_mini.py training=ae_gan vis=True vis_frequency=10 num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' item='modelnet40' name_dset='modelnet40' target_category='airplane' exp_num='0.57' DATASET.train_batch=2 DATASET.test_batch=2 \
 models=se3_transformer_default \
-use_objective_T=True \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
 pred_6d=True num_modes_R=1 MODEL.num_channels_R=2 \
-fixed_sampling=False use_wandb=True
+fixed_sampling=True use_wandb=True
 eval=True save=True ckpt=best eval_mode_r=3 2>&1 | tee results/eval_2.4547_3.log
 use_wandb=True \
+
+#
+0.58 :  # airplane, fixed_sampling, use R^T, encoder + decoder, modal=2, with classifyM loss, mode regularization, 4 heads, without hands, predict up axis is enough;
+# single complete shape--> partial data test, random sampling of input pts
+TRAIN_OBJ='python train_aegan_mini.py training=ae_gan vis=True vis_frequency=10 num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' item='modelnet40' name_dset='modelnet40' target_category='airplane' exp_num='0.58' DATASET.train_batch=2 DATASET.test_batch=2 \
+models=se3_transformer_default \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+pred_6d=True num_modes_R=1 MODEL.num_channels_R=2 \
+fixed_sampling=False use_wandb=True
+
+# check chirality,
+0.59 :  # airplane, fixed_sampling, use R^T, encoder + decoder, modal=2, with classifyM loss, mode regularization, 4 heads, without hands, predict up axis is enough;
+# single complete shape--> partial data test, random sampling of input pts
+TRAIN_OBJ='python train_aegan_mini.py training=ae_gan vis=True vis_frequency=10 num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' item='modelnet40' name_dset='modelnet40' target_category='airplane' exp_num='0.59' DATASET.train_batch=2 DATASET.test_batch=2 \
+models=se3_transformer_default \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+pred_6d=True num_modes_R=1 MODEL.num_channels_R=2 \
+fixed_sampling=True use_wandb=True
+
+# 3850 * 125 data over partial airplane, 500k data?? train on complete data? would it work?
+0.6: # single instance, first check whether test works for 6d r regression
+TRAIN_OBJ='python train_aegan_mini.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' item='modelnet40' name_dset='modelnet40' target_category='airplane' exp_num='0.6' DATASET.train_batch=2 DATASET.test_batch=2 \
+models=se3_transformer_default \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+pred_6d=True num_modes_R=1 MODEL.num_channels_R=2 \
+eval_frequency=10 vis_frequency=10 val_frequency=10 \
+fixed_sampling=False use_wandb=True
+
+0.61: # single instance, check equivalence, with rotated train data, predict r
+TRAIN_OBJ='python train_aegan_mini.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' item='modelnet40' name_dset='modelnet40' target_category='airplane' exp_num='0.61' DATASET.train_batch=2 DATASET.test_batch=2 \
+models=se3_transformer_default \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+pred_6d=True num_modes_R=1 MODEL.num_channels_R=2 \
+eval_frequency=10 vis_frequency=10 val_frequency=10 \
+fixed_sampling=False use_wandb=True
+
+0.611: # single instance, check equivalence, with rotated train data, predict r^T
+TRAIN_OBJ='python train_aegan_mini.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' item='modelnet40' name_dset='modelnet40' target_category='airplane' exp_num='0.611' DATASET.train_batch=2 DATASET.test_batch=2 \
+models=se3_transformer_default \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+pred_6d=True num_modes_R=1 MODEL.num_channels_R=2 \
+eval_frequency=10 vis_frequency=10 val_frequency=10 \
+fixed_sampling=True use_wandb=True
 
 remote
 #

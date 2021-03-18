@@ -150,7 +150,6 @@ def eval_func(tr_agent, data, all_rts, cfg, r_raw_err=None, t_raw_err=None):
             degree_err = tr_agent.degree_err_full.cpu().detach().numpy()
             pred_dict['R'] = []
             for m in range(BS):
-                bp()
                 R1, R2, R3, R4, R5, mode_acc, good_ratio = vote_rotation_ransac_6d(output_R[m], output_M[m], gt_R=target_R[m], gt_M=gt_M[m], degree_err=degree_err[m], use_base=False, thres=0.5, verbose=cfg.eval)
                 if cfg.eval_mode_r==0:
                     pred_dict['R'].append(R1) # mixed mode score ransac
@@ -332,38 +331,6 @@ def main(cfg):
                         infos_all[key] = []
                     infos_all[key].append(value)
 
-                save_offline =False
-                if save_offline:
-                    if cfg.task == 'adversarial_adaptation':
-                        outputs = tr_agent.fake_pc
-                        for m in range(data["raw"].shape[0]):
-                            model_id  = data["raw_id"][m]
-                            taxonomy_id = data['class'][m]
-                            save_name = f'{cfg.log_dir}/generation/{cfg.split}/input_{taxonomy_id}_{model_id}.npy'
-                            save_for_viz(['points', 'labels'], [data["raw"][m].cpu().numpy().T, np.ones((data["raw"][m].shape[1]))], save_name, type='np')
-                            save_name = f'{cfg.log_dir}/generation/{cfg.split}/{cfg.module}_{taxonomy_id}_{model_id}.npy'
-                            save_for_viz(['points', 'labels'], [outputs[m].cpu().numpy().T, np.ones((outputs[m].cpu().numpy().shape[1]))], save_name, type='np')
-                    else:
-                        outputs = tr_agent.output_pts
-                        latent_vect = tr_agent.latent_vect
-                        graphs = dgl.unbatch(data["G"])
-                        if cfg.use_wandb:
-                            for m in range(data["points"].shape[0]):
-                                # target_pts  = data["points"][m].cpu().numpy().T
-                                target_pts  = graphs[m].ndata['x'].cpu().numpy()
-                                outputs_pts = outputs[m].cpu().numpy().T
-                                outputs_pts = outputs_pts + np.array([0, 1, 0]).reshape(1, -1)
-                                pts = np.concatenate([target_pts, outputs_pts], axis=0)
-                                wandb.log({"input+AE_GAN_output": [wandb.Object3D(pts)], 'step': b*data["points"].shape[0] + m})
-
-                        for m in range(data["points"].shape[0]):
-                            model_id  = data['id'][m]
-                            taxonomy_id = data['class'][m]
-                            save_name = f'{cfg.log_dir}/generation/{cfg.split}/input_{taxonomy_id}_{model_id}.npy'
-                            save_for_viz(['points', 'labels'], [data["points"][m].cpu().numpy().T, np.ones((data["points"][m].shape[1]))], save_name, type='np')
-                            save_name = f'{cfg.log_dir}/generation/{cfg.split}/{cfg.module}_{taxonomy_id}_{model_id}.npy'
-                            save_for_viz(['points', 'labels'], [outputs[m].cpu().numpy().T, np.ones((outputs[m].cpu().numpy().shape[1]))], save_name, type='np')
-
         post_summary(all_rts, file_name, args=cfg, extra_key=f'{cfg.ckpt}_{cfg.eval_mode_r}')
         for key, value in infos_all.items():
             value = np.array(value)
@@ -373,10 +340,30 @@ def main(cfg):
             else:
                 plot_distribution(value.reshape(-1), labelx=key, labely='frequency', title_name=f'rotation_error_{key}', sub_name=cfg.exp_num, save_fig=True)
         return
+
+    elif cfg.eval_mini:
+        track_dict = {'rdiff': [], 'tdiff': [], 'sdiff': [],
+                      '5deg': [], '5cm': [], '5deg5cm': []}
+
+        for num, test_data in enumerate(test_loader):
+            losses, infos = tr_agent.eval_func(test_data)
+            tr_agent.eval_nocs(test_data)
+            pose_diff = tr_agent.pose_err
+            for key in ['rdiff', 'tdiff', 'sdiff']:
+                track_dict[key].append(pose_diff[key].cpu().numpy().mean())
+            deg = pose_diff['rdiff'] <= 5.0
+            cm = pose_diff['tdiff'] <= 0.05
+            degcm = torch.logical_and(deg, cm)
+            for key, value in zip(['5deg', '5cm', '5deg5cm'], [deg, cm, degcm]):
+                track_dict[key].append(value.float().cpu().numpy().mean())
+        for key, value in track_dict.items():
+            print(key, ':', np.array(value).mean())
+        return
+
+    # >>>>>>>>>>> main training
     best_R_error = 100
     val_loader   = cycle(val_loader)
     for e in range(clock.epoch, cfg.nr_epochs):
-        # begin iteration
         pbar = tqdm(train_loader)
         for b, data in enumerate(pbar):
             # train step
@@ -401,23 +388,38 @@ def main(cfg):
 
             if clock.step % cfg.eval_frequency == 0:
                 track_dict = {'averageR': [], '100bestR': []}
+
                 all_rts, file_name, mean_err, r_raw_err, t_raw_err, s_raw_err = prepare_pose_eval(cfg.exp_num, cfg)
+
                 if cfg.num_modes_R > 1:
                     track_dict.update({'mode_accuracy': [], 'chosenR': []})
 
+                if cfg.pred_nocs:
+                    track_dict = {'rdiff': [], 'tdiff': [], 'sdiff': [],
+                                  '5deg': [], '5cm': [], '5deg5cm': []}
+
                 for num, test_data in enumerate(test_loader):
-                    if num > 100: # we only evaluate 100 data every 1000 steps
+                    if num > 100:  # we only evaluate 100 data every 1000 steps
                         break
                     losses, infos = tr_agent.eval_func(test_data)
                     if cfg.pred_nocs:
-                        pass
-                    if cfg.use_objective_R:
+                        tr_agent.eval_nocs(test_data)
+                        pose_diff = tr_agent.pose_err
+                        for key in ['rdiff', 'tdiff', 'sdiff']:
+                            track_dict[key].append(pose_diff[key].cpu().numpy().mean())
+                        deg = pose_diff['rdiff'] <= 5.0
+                        cm = pose_diff['tdiff'] <= 0.05
+                        degcm = torch.logical_and(deg, cm)
+                        for key, value in zip(['5deg', '5cm', '5deg5cm'], [deg, cm, degcm]):
+                            track_dict[key].append(value.float().cpu().numpy().mean())
+                    else:
                         degree_err    = tr_agent.degree_err.cpu().detach().numpy().squeeze()
                         best100_ind   = np.argsort(degree_err, axis=1)  # [B, N]
                         best100_ind = best100_ind[:, :100]
                         best100_err = degree_err[np.arange(best100_ind.shape[0]).reshape(-1, 1), best100_ind].mean()
                         track_dict['averageR'].append(degree_err.mean())
                         track_dict['100bestR'].append(best100_err)
+
                         # 3. more confident estimations
                         if cfg.num_modes_R > 1:
                             mode_acc = tr_agent.classifyM_acc.cpu().detach().numpy().mean()
@@ -426,6 +428,7 @@ def main(cfg):
                             track_dict['chosenR'].append(chosen_deg_err)
 
                     infos_dict = eval_func(tr_agent, test_data, all_rts, cfg, r_raw_err, t_raw_err) # we will keep adding new evaluations
+
                 # evaluate per category as well
                 xyz_err_dict = {}
                 rpy_err_dict = {}
@@ -474,6 +477,10 @@ def main(cfg):
 
                 if np.array(track_dict['averageR']).mean() < best_R_error:
                     best_R_error = np.array(track_dict['averageR']).mean()
+                # print('>>>>>>during testing: ', np.array(track_dict['averageR']).mean(), np.array(track_dict['100bestR']).mean())
+                r_key = 'rdiff' if cfg.pred_nocs else ('chosen_R' if cfg.MODEL.num_channels_R > 1 else 'averageR')
+                if np.array(track_dict[r_key]).mean() < best_R_error:
+                    best_R_error = np.array(track_dict[r_key]).mean()
                     tr_agent.save_ckpt('best')
 
                 if cfg.use_wandb:

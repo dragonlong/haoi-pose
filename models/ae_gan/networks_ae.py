@@ -29,6 +29,7 @@ from equivariant_attention.fibers import Fiber
 try:
     from common.debugger import *
     from models.model_factory import ModelBuilder
+    from models.pointnet_lib.networks import PointTransformer
     # from models.decoders.pointnet_2 import PointNet2Segmenter
     # from models.decoders.equivariant_model import EquivariantDGCNN
 except:
@@ -140,8 +141,6 @@ class InterDownGraph(nn.Module): #
                 g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
                 g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()] #[num_atoms,3] but we only supervise the half
             except:
-                # print('nodes pos: ', pos[i].shape)
-                # print('nodes neighborhoods: ', neighbors_ind[i].shape)
                 g = dgl.unbatch(G)[i]
                 g.remove_edges( np.arange( len(g.all_edges()[0]) ).tolist()) # this line comes with bug
                 g.add_edges(src.cpu().long(), dst.cpu().long())
@@ -236,6 +235,7 @@ class Sample(nn.Module):
         return: [B, N1, 3]
         """
         xyz1_ind = furthest_point_sampling(points, self.num_points) # --> [B, N]
+        print(self.num_points, ':', xyz1_ind) # sampling
         xyz1     = fps_gather_by_index(points.permute(0, 2, 1).contiguous(), xyz1_ind)                # batch_size, channel2, nsample
         return xyz1_ind, xyz1.permute(0, 2, 1).contiguous()
 
@@ -257,6 +257,8 @@ class SampleNeighbors(nn.Module):
         if self.knn:
             dist= pdist2squared(xyz2.permute(0, 2, 1).contiguous(), xyz1.permute(0, 2, 1).contiguous())
             ind = dist.topk(self.num_samples+1, dim=1, largest=False)[1].int().permute(0, 2, 1).contiguous()[:, :, 1:]
+            print('knn neighbors, ', self.num_samples, ':')
+            print(ind[0])
         else:
             # TODO: need to remove self from neighborhood index
             ind = ball_query(self.radius, self.num_samples+1, xyz2, xyz1, False)
@@ -341,6 +343,7 @@ class DecoderFC(nn.Module):
         x = x.view((-1, 3, self.output_pts))
         return x
 
+
 class SE3Transformer(nn.Module):
     """SE(3) equivariant GCN with attention"""
     """Defines the Unet submodule with skip connection.
@@ -376,6 +379,17 @@ class SE3Transformer(nn.Module):
         self._build_gcn(cfg.MODEL)
 
     def _build_gcn(self, opt, verbose=False):
+        # fibers = self.fibers
+        # fin = fibers['in']
+        # Gblock = []
+        # for i in range(6):
+        #     Gblock.append(GSE3Res(fin, fibers['mid'], edge_dim=self.edge_dim,
+        #                           div=self.div, n_heads=self.n_heads))
+        #     Gblock.append(GNormSE3(fibers['mid']))
+        #     fin = fibers['mid']
+        # Gblock.append(GConvSE3(fibers['mid'], fibers['out'], self_interaction=True, edge_dim=self.edge_dim))
+        # self.Gblock = nn.ModuleList(Gblock)
+
         fibers = self.fibers
         self.pre_modules    = nn.ModuleList()
         self.down_modules   = nn.ModuleList()
@@ -427,16 +441,20 @@ class SE3Transformer(nn.Module):
         basis, r = get_basis_and_r(G, self.num_degrees-1)
         h0 = {'0': G.ndata['f']}
         G0 = G
+
+        # # encoder (equivariant layers)
+        # h = {'0': G.ndata['f']}
+        # for layer in self.Gblock:
+        #     h = layer(h, G=G, r=r, basis=basis)
+
         # first layer for pre-computing usage
         for i in range(len(self.pre_modules)):
             h0 = self.pre_modules[i](h0, G=G, r=r, basis=basis)
-
         # encoding
         h1, G1, r1, basis1 = self.down_modules[0](h0, Gin=G0, BS=self.batch_size) # 512-256
         h2, G2, r2, basis2 = self.down_modules[1](h1, Gin=G1, BS=self.batch_size) # 256-128
         h3, G3, r3, basis3 = self.down_modules[2](h2, Gin=G2, BS=self.batch_size) # 128-64
         h4, G4, r4, basis4 = self.down_modules[3](h3, Gin=G3, BS=self.batch_size) # 64-32
-
         # decoding
         if not self.encoder_only:
             h3 = self.up_modules[0](h3, G=G3, r=r3, basis=basis3, uph=h4, upG=G4, BS=self.batch_size) # 64
@@ -812,9 +830,11 @@ class PointAE(nn.Module):
             self.encoder = PointNetplusplus(cfg)
         elif 'en3' in self.encoder_type:
             default_type = torch.DoubleTensor
-            #default_type = torch.FloatTensor
             torch.set_default_tensor_type(default_type)
             self.encoder = en3_transformer(cfg)
+        elif 'point_transformer' in self.encoder_type:
+            self.encoder = PointTransformer(num_channels_R=cfg.MODEL.num_channels_R,
+                                            R_dim=6 if cfg.pred_6d else 3)
         else:
             self.encoder = EncoderPointNet(eval(cfg.enc_filters), cfg.latent_dim, cfg.enc_bn)
 
@@ -846,8 +866,10 @@ class PointAE(nn.Module):
             x = self.decoder(z['0'])   # shape recontruction
             p = self.regressor(z['1']) # R
             pred_dict = {'S':x, 'R': p, 'T': z['T']}
-        elif 'plusplus' in self.encoder_type:
+        # elif 'plusplus' in self.encoder_type:
+        else:
             pred_dict = z
+
         return pred_dict
 
 def rotate_about_axis(theta, axis='x'):
@@ -867,85 +889,189 @@ def rotate_about_axis(theta, axis='x'):
                       [0, 0, 1]])
     return R
 
+def square_distance(src, dst):
+    '''
+    Adapted from https://github.com/yanx27/Pointnet_Pointnet2_pytorch
+    '''
+    B, N, _ = src.shape
+    _, M, _ = dst.shape
+    dist = -2 * torch.matmul(src, dst.permute(0, 2, 1).contiguous())
+    dist += torch.sum(src ** 2, -1).view(B, N, 1)
+    dist += torch.sum(dst ** 2, -1).view(B, 1, M)
+    return dist #
+
+def index_points(points, idx):
+    '''
+    Adapted from https://github.com/yanx27/Pointnet_Pointnet2_pytorch
+    '''
+    device = points.device
+    B = points.shape[0]
+    view_shape = list(idx.shape)
+    view_shape[1:] = [1] * (len(view_shape) - 1)
+    repeat_shape = list(idx.shape)
+    repeat_shape[0] = 1
+    batch_indices = torch.arange(B, dtype=torch.long).to(device).view(view_shape).repeat(repeat_shape)
+    new_points = points[batch_indices, idx, :]
+    return new_points
+
+class FixedRadiusNearNeighbors(nn.Module):
+    '''
+    Ball Query - Find the neighbors with-in a fixed radius
+    '''
+    def __init__(self, radius, n_neighbor, knn=False):
+        super(FixedRadiusNearNeighbors, self).__init__()
+        self.radius = radius
+        self.n_neighbor = n_neighbor
+        self.knn = knn
+
+    def forward(self, pos, centroids):
+        '''
+        Adapted from https://github.com/yanx27/Pointnet_Pointnet2_pytorch
+        '''
+        device = pos.device
+        B, N, _ = pos.shape
+        # center_pos = index_points(pos, centroids)
+        center_pos = pos
+        _, S, _ = center_pos.shape
+        group_idx = torch.arange(N, dtype=torch.long).to(device).view(1, 1, N).repeat([B, S, 1])
+        # print('before square_distance ', center_pos.shape, pos.shape)
+        sqrdists = square_distance(center_pos, pos)
+        if self.knn:
+            _, group_idx = torch.topk(sqrdists, self.n_neighbor+1, dim=-1, largest=False, sorted=True)
+            group_idx = group_idx[:, :, 1:self.n_neighbor+1]
+        else:
+            group_idx[sqrdists > self.radius ** 2] = N
+            group_idx = group_idx.sort(dim=-1)[0][:, :, :self.n_neighbor]
+            group_first = group_idx[:, :, 0].view(B, S, 1).repeat([1, 1, self.n_neighbor])
+            mask = group_idx == N
+            group_idx[mask] = group_first[mask]
+        return group_idx
+
 # python networks_ae.py models=se3_transformer_default num_points=512
 if __name__ == '__main__':
+    from copy import copy
     from hydra.experimental import compose, initialize
     initialize("../../config/", strict=True)
     cfg = compose("completion.yaml")
-    gpu = 0
-    deploy_device   = torch.device('cuda:{}'.format(gpu))
-    npoints = cfg.num_points
-    fixed_sampling = True
-    category_name = 'airplane'
-    instance_name = '002'
+    npoints        = cfg.num_points
 
-    fn  = [category_name, '/groups/CESCA-CV/ICML2021/data/modelnet40/airplane/0_0_0.txt']
-    nx, ny, nz = 2, 1, 1
-    BS  = 1
-    xyzs= []
-    targets = []
-    builder = BuildGraph(num_samples=10)
-    for i in range(nx):
-        for j in range(ny):
-            for k in range(nz):
-                theta_x = 360/8 * int(i)
-                Rx = rotate_about_axis(theta_x / 180 * np.pi, axis='x')
-                theta_y = 360/8 * int(j)
-                Ry = rotate_about_axis(theta_y / 180 * np.pi, axis='y')
-                theta_z = 360/8 * int(k)
-                Rz = rotate_about_axis(theta_z / 180 * np.pi, axis='z')
-                r = np.matmul(Ry, Rx).astype(np.float32)
-                r = np.matmul(Rz, r).astype(np.float32)
-        point_normal_set = np.loadtxt(fn[1].replace('0_0_0', f'{i}_{j}_{k}'), delimiter=' ').astype(np.float32)
-        full_pts  = np.copy(point_normal_set[:, 0:3])
-        xyzs.append(full_pts)
-        targets.append(r)
+    # model
+    model = SE3Transformer(cfg=cfg, edge_dim=0, pooling='avg', n_heads=cfg.MODEL.n_heads).cuda()
+    frnn      = FixedRadiusNearNeighbors(0.2, 10)
+    device = torch.device("cuda")
+    batch_size = 2
+    num_points = 256
+    k = 10
+    torch.manual_seed(0)
 
-    # try pose
-    encoder = SE3Transformer(cfg=cfg, edge_dim=0, pooling='avg', n_heads=cfg.MODEL.n_heads).cuda()
+    pts = torch.randn(batch_size, num_points, 3)
+    # create input
+    pos       = pts.detach().clone()
+    centroids = np.tile(np.arange(pts.shape[1]).reshape(1, -1),(batch_size, 1))
+    centroids = torch.from_numpy(centroids)
+    feat      = np.ones((pos.shape[0], pos.shape[1], 1))
+    dev       = pos.device
+    group_idx = frnn(pos, centroids) # cpu function, process per batch, we could put in
+    glist = []
+    n_neighbor = 10
+    for i in range(batch_size):
+        src = group_idx[i].contiguous().view(-1) # real pair
+        dst = centroids[i].view(-1, 1).repeat(1, n_neighbor).view(-1) # real pair
 
-    inputs = []
-    for i in range(BS):
-        full_pts = xyzs[i]
-        if fixed_sampling:
-            pos = torch.from_numpy(np.copy(full_pts)[:npoints, :]).unsqueeze(0)
-        else:
-            pos = torch.from_numpy(np.random.permutation(np.copy(full_pts))[:npoints, :]).unsqueeze(0)
-        inputs.append(pos)
+        unified = torch.cat([src, dst])
+        uniq, inv_idx = torch.unique(unified, return_inverse=True)
+        src_idx = inv_idx[:src.shape[0]]
+        dst_idx = inv_idx[src.shape[0]:]
 
-    N    = 256
-    xyz1  = torch.rand(1, N, 3, requires_grad=False, device=deploy_device)
-    builder = BuildGraph()
-    G, _    = builder(xyz1)
+        # print('src_idx.shape', '\n', src_idx[0:100], '\n', 'dst_idx.shape', '\n', dst_idx[0:100])
+        g = dgl.DGLGraph((src_idx, dst_idx))
+        g.ndata['x'] = pos[i][uniq]
+        g.ndata['f'] = torch.from_numpy(feat[i][uniq].astype(np.float32)[:, :, np.newaxis])
+        g.edata['d'] = pos[i][dst_idx] - pos[i][src_idx] #[num_atoms,3]
+        glist.append(g)
+    batched_graph = dgl.batch(copy(glist)).to(device)
+    out1 = model(batched_graph)
+    bp()
+
+    # print('\n')
+    # print('Test rotation equivariance')
+    # #rot = R.random(random_state=1234).as_matrix()
+    # rot = np.array([[0.5, np.sqrt(3)/2, 0], [-np.sqrt(3)/2, 0.5, 0], [0, 0, 1]])
+    # rot = torch.from_numpy(rot).type(default_type).to(device)
+    # rot = rot.unsqueeze(0).repeat(batch_size, 1, 1)
+    # x_rotated = torch.matmul(rot, x)
     #
-    encoder = SE3Transformer(cfg=cfg, edge_dim=0, pooling='avg').cuda()
-    torch.cuda.empty_cache()
-    out = encoder(G)
-    print(out)
     #
-    # xyz1 = torch.cat(inputs, axis=0).cuda()
-    # G, _    = builder(xyz1)
-    # bp()
-    # print('G: \n', G)
-    # print('Net: \n', encoder)
-    # out = encoder(G)
+    # rotated_pts = torch.cat((x_rotated, f), dim=1)
+    #     batched_graph.ndata['x'] = torch.matmul(batched_graph.ndata['x'], torch.from_numpy(R.astype(np.float32)))
+    #     batched_graph.edata['d'] = torch.matmul(batched_graph.edata['d'], torch.from_numpy(R.astype(np.float32)))
+    # x3, f3 = model(rotated_pts)
+    #
+    # rot = rot.unsqueeze(1).repeat(1, C_out, 1, 1)
+    # x1_rotated = torch.matmul(rot, x1)
+    # x_diff_rotation = x3 - x1_rotated
+    # f_diff_rotation = f3 - f1
+    #
+    # print('x diff mean:', torch.mean(torch.abs(x_diff_rotation)))
+    # print('x diff max:', torch.max(torch.abs(x_diff_rotation)))
+    # print('f diff mean:', torch.mean(torch.abs(f_diff_rotation)))
+    # print('f diff max:', torch.max(torch.abs(f_diff_rotation)))
+    #
 
     #
-    # n_sampler = Sample(256)
-    # e_sampler = SampleNeighbors(0.1, 20, knn=True)
+    # np.random.seed(0)
     #
-    # xyz2 = n_sampler(xyz1)
-    # ind  = e_sampler(xyz1, xyz2)
-    # print('output is ',xyz2.size()
+    # base_points = np.random.rand(2,256,3).astype(np.float32) # * 10
+    # gt_points = np.copy(base_points)
+    # inputs    = torch.from_numpy(gt_points)
+    # # data
+
+    #     # batched_graph = dgl.batch_hetero(glist)
+    # Rs = []
+    # outputs = []
+    # outputs_w = []
+    # theta_xs = [0, 45]
+    # theta_zs = [0, 45]
+    # for k in range(2):
+    #     batched_graph = dgl.batch(copy(glist))
+    #     # print(glist[0].ndata['x'])
+    #     theta_x = theta_xs[k]
+    #     theta_z = theta_zs[k]
+    #     Rx = rotate_about_axis(theta_x / 180 * np.pi, axis='x')
+    #     Rz = rotate_about_axis(theta_z / 180 * np.pi, axis='z')
+    #     R = np.matmul(Rx, Rz)
+    #     Rs.append(R)
+    #     print(R)
+
+    #     feat_type1 = model.forward(batched_graph)
+    #     outputs.append(feat_type1)
+    #     f1 = feat_type1[:, :, [2, 0, 1]]
+    #     outputs_w.append(f1)
     #
-    # # down_g = InterDownGraph()
-    # # Gmid, Gout, xyz_ind = down_g(G)
-    # # print(Gmid)
-    # # print(Gout)
-    # # print(G)
-    # layer = SE3TBlock(npoint=512, nsample=32, radius=0.1, in_channels=1, out_channels=[32, 32], num_degrees=2, knn=True, module_type='first_layer').cuda()
-    # # encoder (equivariant layers)
-    # h0 = {'0': G.ndata['f']}
-    # h1, G1, r1, basis1 = layer(G, h0)
-    # print(h0, '\n', h1)
-    # print(h0['0'].shape, '\n', h1['0'].shape)
+    #
+    # # print(outputs[0][1], '\n\n', outputs[1][1])
+    # print('using R: ', '\n', outputs[1][0][0], '\n', torch.matmul(outputs[0], torch.from_numpy(Rs[1].astype(np.float32)))[0][0], '\n')
+    # print('using R.T: ', '\n', outputs[1][0][0], '\n', torch.matmul(outputs[0], torch.from_numpy(Rs[1].T.astype(np.float32)))[0][0], '\n')
+    # print('using R: ', '\n', outputs_w[1][0][0], '\n', torch.matmul(outputs_w[0], torch.from_numpy(Rs[1].astype(np.float32)))[0][0], '\n')
+    # print('using R.T: ', '\n', outputs_w[1][0][0], '\n', torch.matmul(outputs_w[0], torch.from_numpy(Rs[1].T.astype(np.float32)))[0][0], '\n')
+    # # inputs = []
+    # # for i in range(BS):
+    # #     full_pts = xyzs[i]
+    # #     if fixed_sampling:
+    # #         pos = torch.from_numpy(np.copy(full_pts)[:npoints, :]).unsqueeze(0)
+    # #     else:
+    # #         pos = torch.from_numpy(np.random.permutation(np.copy(full_pts))[:npoints, :]).unsqueeze(0)
+    # #     inputs.append(pos)
+    # #
+    # # N    = 256
+    # # xyz1  = torch.rand(1, N, 3, requires_grad=False, device=deploy_device)
+    # # builder = BuildGraph()
+    # # G, _    = builder(xyz1)
+    # # #
+    # # encoder = SE3Transformer(cfg=cfg, edge_dim=0, pooling='avg').cuda()
+    # # torch.cuda.empty_cache()
+    # # out = encoder(G)
+    # # print(out)
+    # # #
+    # # create model
+    # #

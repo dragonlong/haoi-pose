@@ -5,25 +5,41 @@ import wandb
 import __init__
 from models.ae_gan import get_network
 from models.base import BaseAgent
-from utils.emd import earth_mover_distance
+# from utils.emd import earth_mover_distance
 from models.losses import loss_geodesic, loss_vectors, compute_vect_loss, compute_1vN_nocs_loss, compute_miou_loss
-from common.d3_utils import compute_rotation_matrix_from_euler, compute_euler_angles_from_rotation_matrices, compute_rotation_matrix_from_ortho6d, chamfer_distance
+from common.d3_utils import compute_rotation_matrix_from_euler, compute_euler_angles_from_rotation_matrices, compute_rotation_matrix_from_ortho6d
+from common.yj_pose import compute_pose_diff
 from os import makedirs, remove
 from os.path import exists, join
 
 def bp():
     import pdb;pdb.set_trace()
-# if self.config.pred_conf:
-#     pred_c = self.output_Cf.squeeze()
-#     gt_c = torch.abs(1 - dis/2)
-#     confi_err= torch.abs(gt_c - pred_c)
-#     w   = self.config.confidence_loss_multiplier
-#     self.regressionCi_loss= w * torch.sum( confi_err * confidence , dim=1) / (torch.sum(confidence, dim=1) + 1)
-#     self.regressionCi_loss = self.regressionCi_loss.mean()
 
 epsilon=1e-10
 THRESHOLD_GOOD = 5  # in degrees
 THRESHOLD_BAD  = 50 # in degrees
+
+def process_rotation(config, raw, batch_size):
+    R_dim = 6 if config.pred_6d else 3
+    M = config.MODEL.num_channels_R
+    B = batch_size
+    if 'se3' in config.encoder_type:  # raw: [B * N, M * R_dim / 3, 3]
+        raw = raw.view(B, -1, M, R_dim).contiguous().permute(0, 3, 1, 2)  # [B, R_dim, N, M]
+    else:  # raw: [B, M * R_dim, N]
+        raw = raw.view(B, M, R_dim, -1).contiguous().permute(0, 2, 3, 1)  # [B, R_dim, N, M]
+
+    def normalize_3d(rot):  # rot: [B, 3, *]
+        return rot / (torch.norm(rot, dim=1, keepdim=True) + epsilon)
+
+    if config.pred_6d:
+        pass
+    else:
+        rotation = normalize_3d(raw)  # [B, R_dim, N, M]
+        avg_rotation = rotation.mean(dim=2)
+        avg_rotation = normalize_3d(avg_rotation)
+
+    return rotation, avg_rotation
+
 class PointAEPoseAgent(BaseAgent):
     def build_net(self, config):
         # customize your build_net function
@@ -37,6 +53,16 @@ class PointAEPoseAgent(BaseAgent):
 
     def set_loss_function(self):
         pass
+
+    def eval_nocs(self, data):
+        target_pts = data['points'].cuda()
+        input_pts = data['G'].ndata['x'].view(target_pts.shape[0], -1, 3).contiguous().permute(0, 2,
+                                                                                               1).contiguous().cuda()
+        pred_nocs = self.output_N
+        gt_nocs = target_pts
+        self.pose_err = compute_pose_diff(nocs_gt=gt_nocs.transpose(-1, -2), 
+                nocs_pred=pred_nocs.transpose(-1, -2), target=input_pts.transpose(-1, -2),
+                                          category=self.config.target_category)
 
     def forward(self, data, verbose=False):
         input_pts  = data['points'].cuda()
@@ -120,10 +146,10 @@ class PointAEPoseAgent(BaseAgent):
             elif self.config.pred_6d:
                 print('Not implemented yet')
             else:
-                self.output_T    = self.latent_vect['T'] # 3, N, no activation
+                self.output_T    = self.latent_vect['T']  # 3, N, no activation
                 if self.config.MODEL.num_channels_R > 1:
-                    self.output_R  = self.latent_vect['R'].view(BS, self.config.MODEL.num_channels_R, 3, -1).contiguous().permute(0, 2, 3, 1).contiguous()# # [BS*N, C, 3] -> [Bs, N, C, 3] -> [Bs, 3, N, C]
-                    self.output_R  = self.output_R/(torch.norm(self.output_R, dim=1, keepdim=True) + epsilon)
+                    self.output_R = self.latent_vect['R'].view(BS, self.config.MODEL.num_channels_R, 3, -1).contiguous().permute(0, 2, 3, 1).contiguous()#  [B, M * 3, C] -> [Bs, M, 3, N] -> [Bs, 3, N, M]
+                    self.output_R = self.output_R/(torch.norm(self.output_R, dim=1, keepdim=True) + epsilon)
                     self.output_R_full = self.output_R
                     self.degree_err = torch.acos( torch.sum(self.output_R*target_R.unsqueeze(-1), dim=1)) * 180 / np.pi
                 else:
@@ -147,6 +173,7 @@ class PointAEPoseAgent(BaseAgent):
         if self.config.pred_nocs:
             self.nocs_loss= compute_1vN_nocs_loss(self.output_N, target_pts, target_category=self.config.target_category, num_parts=1, confidence=target_C)
             self.nocs_loss= self.nocs_loss.mean()
+
         # self.output_R: [BS*N*M, 3, 3]
         elif self.config.pred_6d:
             target_R_tiled  = target_R.unsqueeze(1).contiguous().unsqueeze(1).contiguous().repeat(1, N, M, 1, 1).contiguous()
@@ -178,6 +205,7 @@ class PointAEPoseAgent(BaseAgent):
                     self.regressionR_loss = self.norm_err.mean(dim=1)
                 else: # BS*M, 3, 3
                     self.regressionR_loss = torch.norm(self.output_R_pooled.view(BS, -1).contiguous() - target_R.view(BS, -1).contiguous(), dim=-1)
+
             self.regressionR_loss = self.regressionR_loss.mean()
 
             # degree_err_full
@@ -296,6 +324,8 @@ class PointAEPoseAgent(BaseAgent):
 
     def visualize_batch(self, data, mode, **kwargs):
         tb = self.train_tb if mode == 'train' else self.val_tb
+        if self.config.pred_nocs:
+            return
 
         num = 2
 

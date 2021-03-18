@@ -145,17 +145,17 @@ class BaseAgent(object):
         infos  = self.collect_info()
         self.update_network(losses)
         self.record_losses(losses, 'train', infos_dict=infos)
+        return losses, infos
 
     def val_func(self, data):
         """one step of validation"""
         self.net.eval()
-
         with torch.no_grad():
             self.forward(data)
-
         losses = self.collect_loss()
         infos  = self.collect_info()
         self.record_losses(losses, 'validation', infos_dict=infos)
+        return losses, infos
 
     def eval_func(self, data):
         """one step of validation"""
@@ -313,7 +313,6 @@ class GANzEAgent(object):
     def record_losses(self, loss_dict, mode='train', infos_dict=None):
         """record loss to tensorboard"""
         losses_values = {k: v.item() for k, v in loss_dict.items()}
-
         tb = self.train_tb if mode == 'train' else self.val_tb
         for k, v in losses_values.items():
             tb.add_scalar(k, v, self.clock.step)
