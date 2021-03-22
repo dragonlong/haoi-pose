@@ -1,5 +1,6 @@
 from os import makedirs, remove
 from os.path import exists, join
+from copy import deepcopy
 from time import time
 import hydra
 from hydra import utils
@@ -10,7 +11,8 @@ import wandb
 import random
 import torch
 import dgl
-
+from equivariant_attention.from_se3cnn.SO3 import rot
+from se3net import equivariance_test
 from collections import OrderedDict
 from tqdm import tqdm
 from sklearn.externals import joblib
@@ -45,6 +47,18 @@ categories_id = infos.categories_id
 project_path  = infos.project_path
 
 THRESHOLD_GOOD = 5 # 5 degrees
+def set_feat(G, R, num_features=1):
+    G.edata['d'] = G.edata['d'] @ R
+    if 'w' in G.edata:
+        G.edata['w'] = torch.rand((G.edata['w'].size(0), 0))
+
+    G.ndata['x'] = G.ndata['x'] @ R
+    G.ndata['f'] = torch.ones((G.ndata['f'].size(0), num_features, 1))
+    # # print(G)
+
+    features = {'0': G.ndata['f']}
+    return G, features
+
 def check_r_bb(test_data, tr_agent):
     BS = 2
     input_pts     = test_data['G'].ndata['x'].view(BS, -1, 3).contiguous().cpu().numpy() # B, N, 3
@@ -60,20 +74,30 @@ def check_t(data, tr_agent):
 
     return np.linalg.norm(np.mean(pred_center, axis=1) - np.mean(gt_center, axis=1))
 
-def get_single_data():
-    category_name = 'airplane'
+def get_single_data(augment=False):
+    category_name = 'bowl'
     instance_name = '002'
     train_pts= []
     targets = []
-    for i in range(2):
-        fn  = [category_name, f'{my_dir}/data/modelnet40_normal_resampled/airplane/airplane_0002.txt']
+    num = 2
+    if augment:
+        num = 20
+    for i in range(num):
+        # fn  = [category_name, f'{my_dir}/data/modelnet40_normal_resampled/airplane/airplane_0002.txt']
+        fn  = [category_name, f'{my_dir}/data/modelnet40_normal_resampled/bowl/bowl_0002.txt']
         point_normal_set = np.loadtxt(fn[1], delimiter=',').astype(np.float32)
         full_pts  = np.copy(point_normal_set[:, 0:3])
         r = np.eye(3).astype(np.float32)
+
+        if augment:
+            tx, ty, tz = np.random.rand(1, 3)[0] * 180
+            r = rot(tx, ty, tz).cpu().numpy()
+            full_pts = np.matmul(full_pts, r.T)
+
         train_pts.append(full_pts)
-        targets.append(r)
+        targets.append(r.T) # r.T
     print('data loading ...  ready')
-    return train_pts, targets
+    return np.stack(train_pts, axis=0), np.stack(targets, axis=0)
 
 def get_chirality_data(augment=False):
     category_name = 'airplane'
@@ -89,23 +113,28 @@ def get_chirality_data(augment=False):
         xyz1 = np.concatenate([xyz, xyz * np.array([[1, 1, -1]])], axis=0)
         r = np.eye(3).astype(np.float32)
 
-        if augment:
-            print('doing augment')
-            i, j, k = random.sample(range(0, 8), 3)
-            theta_x = 360/8 * int(i)
-            Rx = rotate_about_axis(theta_x / 180 * np.pi, axis='x')
-            theta_y = 360/8 * int(j)
-            Ry = rotate_about_axis(theta_y / 180 * np.pi, axis='y')
-            theta_z = 360/8 * int(k)
-            Rz = rotate_about_axis(theta_z / 180 * np.pi, axis='z')
-            r = np.matmul(Ry, Rx).astype(np.float32)
-            r = np.matmul(Rz, r).astype(np.float32)
-            xyz1 = np.matmul(xyz1, r.T)
-
         train_pts.append(xyz1)
-        targets.append(r.T)
+        targets.append(r)
     print('data loading ...  ready')
-    return train_pts, targets
+    return np.stack(train_pts, axis=0), np.stack(targets, axis=0)
+
+def getitem(pts, targets, builder, npoints=512, fixed_sampling=True):
+    input_pts = np.copy(pts).astype(np.float32)
+    target_R = torch.from_numpy(targets).cuda()
+
+    if not fixed_sampling:
+        input_pts[0] = np.random.permutation(input_pts[0])
+        input_pts[1] = np.random.permutation(input_pts[1])
+    xyz1 = torch.from_numpy(input_pts[:, :npoints]).cuda()
+    g, _     = builder(xyz1)
+    data = {}
+    data['G'] = g
+    data['R'] = target_R
+    data['points'] = xyz1
+    data['T'] = xyz1
+    data['id']= ['0002', '0002']
+    data['idx'] = ['0', '0']
+    return data, xyz1, target_R
 
 # only get one instance
 def get_test_data(nx=8, ny=8, nz=8):
@@ -220,7 +249,9 @@ class PointAEPoseAgent(BaseAgent):
         if self.config.pred_mode: # map 4 to 2
             self.output_M = self.net.classifier_mode(self.latent_vect['R0']).squeeze() # [BS * N, M, 1]-->[BS * N, M] --> [BS, M, N]
 
-        if self.config.pred_6d:
+        if self.config.pred_nocs:
+            self.eval_nocs(data)
+        elif self.config.pred_6d:
             self.compute_and_eval_6d(data)
         else:
             self.compute_and_eval_axis(data)
@@ -232,7 +263,7 @@ class PointAEPoseAgent(BaseAgent):
         M  = self.config.num_modes_R
         CS = self.config.MODEL.num_channels_R
         # B, 3, N
-        input_pts        = data['G'].ndata['x'].view(target_pts.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous().cuda() #
+        input_pts            = data['G'].ndata['x'].view(target_pts.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous().cuda() #
         if 'plus' in self.config.encoder_type:
             input_pts        = input_pts - input_pts.mean(dim=-1, keepdim=True)
         self.latent_vect = self.net.encoder(input_pts) # double
@@ -265,8 +296,9 @@ class PointAEPoseAgent(BaseAgent):
         target_pts = data['points'].cuda()
         input_pts = data['G'].ndata['x'].view(target_pts.shape[0], -1, 3).contiguous().permute(0, 2,
                                                                                                1).contiguous().cuda()
-        pred_nocs = self.output_N
-        gt_nocs = target_pts
+        pred_nocs = self.output_N # B, 3, N
+        gt_nocs = target_pts.transpose(-1, -2) # B, 3, N
+        self.nocs_err = torch.norm(pred_nocs - gt_nocs, dim=1)
         self.pose_err = compute_pose_diff(nocs_gt=gt_nocs.transpose(-1, -2),
                 nocs_pred=pred_nocs.transpose(-1, -2), target=input_pts.transpose(-1, -2),
                                           category=self.config.target_category)
@@ -278,8 +310,8 @@ class PointAEPoseAgent(BaseAgent):
         CS = self.config.MODEL.num_channels_R
         target_R   = data['R'].cuda()
         # [B*N, C, 3] --> [B*N*M, 6]
-        self.output_R =self.latent_vect['R'].view(-1, 6).contiguous()
-        self.output_R = compute_rotation_matrix_from_ortho6d(self.output_R)
+        self.output_R = self.latent_vect['R'].view(-1, 6).contiguous()
+        self.output_R = compute_rotation_matrix_from_ortho6d(self.output_R).permute(0, 2, 1).contiguous()
 
         # [B*M, 6]
         self.output_R_pooled =self.latent_vect['1'].view(-1, 6).contiguous() # dense by default!!! B, 2*C, 3
@@ -407,7 +439,7 @@ class PointAEPoseAgent(BaseAgent):
             self.seg_loss = compute_miou_loss(self.output_C, target_C).mean()
 
         if self.config.pred_nocs:
-            self.nocs_loss= compute_1vN_nocs_loss(self.output_N, target_pts, target_category=self.config.target_category, num_parts=1, confidence=target_C)
+            self.nocs_loss= compute_1vN_nocs_loss(self.output_N, target_pts.permute(0, 2, 1).contiguous(), target_category=self.config.target_category, num_parts=1, confidence=target_C)
             self.nocs_loss= self.nocs_loss.mean()
 
         if self.config.use_objective_T:
@@ -453,14 +485,29 @@ class PointAEPoseAgent(BaseAgent):
 
     def visualize_batch(self, data, mode, **kwargs):
         tb = self.train_tb if mode == 'train' else self.val_tb
-        if self.config.pred_nocs:
-            return
-
         num = 2
         target_pts = data['points'][:num].transpose(1, 2).detach().cpu().numpy() # canonical space
         input_pts = data['G'].ndata['x'].view(target_pts.shape[0], -1, 3).contiguous().cpu().numpy()
         ids  = data['id']
         idxs = data['idx']
+
+        if self.config.pred_nocs:
+            # nocs error
+            nocs_err = self.nocs_err.cpu().detach().numpy() # GT mode degree error, [B, N]
+            output_N   = self.output_N.transpose(-1, -2).cpu().detach().numpy() # B, 3, N -->
+            if len(nocs_err.shape) < 3:
+                nocs_err = nocs_err[:, :, np.newaxis]
+            save_path = f'{self.config.log_dir}/generation'
+            if not exists(save_path):
+                print('making directories', save_path)
+                makedirs(save_path)
+            # nocs_err
+            for j in range(nocs_err.shape[-1]):
+                save_arr  = np.concatenate([input_pts, nocs_err[:, :, j:j+1], output_N], axis=-1)
+                for k in range(nocs_err.shape[0]): # batch
+                    save_name = f'{save_path}/{mode}_{self.clock.step}_{ids[k]}_{idxs[k]}_{j}.txt' #
+                    np.savetxt(save_name, save_arr[k])
+            return
         #
         BS    = self.output_R.shape[0]
         M     = self.config.num_modes_R #
@@ -507,6 +554,49 @@ class PointAEPoseAgent(BaseAgent):
                 pts = np.concatenate([target_pts[0], outputs_pts[0]], axis=0)
                 wandb.log({"input+AE_GAN_output": [wandb.Object3D(pts)], 'step': self.clock.step})
 
+def examine_equivariance(x1, x2, f1, f2, target_R):
+    x_diff_rotation = x2 - torch.matmul(x1, target_R)
+    f_diff_rotation = f2 - f1
+
+    print('x diff mean:', torch.mean(torch.abs(x_diff_rotation)))
+    print('x diff max:', torch.max(torch.abs(x_diff_rotation)))
+    print('f diff mean:', torch.mean(torch.abs(f_diff_rotation)))
+    print('f diff max:', torch.max(torch.abs(f_diff_rotation)))
+    # for key, value in xf1.items():
+    #     x1_1 = value['1']
+    #     x2_1 = xf2[key]['1']
+    #     x1_0 = value['0']
+    #     x2_0 = xf2[key]['0']
+    #     N = int(x1_1.shape[0]/2)
+    #     target_R_tiled  = target_R.unsqueeze(1).contiguous().repeat(1, N, 1, 1).contiguous().view(-1, 3, 3).contiguous()
+    #     print(f'{key} x diff mean:', torch.mean(torch.abs(x2_1 - torch.matmul(x1_1, target_R_tiled))))
+    #     print(f'{key} x diff max:', torch.mean(torch.abs(x2_1 - torch.matmul(x1_1, target_R_tiled))))
+    #     print(f'{key} f diff mean:', torch.mean(torch.abs(x2_0 - x1_0)))
+    #     print(f'{key} f diff max:', torch.max(torch.abs(x2_0 - x1_0)))
+    #     print('')
+
+def examine_unit(data, tr_agent):
+    def create_se3_data(data):
+        tx, ty, tz = np.random.rand(1, 3)[0] * 180
+        R2 = rot(tx, ty, tz).cuda()
+        G2, features = set_feat(data['G'], R2)
+        xyz2         = G2.ndata['x'].view(2, 512, 3).contiguous()
+        target_R     = R2.unsqueeze(0).repeat(2, 1, 1).contiguous()
+        print('xyz diff max:', torch.max(torch.abs(xyz2 - torch.matmul(xyz1, target_R))))
+        data['G'] = G2
+        data['R'] = target_R
+        return data, xyz2, target_R
+    torch.cuda.empty_cache()
+    loss_dict, info_dict = tr_agent.val_func(data)
+    x1  = tr_agent.output_R
+    f1  = tr_agent.latent_vect['N']
+    torch.cuda.empty_cache()
+    data, xyz2, target_R = create_se3_data(data)
+    loss_dict, info_dict = tr_agent.val_func(data)
+    x2 = tr_agent.output_R
+    f2 = tr_agent.latent_vect['N']
+    examine_equivariance(x1[0], x2[0], f1, f2, target_R[0])
+
 @hydra.main(config_path="config/completion.yaml")
 def main(cfg):
     OmegaConf.set_struct(cfg, False)  # This allows getattr and hasattr methods to function correctly
@@ -551,6 +641,7 @@ def main(cfg):
     # create network and training agent
     # tr_agent = get_agent(cfg)
     tr_agent = PointAEPoseAgent(cfg)
+    equivariance_test(tr_agent.net.encoder)
     if cfg.use_wandb:
         if cfg.module=='gan':
             wandb.watch(tr_agent.netG)
@@ -564,13 +655,10 @@ def main(cfg):
 
     # train_pts, targets = get_test_data()
     # train_pts, test_pts = get_category_data()
-    # train_pts, train_targets = get_single_data()
-    train_pts, train_targets = get_chirality_data()
-
-    # # test data: 1. partial
+    train_pts, train_targets = get_single_data()
     # test_pts, test_targets = get_test_data(nx=8, ny=1, nz=1)
-    # # test data: 2. what if we rotate
-    test_pts, test_targets = get_chirality_data(augment=True)
+    test_pts, test_targets =  get_single_data(augment=True)
+
     builder = BuildGraph(num_samples=10)
     device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
     inputs = []
@@ -587,32 +675,12 @@ def main(cfg):
     pbar = tqdm(range(0, epoch_size))
     for e in range(clock.epoch, 200):
         for _, b in enumerate(pbar):
-            input_pts = np.copy(np.array(train_pts[:2])).astype(np.float32)
-            target_R = torch.from_numpy(np.stack(train_targets[:2], axis=0)).cuda()
-
-            # input_pts = np.copy(train_pts[2*b:2*b+2].astype(np.float32))
-            if not fixed_sampling:
-                input_pts[0] = np.random.permutation(input_pts[0])
-                input_pts[1] = np.random.permutation(input_pts[1])
-            xyz1 = torch.from_numpy(input_pts[:, :npoints]).cuda()
-            g, _     = builder(xyz1)
-            data = {}
-            data['G'] = g
-            data['R'] = target_R
-            data['points'] = xyz1
-            data['T'] = xyz1
-            data['id']= ['0002', '0002']
-            data['idx'] = [b, b]
-
-            # loss_dict, info_dict = app_func(tr_agent, g, target_R, cfg)
+            data, xyz1, target_R = getitem(train_pts[:2], train_targets[:2], builder, npoints=N, fixed_sampling=fixed_sampling)
             torch.cuda.empty_cache()
-            # loss_dict, info_dict = tr_agent.train_func(data)
-            loss_dict, info_dict = tr_agent.val_func(data)
-            x1 = tr_agent.latent_vect['R']
-            f1 = tr_agent.latent_vect['N']
+            loss_dict, info_dict = tr_agent.train_func(data)
             pbar.set_description("EPOCH[{}][{}]".format(0, e)) #
             pbar.set_postfix(OrderedDict({k: v.item() for k, v in  {**loss_dict, **info_dict}.items()}))
-            # visualize
+
             if cfg.vis and clock.step % cfg.vis_frequency == 0:
                 tr_agent.visualize_batch(data, "train")
 
@@ -620,63 +688,28 @@ def main(cfg):
             #     track_dict = {'rdiff': [], 'tdiff': [], 'sdiff': [],
             #                   '5deg': [], '5cm': [], '5deg5cm': []}
             #     for num in range(10):
+            #         data, xyz1, target_R = getitem(train_pts[:2], train_targets[:2], builder, npoints=N, fixed_sampling=fixed_sampling)
+            #         data['idx'] = [b, b]
             #         tr_agent.eval_func(data)
             #         pose_diff = tr_agent.pose_err
             #         for key in ['rdiff', 'tdiff', 'sdiff']:
             #             track_dict[key].append(pose_diff[key].cpu().numpy().mean())
             #         deg = pose_diff['rdiff'] <= 5.0
             #         cm = pose_diff['tdiff'] <= 0.05
-            #         # degcm = torch.logical_and(deg, cm)
             #         degcm = deg & cm
             #         for key, value in zip(['5deg', '5cm', '5deg5cm'], [deg, cm, degcm]):
             #             track_dict[key].append(value.float().cpu().numpy().mean())
-            #     for key, value in track_dict.items():
-            #         print(key, ':', np.array(value).mean())
             #     if cfg.use_wandb:
             #         for key, value in track_dict.items():
             #             wandb.log({f'test/{key}': np.array(value).mean(), 'step': clock.step})
 
             if clock.step % cfg.val_frequency == 0:
-                # inds = random.sample(range(0, len(test_pts)-1), BS)
-                inds = [0, 1]
-                if fixed_sampling:
-                    input_pts = np.stack([test_pts[inds[0]][:npoints, :], test_pts[inds[1]][:npoints, :]], axis=0).astype(np.float32)
-                else:
-                    input_pts = np.stack([np.random.permutation(test_pts[inds[0]])[:npoints, :], np.random.permutation(test_pts[inds[1]])[:npoints, :]], axis=0).astype(np.float32)
-                xyz2 = torch.from_numpy(input_pts).cuda()
-                target_R = torch.from_numpy(np.stack(test_targets[:2], axis=0).astype(np.float32)).cuda()
-                #
-                g1, _     = builder(xyz2)
-                data = {}
-                data['G'] = g1
-                data['R'] = target_R
-                data['points'] = xyz2
-                data['T'] = xyz2
-                data['id']= ['0002', '0002']
-                data['idx'] = inds
-                torch.cuda.empty_cache()
-                loss_dict, info_dict = tr_agent.val_func(data)
-                x2 = tr_agent.latent_vect['R'] # [B*N, 2, 3]
-                f2 = tr_agent.latent_vect['N']
-                # check the invariance and equivalence
+                inds = random.sample(range(0, len(test_pts)-1), BS)
+                data2, xyz2, target_R2 = getitem(test_pts[inds[:]], test_targets[inds[:]], builder, npoints=N, fixed_sampling=fixed_sampling)
+                loss_dict, info_dict = tr_agent.val_func(data2)
                 if cfg.vis and clock.step % cfg.vis_frequency == 0:
-                    tr_agent.visualize_batch(data, "validation")
-            print('raw pts diff: ')
-            print(np.matmul(train_pts[0], test_targets[0]) - test_pts[0])
-            print(np.matmul(xyz1[0].cpu().numpy(), target_R[0].cpu().numpy()) - xyz2[0].cpu().numpy())
-            xyz1_rotated    = torch.matmul(xyz1[0], target_R[0]) # 2, 512
-            xyz_diff        = xyz2[0] - xyz1_rotated
-            x1_rotated      = torch.matmul(x1[0], target_R[0]) # B, 3, 3, [1024, 2, 3]
-            x_diff_rotation = x2[0] - x1_rotated
-            f_diff_rotation = f2 - f1
+                    tr_agent.visualize_batch(data2, "validation")
 
-            print('xyz diff mean:', torch.mean(torch.abs(xyz_diff)))
-            print('xyz diff max:', torch.max(torch.abs(xyz_diff)))
-            print('x diff mean:', torch.mean(torch.abs(x_diff_rotation)))
-            print('x diff max:', torch.max(torch.abs(x_diff_rotation)))
-            print('f diff mean:', torch.mean(torch.abs(f_diff_rotation)))
-            print('f diff max:', torch.max(torch.abs(f_diff_rotation)))
-            bp()
             clock.tick()
             if clock.step % cfg.save_step_frequency == 0:
                 tr_agent.save_ckpt('latest')

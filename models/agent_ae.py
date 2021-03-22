@@ -60,7 +60,7 @@ class PointAEPoseAgent(BaseAgent):
                                                                                                1).contiguous().cuda()
         pred_nocs = self.output_N
         gt_nocs = target_pts
-        self.pose_err = compute_pose_diff(nocs_gt=gt_nocs.transpose(-1, -2), 
+        self.pose_err = compute_pose_diff(nocs_gt=gt_nocs.transpose(-1, -2),
                 nocs_pred=pred_nocs.transpose(-1, -2), target=input_pts.transpose(-1, -2),
                                           category=self.config.target_category)
 

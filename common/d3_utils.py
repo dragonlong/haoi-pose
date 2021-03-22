@@ -673,31 +673,80 @@ def compute_euler_angles_from_rotation_matrices(rotation_matrices):
 
     return out_euler
 
-# from zhou et. al
+# poses batch*6
+# poses
 def compute_rotation_matrix_from_ortho6d(poses):
-    x_raw = poses[:,0:3]#batch*3
-    y_raw = poses[:,3:6]#batch*3
+    x_raw = poses[:, 0:3]  # batch*3
+    y_raw = poses[:, 3:6]  # batch*3
+    x = normalize_vector(x_raw)  # batch*3
+    z = cross_product(x, y_raw)  # batch*3
+    z = normalize_vector(z)  # batch*3
+    y = cross_product(z, x)  # batch*3
 
-    x = normalize_vector(x_raw) #batch*3
-    z = cross_product(x,y_raw) #batch*3
-    z = normalize_vector(z)#batch*3
-    y = cross_product(z,x)#batch*3
-
-    x = x.view(-1,3,1)
-    y = y.view(-1,3,1)
-    z = z.view(-1,3,1)
-    matrix = torch.cat((x,y,z), 2) #batch*3*3
-
+    x = x.view(-1, 3, 1)
+    y = y.view(-1, 3, 1)
+    z = z.view(-1, 3, 1)
+    matrix = torch.cat((x, y, z), 2)  # batch*3*3
     return matrix
 
+# # from zhou et. al
+# def compute_rotation_matrix_from_ortho6d(poses):
+#     x_raw = poses[:,0:3]#batch*3
+#     y_raw = poses[:,3:6]#batch*3
+#
+#     x = normalize_vector(x_raw) #batch*3
+#     z = cross_product(x,y_raw) #batch*3
+#     z = normalize_vector(z)#batch*3
+#     y = cross_product(z,x)#batch*3
+#
+#     x = x.view(-1,3,1)
+#     y = y.view(-1,3,1)
+#     z = z.view(-1,3,1)
+#     matrix = torch.cat((x,y,z), 2) #batch*3*3
+#
+#     return matrix
+
+# # batch*n
+# def normalize_vector( v):
+#     batch=v.shape[0]
+#     v_mag = torch.sqrt(v.pow(2).sum(1))# batch
+#     v_mag = torch.max(v_mag, torch.autograd.Variable(torch.FloatTensor([1e-8]).cuda()))
+#     v_mag = v_mag.view(batch,1).expand(batch,v.shape[1])
+#     v = v/v_mag
+#     return v
+
 # batch*n
-def normalize_vector( v):
-    batch=v.shape[0]
-    v_mag = torch.sqrt(v.pow(2).sum(1))# batch
-    v_mag = torch.max(v_mag, torch.autograd.Variable(torch.FloatTensor([1e-8]).cuda()))
-    v_mag = v_mag.view(batch,1).expand(batch,v.shape[1])
-    v = v/v_mag
-    return v
+def normalize_vector(v):  # v: [B, 3]
+    batch = v.shape[0]
+    v_mag = torch.norm(v, p=2, dim=1)  # batch
+    """
+    if torch.any(torch.isnan(v_mag)):
+        print('nan in v_mag!')
+        idx = torch.where(torch.isnan(v_mag))[0]
+        print('v_mag', v_mag[idx], 'v', v[idx])
+    if torch.any(torch.isinf(v_mag)):
+        print('inf in v_mag!')
+        idx = torch.where(torch.isinf(v_mag))[0]
+        print('v_mag', v_mag[idx], 'v', v[idx])
+    """
+    eps = torch.autograd.Variable(torch.FloatTensor([1e-8]).to(v_mag.device))
+    valid_mask = (v_mag > eps).float().view(batch, 1)
+    backup = torch.tensor([1.0, 0.0, 0.0]).float().to(v.device).view(1, 3).expand(batch, 3)
+    v_mag = torch.max(v_mag, eps)
+    v_mag = v_mag.view(batch, 1).expand(batch, v.shape[1])
+    v = v / v_mag
+    ret = v * valid_mask + backup * (1 - valid_mask)
+    """
+    if torch.any(torch.isnan(v)):
+        print('nan in v!')
+        idx = torch.where(torch.isnan(v))[0]
+        print('v_mag', v_mag[idx], 'v', v[idx], 'valid', valid_mask[idx])
+    if torch.any(torch.isnan(ret)):
+        print('nan in ret!')
+        idx = torch.where(torch.isnan(ret))[0]
+        print('v_mag', v_mag[idx], 'v', v[idx], 'valid', valid_mask[idx])
+    """
+    return ret
 
 # u, v batch*n
 def cross_product( u, v):

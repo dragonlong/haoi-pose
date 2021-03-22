@@ -24,7 +24,7 @@ from typing import Dict, Tuple, List
 
 from equivariant_attention.modules import GConvSE3, GNormSE3, get_basis_and_r, GSE3Res, GMaxPooling, GAvgPooling, G1x1SE3, GSum
 from equivariant_attention.fibers import Fiber
-
+eps=1e-10
 # only for pointnet++ baseline
 try:
     from common.debugger import *
@@ -141,6 +141,7 @@ class InterDownGraph(nn.Module): #
                 g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
                 g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()] #[num_atoms,3] but we only supervise the half
             except:
+                print('---something wrong!!!')
                 g = dgl.unbatch(G)[i]
                 g.remove_edges( np.arange( len(g.all_edges()[0]) ).tolist()) # this line comes with bug
                 g.add_edges(src.cpu().long(), dst.cpu().long())
@@ -235,7 +236,7 @@ class Sample(nn.Module):
         return: [B, N1, 3]
         """
         xyz1_ind = furthest_point_sampling(points, self.num_points) # --> [B, N]
-        print(self.num_points, ':', xyz1_ind) # sampling
+        # print(self.num_points, ':', xyz1_ind) # sampling
         xyz1     = fps_gather_by_index(points.permute(0, 2, 1).contiguous(), xyz1_ind)                # batch_size, channel2, nsample
         return xyz1_ind, xyz1.permute(0, 2, 1).contiguous()
 
@@ -257,8 +258,8 @@ class SampleNeighbors(nn.Module):
         if self.knn:
             dist= pdist2squared(xyz2.permute(0, 2, 1).contiguous(), xyz1.permute(0, 2, 1).contiguous())
             ind = dist.topk(self.num_samples+1, dim=1, largest=False)[1].int().permute(0, 2, 1).contiguous()[:, :, 1:]
-            print('knn neighbors, ', self.num_samples, ':')
-            print(ind[0])
+            # print('knn neighbors, ', self.num_samples, ':')
+            # print(ind[0])
         else:
             # TODO: need to remove self from neighborhood index
             ind = ball_query(self.radius, self.num_samples+1, xyz2, xyz1, False)
@@ -367,7 +368,7 @@ class SE3Transformer(nn.Module):
         self.n_heads    = n_heads
         self.vector_attention = vector_attention
         self.latent_dim = latent_dim
-        self.batch_size = cfg.DATASET.train_batch
+        self.batch_size = 2 # TODO
 
         self.fibers = {'in': Fiber(1, self.num_in_channels),
                        'mid': Fiber(self.num_degrees, self.num_mid_channels),         # should match with first downsample layer input
@@ -379,22 +380,11 @@ class SE3Transformer(nn.Module):
         self._build_gcn(cfg.MODEL)
 
     def _build_gcn(self, opt, verbose=False):
-        # fibers = self.fibers
-        # fin = fibers['in']
-        # Gblock = []
-        # for i in range(6):
-        #     Gblock.append(GSE3Res(fin, fibers['mid'], edge_dim=self.edge_dim,
-        #                           div=self.div, n_heads=self.n_heads))
-        #     Gblock.append(GNormSE3(fibers['mid']))
-        #     fin = fibers['mid']
-        # Gblock.append(GConvSE3(fibers['mid'], fibers['out'], self_interaction=True, edge_dim=self.edge_dim))
-        # self.Gblock = nn.ModuleList(Gblock)
-
         fibers = self.fibers
         self.pre_modules    = nn.ModuleList()
         self.down_modules   = nn.ModuleList()
-        self.pre_modules.append( GSE3Res(fibers['in'], fibers['mid'], edge_dim=self.edge_dim, div=self.div,
-                                         n_heads=self.n_heads) ) # , vector_attention=self.vector_attention
+        self.pre_modules.append( GSE3Res(fibers['in'], fibers['mid'], edge_dim=self.edge_dim,
+                                    div=self.div, n_heads=self.n_heads) ) # , vector_attention=self.vector_attention
         self.pre_modules.append( GNormSE3(fibers['mid']) )
 
         # Down modules
@@ -402,7 +392,6 @@ class SE3Transformer(nn.Module):
             args = self._fetch_arguments(opt.down_conv, i, "DOWN")
             down_module = SE3TBlock(**args)
             self.down_modules.append(down_module)
-
 
         # if Up modules
         if not self.encoder_only:
@@ -432,7 +421,7 @@ class SE3Transformer(nn.Module):
             self.Pblock = GMaxPooling()
 
         return
-
+    # len(tr_agent.net.encoder.Gblock)
     def forward(self, G, verbose=False):
         """
         input graph
@@ -441,20 +430,25 @@ class SE3Transformer(nn.Module):
         basis, r = get_basis_and_r(G, self.num_degrees-1)
         h0 = {'0': G.ndata['f']}
         G0 = G
-
-        # # encoder (equivariant layers)
-        # h = {'0': G.ndata['f']}
-        # for layer in self.Gblock:
-        #     h = layer(h, G=G, r=r, basis=basis)
-
-        # first layer for pre-computing usage
+        pred_dict = {}
         for i in range(len(self.pre_modules)):
             h0 = self.pre_modules[i](h0, G=G, r=r, basis=basis)
+        # pred_dict = {'h0': {'0': h0['0'].detach().clone(), '1': h0['1'].detach().clone()}}
         # encoding
         h1, G1, r1, basis1 = self.down_modules[0](h0, Gin=G0, BS=self.batch_size) # 512-256
+        # pred_dict['h1'] =  {'0': h1['0'].detach().clone(), '1': h1['1'].detach().clone()}
+
         h2, G2, r2, basis2 = self.down_modules[1](h1, Gin=G1, BS=self.batch_size) # 256-128
+        # pred_dict['h2'] =  {'0': h2['0'].detach().clone(), '1': h2['1'].detach().clone()}
+
         h3, G3, r3, basis3 = self.down_modules[2](h2, Gin=G2, BS=self.batch_size) # 128-64
+        # pred_dict['h3'] =  {'0': h3['0'].detach().clone(), '1': h3['1'].detach().clone()}
+
         h4, G4, r4, basis4 = self.down_modules[3](h3, Gin=G3, BS=self.batch_size) # 64-32
+        # pred_dict['h4'] =  {'0': h4['0'].detach().clone(), '1': h4['1'].detach().clone()}
+        # h, G, r, basis = h4, G4, r4, basis4
+        # return h['0'], h['1']
+
         # decoding
         if not self.encoder_only:
             h3 = self.up_modules[0](h3, G=G3, r=r3, basis=basis3, uph=h4, upG=G4, BS=self.batch_size) # 64
@@ -468,20 +462,23 @@ class SE3Transformer(nn.Module):
         else:
             h = h4
             G, r, basis = G4, r4, basis4
+        # pred_dict.update({'h0_u': h, 'h1_u': h1, 'h2_u': h2, 'h3_u': h3})
 
-        # middle
         pred_S   = self.Oblock[0](h, G=G, r=r, basis=basis) # only one mode
         pred_R   = self.Oblock[1](h, G=G, r=r, basis=basis) #
         pred_T   = self.Oblock[2](h, G=G, r=r, basis=basis) # 1. dense type 1 feature for T
-        pred_dict= {'R': pred_R['1'], 'R0': pred_R['0'], 'T': pred_T['1'], 'N': pred_S['0']}
+
+        output_R = pred_R['1']/(torch.norm(pred_R['1'], dim=-1, keepdim=True) + eps)
+        pred_dict.update({'R': output_R, 'R0': pred_R['0'], 'T': pred_T['1'], 'N': pred_S['0']})
 
         out      = {'0': pred_S['0'], '1': pred_R['1']}
         out      = self.Pblock(out, G=G, r=r, basis=basis) # pooling
-        pred_dict['0'] = out['0']                     # for shape embedding
-        pred_dict['1'] = out['1']                     # for rotation average
+        pred_dict['0'] = out['0']                          # for shape embedding
+        pred_dict['1'] = out['1']                          # for rotation average
         pred_dict['G'] = G
         if verbose:
-            print(pred_dict['R'].shape, pred_dict['N'].shape)
+            print(pred_dict['N'].shape, pred_dict['R'].shape)
+
         return pred_dict
 
     def _fetch_arguments(self, conv_opt, index, flow):
@@ -559,7 +556,8 @@ class SE3TBlock(nn.Module):
         #  intermediate graph
         h = {}
         for key in hin.keys():
-            h[key] = hin[key].clone().detach()
+            h[key] = hin[key].detach()
+
         for layer in self.stage1:
             h = layer(h, G=Gmid, r=r, basis=basis)
 
@@ -866,7 +864,6 @@ class PointAE(nn.Module):
             x = self.decoder(z['0'])   # shape recontruction
             p = self.regressor(z['1']) # R
             pred_dict = {'S':x, 'R': p, 'T': z['T']}
-        # elif 'plusplus' in self.encoder_type:
         else:
             pred_dict = z
 

@@ -37,7 +37,10 @@ def bp():
 # Another approach is to load the vectors directly to the mesh object and then
 # access the :attr:`pyvista.DataSet.arrows` property.
 # fn = '/home/dragon/Documents/ICML2021/results/preds/train_0_0002_0_0.txt'
-fn = '/home/dragon/Documents/ICML2021/results/preds/0.59/train_2850_0002_850_0.txt'
+# fn = '/home/dragon/Documents/ICML2021/results/preds/0.59/train_2850_0002_850_0.txt'
+# fn = '/home/dragon/Documents/ICML2021/results/preds/0.63/train_990_0002_0_0.txt'
+fn = '/home/dragon/Documents/ICML2021/results/preds/0.61/train_1000_0002_0_0.txt'
+
 point_normal_set = np.loadtxt(fn, delimiter=' ').astype(np.float32)
 points = point_normal_set[:, :3]
 r_mat  = point_normal_set[:, 4:].reshape(-1, 3, 3)
@@ -57,7 +60,6 @@ point_cloud = pv.PolyData(points)
 #     return vectors
 #
 ###############################################################################
-bp()
 point_cloud['vectors'] = x_axis[:, 0, :]
 ###############################################################################
 # Now we can make arrows using those vectors using the glyph filter

@@ -321,6 +321,25 @@ pred_6d=True num_modes_R=1 MODEL.num_channels_R=2 \
 eval_frequency=10 vis_frequency=10 val_frequency=10 \
 fixed_sampling=True use_wandb=True
 
+0.62: # single instance bowl, check equivalence, with fixed training data, predict NOCS
+TRAIN_OBJ='python train_aegan_mini.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' item='modelnet40' name_dset='modelnet40' target_category='bowl' exp_num='0.62' DATASET.train_batch=2 DATASET.test_batch=2 \
+models=se3_transformer_default \
+pred_nocs=True use_objective_N=True \
+eval_frequency=10 vis_frequency=10 val_frequency=10 \
+fixed_sampling=False use_wandb=True
+
+0.63: # single instance bowl, check equivalence, with rotated train data, predict r
+TRAIN_OBJ='python train_aegan_mini.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' item='modelnet40' name_dset='modelnet40' target_category='bowl' exp_num='0.63' DATASET.train_batch=2 DATASET.test_batch=2 \
+models=se3_transformer_default \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+pred_6d=True num_modes_R=1 MODEL.num_channels_R=2 \
+eval_frequency=10 vis_frequency=10 val_frequency=10 \
+fixed_sampling=False use_wandb=True
+
+0.64:
+
 remote
 #
 cellphone
