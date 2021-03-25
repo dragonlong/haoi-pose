@@ -10,6 +10,7 @@ from hydra import utils
 from omegaconf import DictConfig, ListConfig, OmegaConf
 from os import makedirs, remove
 from os.path import exists, join
+import glob
 import matplotlib
 # matplotlib.use('Agg')
 from matplotlib.collections import LineCollection
@@ -24,7 +25,7 @@ from descartes import PolygonPatch
 
 import matplotlib.pyplot as plt  # matplotlib.use('Agg') # TkAgg
 from mpl_toolkits.mplot3d import Axes3D
-from pylab import *
+import pyvista as pv
 
 import __init__
 from global_info import global_info
@@ -49,6 +50,59 @@ part_obj  = infos.part_obj
 obj_urdf  = infos.obj_urdf
 categories_id = infos.categories_id
 project_path = infos.project_path
+
+Dmap = {'c': 0, 'o': 1} # ''
+Mmap = {'p++': 0, 'se3': 1}
+Tmap = {'N': 0, 'R': 1, 'T': 2 , 'S': 3}
+exp_dict = {}
+exp_dict[(0, 0, 0)] = 2.4074
+exp_dict[(0, 1, 0)] = 2.40941
+exp_dict[(0, 1, 1)] = 2.4058
+exp_dict[(0, 1, 2)] = 2.406971
+
+def get_txt(fn):
+    point_normal_set = np.loadtxt(fn, delimiter=' ').astype(np.float32)
+    return point_normal_set
+
+def plot_arrows(fn=None):
+    ###############################################################################
+    # fn = '/home/dragon/Documents/ICML2021/results/preds/train_0_0002_0_0.txt'
+    # fn = '/home/dragon/Documents/ICML2021/results/preds/0.59/train_2850_0002_850_0.txt'
+    # fn = '/home/dragon/Documents/ICML2021/results/preds/0.63/train_990_0002_0_0.txt'
+    if fn is None:
+        fn = '/home/dragon/Documents/ICML2021/results/preds/0.61/train_1000_0002_0_0.txt'
+    point_normal_set = np.loadtxt(fn, delimiter=' ').astype(np.float32)
+    points = point_normal_set[:, :3]
+    r_mat  = point_normal_set[:, 4:].reshape(-1, 3, 3)
+    x_axis = np.matmul(np.array([[1.0, 0.0, 0.0]])[np.newaxis, :, :], r_mat.transpose(0, 2, 1))
+    y_axis = np.matmul(np.array([[0.0, 1.0, 0.0]])[np.newaxis, :, :], r_mat.transpose(0, 2, 1))
+    z_axis = np.matmul(np.array([[0.0, 0.0, 1.0]])[np.newaxis, :, :], r_mat.transpose(0, 2, 1))
+    point_cloud = pv.PolyData(points)
+
+    # cloud['point_color'] = cloud.points[:, 2]  # just use z coordinate
+    # pv.plot(cloud, scalars='point_color', cmap='jet', show_bounds=True, cpos='yz')
+    ###############################################################################
+    point_cloud['vectors'] = x_axis[:, 0, :]
+    ###############################################################################.
+    # cent = np.random.random((100, 3))
+    # direction = np.random.random((100, 3))
+    # pyvista.plot_arrows(cent, direction)
+    arrows = point_cloud.glyph(orient='vectors', scale=False, factor=0.15,)
+
+    # Display the arrows
+    p = pv.Plotter()
+    p.add_mesh(point_cloud, color='maroon', point_size=10.,
+                     render_points_as_spheres=True)
+    p.add_mesh(arrows, color='blue')
+    point_cloud['vectors'] = y_axis[:, 0, :]
+    arrows1 = point_cloud.glyph(orient='vectors', scale=False, factor=0.15,)
+    p.add_mesh(arrows1, color='red')
+    p.add_point_labels([point_cloud.center,], ['Center',],
+                             point_color='yellow', point_size=20)
+    # sphere = pv.Sphere(radius=3.14)
+    # sphere.vectors = vectors * 0.3
+    p.show_grid()
+    p.show()
 
 
 def get_tableau_palette():
@@ -226,26 +280,7 @@ def plot3d_pts(pts, pts_name, s=1, dpi=350, title_name=None, sub_name='default',
     if mode != 'continuous':
         plt.close()
 
-
-Dmap = {'c': 0, 'o': 1} # ''
-Mmap = {'p++': 0, 'se3': 1}
-Tmap = {'N': 0, 'R': 1, 'T': 2 , 'S': 3}
-exp_dict = {}
-exp_dict[(0, 0, 0)] = 2.4074
-exp_dict[(0, 1, 0)] = 2.40941
-exp_dict[(0, 1, 1)] = 2.4058
-exp_dict[(0, 1, 2)] = 2.406971
-
-@hydra.main(config_path="../config/completion.yaml")
-def main(cfg):
-    OmegaConf.set_struct(cfg, False)  # This allows getattr and hasattr methods to function correctly
-    #>>>>>>>>>>>>>>>>> setting <<<<<<<<<<<<<<<<<<< #
-    os.chdir(hydra.utils.get_original_cwd())
-    #
-    key1, key2, key3 = cfg.words.split(',')
-    exp_name  = exp_dict[(Dmap[key1], Mmap[key2], Tmap[key3])]
-    print('using ', cfg.key_words, exp_name)
-    file_name = f'{second_path}/results/test_pred/obman/{exp_name}_unseen_part_rt_pn_general.npy'
+def check_rts(file_name):
     all_rts   = np.load(file_name, allow_pickle=True).item()
     # evaluate per category as well
     xyz_err_dict = {}
@@ -316,8 +351,37 @@ def main(cfg):
     print('\n')
     plot_distribution(rpy_err_dict[category_name], labelx='r_err', labely='frequency', title_name='rotation_error', sub_name=cfg.exp_num, save_fig=True)
     plot_distribution(xyz_err_dict[category_name], labelx='t_err', labely='frequency', title_name='translation_error', sub_name=cfg.exp_num, save_fig=True)
-    # values, bins = np.histogram(rpy_err_dict[category_name], bins=np.arange(0, 180, 10), density=True)
-    # hist_show([values], bins[:-1], tick_label='default', axes_label=['rotation error', 'ratio'], title_name='R', total_width=0.5, dpi=200, save_fig=True, sub_name=cfg.exp_num)
+
+# 1. viz rts
+def get_rts_filename(cfg):
+    #
+    key1, key2, key3 = cfg.words.split(',')
+    exp_name  = exp_dict[(Dmap[key1], Mmap[key2], Tmap[key3])]
+    print('using ', cfg.key_words, exp_name)
+    file_name = f'{second_path}/results/test_pred/obman/{exp_name}_unseen_part_rt_pn_general.npy'
+    return file_name
+
+@hydra.main(config_path="../config/completion.yaml")
+def main(cfg):
+    OmegaConf.set_struct(cfg, False)  # This allows getattr and hasattr methods to function correctly
+    #>>>>>>>>>>>>>>>>> setting <<<<<<<<<<<<<<<<<<< #
+    os.chdir(hydra.utils.get_original_cwd())
+    print('Are u ready!!!')
+    cfg.log_dir     = infos.second_path + cfg.log_dir
+    gen_dir = cfg.log_dir + '/generation'
+
+    # NOCS visualization
+    # file_name = f'{gen_dir}/validation_35500_0307_307_0.txt'
+    if cfg.pred_nocs:
+        file_name = '/home/dragon/Documents/ICML2021/model/oracle/0.65/generation/validation_46000_0113_113_0.txt'
+        points = get_txt(file_name)
+        input = points[:, :3]
+        pred  = points[:, 4:7]
+        gt    = points[:, 4:7]
+        plot3d_pts([[input], [pred], [gt]], [['input'], ['pred nocs'], ['gt nocs']],  title_name=['0', '1', '2'], s=4**2, dpi=300, axis_off=False, color_channel=[[gt], [gt], [gt]])
+    elif cfg.pred_6d:
+        for fn in glob.glob('/home/dragon/Documents/ICML2021/model/oracle/0.64/generation/validation_3*'):
+            plot_arrows(fn)
 
 if __name__ == '__main__':
     main()

@@ -38,3 +38,8 @@ make install
 
 
 cmake -DCMAKE_INSTALL_PREFIX=/home/lxiaol9/pkg/open3d ..
+
+# make sure you have cuda & pytorch
+cd models/pointnet_lib/ && python setup.py install
+pip install torch==1.7.0+cu110 torchvision==0.8.1+cu110 torchaudio===0.7.0 -f https://download.pytorch.org/whl/torch_stable.html
+pip install dgl-cu101==0.5.3

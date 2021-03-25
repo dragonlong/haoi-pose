@@ -25,15 +25,13 @@ from typing import Dict, Tuple, List
 from equivariant_attention.modules import GConvSE3, GNormSE3, get_basis_and_r, GSE3Res, GMaxPooling, GAvgPooling, G1x1SE3, GSum
 from equivariant_attention.fibers import Fiber
 eps=1e-10
-# only for pointnet++ baseline
-try:
-    from common.debugger import *
-    from models.model_factory import ModelBuilder
-    from models.pointnet_lib.networks import PointTransformer
-    # from models.decoders.pointnet_2 import PointNet2Segmenter
-    # from models.decoders.equivariant_model import EquivariantDGCNN
-except:
-    print('~need env paths~')
+from common.debugger import *
+from models.model_factory import ModelBuilder
+# from models.pointnet_lib.networks import PointTransformer
+from models.decoders.pointnet_2 import PointNet2Segmenter
+# from models.decoders.equivariant_model import EquivariantDGCNN
+# except:
+#     print('~need env paths~')
 from kaolin.models.PointNet2 import furthest_point_sampling
 from kaolin.models.PointNet2 import fps_gather_by_index
 from kaolin.models.PointNet2 import ball_query
@@ -988,7 +986,6 @@ if __name__ == '__main__':
         glist.append(g)
     batched_graph = dgl.batch(copy(glist)).to(device)
     out1 = model(batched_graph)
-    bp()
 
     # print('\n')
     # print('Test rotation equivariance')

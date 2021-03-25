@@ -329,6 +329,14 @@ pred_nocs=True use_objective_N=True \
 eval_frequency=10 vis_frequency=10 val_frequency=10 \
 fixed_sampling=False use_wandb=True
 
+0.621: # single instance bowl, check equivalence, with fixed training data, predict NOCS
+TRAIN_OBJ='python train_aegan_mini.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' item='modelnet40' name_dset='modelnet40' target_category='airplane' exp_num='0.621' DATASET.train_batch=2 DATASET.test_batch=2 \
+models=se3_transformer_default \
+pred_nocs=True use_objective_N=True \
+eval_frequency=10 vis_frequency=10 val_frequency=10 \
+fixed_sampling=False use_wandb=True
+
 0.63: # single instance bowl, check equivalence, with rotated train data, predict r
 TRAIN_OBJ='python train_aegan_mini.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
 $TRAIN_OBJ task='partial_pcloud_pose' item='modelnet40' name_dset='modelnet40' target_category='bowl' exp_num='0.63' DATASET.train_batch=2 DATASET.test_batch=2 \
@@ -338,7 +346,87 @@ pred_6d=True num_modes_R=1 MODEL.num_channels_R=2 \
 eval_frequency=10 vis_frequency=10 val_frequency=10 \
 fixed_sampling=False use_wandb=True
 
-0.64:
+0.64: # try airplane category-level data; R
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=AEGraph'
+$TRAIN_OBJ task='pcloud_pose' item='oracle' name_dset='oracle' target_category='airplane' exp_num='0.64' DATASET.train_batch=2 DATASET.test_batch=2 \
+models=se3_transformer_default \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+pred_6d=True num_modes_R=1 MODEL.num_channels_R=2 \
+eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
+eval=True save=True
+use_wandb=True
+
+  0.641: # R regression with PointTransformer
+TRAIN_OBJ='python train_aegan.py training=ae_gan models=ptrans encoder_type=point_transformer vis=True num_points=1024 n_pts=1024 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='0.641' DATASET.train_batch=12 DATASET.test_batch=12 \
+augment=True MODEL.num_channels_R=1 pred_nocs=True use_objective_N=True \
+use_wandb=True
+
+  0.642: # R regression with PointNet++
+TRAIN_OBJ='python train_aegan.py training=ae_gan models=pnet2 encoder_type=pnetplusplus vis=True num_points=1024 n_pts=1024 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='0.642' DATASET.train_batch=12 DATASET.test_batch=12 \
+augment=True MODEL.num_channels_R=1 pred_nocs=True use_objective_N=True \
+use_wandb=True
+
+0.65: # try airplane category-level data; NOCS
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=AEGraph'
+$TRAIN_OBJ task='pcloud_pose' item='oracle' name_dset='oracle' target_category='airplane' exp_num='0.65' DATASET.train_batch=2 DATASET.test_batch=2 \
+models=se3_transformer_default \
+augment=True pred_nocs=True use_objective_N=True \
+eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
+eval=True save=True
+use_wandb=True
+
+0.651: # NOCS regression with PointTransformer
+TRAIN_OBJ='python train_aegan.py training=ae_gan models=ptrans encoder_type=point_transformer vis=True num_points=1024 n_pts=1024 name_model=ae dataset_class=AEGraph'
+$TRAIN_OBJ task='pcloud_pose' item='oracle' name_dset='oracle' target_category='airplane' exp_num='0.651' DATASET.train_batch=12 DATASET.test_batch=12 \
+augment=True MODEL.num_channels_R=1 pred_nocs=True use_objective_N=True \
+use_wandb=True
+
+0.652: # NOCS regression with PointNet++
+TRAIN_OBJ='python train_aegan.py training=ae_gan models=ptrans encoder_type=pointnetplusplus vis=True num_points=1024 n_pts=1024 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='partial_pcloud_pose' target_category='bottle' exp_num='0.652' DATASET.train_batch=12 DATASET.test_batch=12 \
+augment=True MODEL.num_channels_R=1 pred_nocs=True use_objective_N=True \
+use_wandb=True
+
+
+0.66: # NOCS camera, RT
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=AEGraph'
+$TRAIN_OBJ datasets='nocs_synthetic' task='pcloud_pose' item='nocs_synthetic' name_dset='nocs_synthetic' \
+target_category='camera' exp_num='0.66' DATASET.train_batch=2 DATASET.test_batch=2 \
+models=se3_transformer_default \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+pred_6d=True num_modes_R=1 MODEL.num_channels_R=2 \
+eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
+use_wandb=True
+
+0.67: # camera, NOCS
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=AEGraph'
+$TRAIN_OBJ datasets='nocs_synthetic' task='pcloud_pose' item='nocs_synthetic' name_dset='nocs_synthetic' \
+target_category='camera' exp_num='0.67' DATASET.train_batch=2 DATASET.test_batch=2 \
+models=se3_transformer_default \
+augment=True pred_nocs=True use_objective_N=True \
+eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
+use_wandb=True
+
+0.68: # laptop, RT
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=AEGraph'
+$TRAIN_OBJ datasets='nocs_synthetic' task='pcloud_pose' item='nocs_synthetic' name_dset='nocs_synthetic' \
+target_category='laptop' exp_num='0.68' DATASET.train_batch=2 DATASET.test_batch=2 \
+models=se3_transformer_default \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+pred_6d=True num_modes_R=1 MODEL.num_channels_R=2 \
+eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
+use_wandb=True
+
+0.69: # laptop, NOCS, ca219
+TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae dataset_class=AEGraph'
+$TRAIN_OBJ datasets='nocs_synthetic' task='pcloud_pose' item='nocs_synthetic' name_dset='nocs_synthetic' \
+target_category='laptop' exp_num='0.691' DATASET.train_batch=2 DATASET.test_batch=2 \
+models=se3_transformer_default \
+augment=True pred_nocs=True use_objective_N=True \
+eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
+use_wandb=True
 
 remote
 #

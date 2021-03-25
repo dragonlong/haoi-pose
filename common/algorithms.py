@@ -15,16 +15,114 @@ from common.debugger import *
 from global_info import global_info
 infos     = global_info()
 sym_type  = infos.sym_type
-
-def compute_pose_ransac(nocs_gt, nocs_pred, pcloud, partidx, num_parts, basename, r_raw_err, t_raw_err, s_raw_err, scale_gt=None, rt_gt=None, partidx_gt=None,
-            align_sym=False, target_category=None, is_special=False, verbose=False):
-    source_gt  = nocs_gt
-    scale_dict = {'gt': [], 'baseline': [], 'nonlinear': []}
+def prepare_per_data():
+    s_dict     = {'gt': [], 'baseline': [], 'nonlinear': []}
     r_dict     = {'gt': [], 'baseline': [], 'nonlinear': []}
     t_dict     = {'gt': [], 'baseline': [], 'nonlinear': []}
     xyz_err    = {'baseline': [], 'nonlinear': []}
     rpy_err    = {'baseline': [], 'nonlinear': []}
-    scale_err  = {'baseline': [], 'nonlinear': []}
+    s_err  = {'baseline': [], 'nonlinear': []}
+
+    return s_dict, r_dict, t_dict, xyz_err, rpy_err, s_err
+    
+# training: ae_gan
+def vote_rotation_ransac_6d(out_R, out_M, gt_R=None, gt_M=None, degree_err=None, use_base=False, thres=5, verbose=True):
+    """
+    out_R is : [3, N, M]; or [N, M, 3, 3]
+    out_M    : [N, M] with scores;
+    gt_R     : [3, 1]
+    but we only need to output 3;
+    voting!!!
+    a baseline would be voting for mode + averaging for R;
+    """
+    # with confidence estimation
+    N, M, _, _ = out_R.shape
+    # [N, N, M]
+    pairwise_dis = np.linalg.norm((out_R[:, np.newaxis, :, :, :] - out_R[np.newaxis, :, :, :, :]).reshape(N, N, M, 9), axis=-1)
+    inliers_mask = np.zeros_like(pairwise_dis)
+    inliers_mask[pairwise_dis<thres] = 1.0 # [N, N, M]
+    #
+    score = np.mean(inliers_mask, axis=1) # N, M
+    score_weighted = score * out_M # assume we have good predictions, and good predictions are close to each other, while bad predictions just randomly scatter around
+
+    R_best1 = out_R.reshape(-1, 9)[np.argmax(score_weighted), :].reshape(3, 3)
+    pred_M  = np.argmax(out_M, axis=-1) # N
+    select_M  = np.bincount(pred_M).argmax()
+    R_best2 = out_R[:, select_M, :, :][np.argmax(score[:, select_M]), :, :]
+
+    # 1. mode accuracy, best_pred's mode score
+    mode_acc =  len(np.where(pred_M==gt_M)[0])/N
+    degree_err[degree_err<thres] = 1.0
+    degree_err[degree_err>thres] = 0.0       # N, M
+    good_ratio = np.mean(degree_err, axis=0) # M
+
+    pred_R = out_R[:, select_M, :, :]
+    R_best3= pred_R.mean(axis=0)
+
+    # GT_M + ransac
+    pred_R = out_R[:, gt_M[0], :, :]
+    R_best4= pred_R.mean(axis=0)
+
+    R_best5 = out_R[:, gt_M[0], :, :][np.argmax(score[:, gt_M[0]]), :, :]
+
+    if verbose:
+        print('---mode accuracy is ', mode_acc)
+        print('---per mode accuracy: ', good_ratio)
+        print('---selected mode is ', select_M)
+        print('---r_diff is ', rot_diff_rad(R_best1, gt_R) / np.pi * 180, rot_diff_rad(R_best2, gt_R) / np.pi * 180, rot_diff_rad(R_best3, gt_R) / np.pi * 180, rot_diff_rad(R_best4, gt_R) / np.pi * 180, rot_diff_rad(R_best5, gt_R) / np.pi * 180)
+    return R_best1, R_best2, R_best3, R_best4, R_best5, mode_acc, good_ratio
+
+def vote_rotation_ransac(out_R, out_M, gt_R=None, gt_M=None, use_base=False, thres=5, verbose=True):
+    """
+    out_R is : [3, N, M];
+    out_M    : [N, M] with scores;
+    gt_R     : [3, 1]
+    but we only need to output 3;
+    voting!!!
+    a baseline would be voting for mode + averaging for R;
+    """
+    # with confidence estimation
+    _, N, M = out_R.shape
+    pairwise_dis = np.arccos(np.sum(out_R[:, np.newaxis, :, :] * out_R[:, :, np.newaxis, :], axis=0))* 180 / np.pi
+    pairwise_dis[np.isnan(pairwise_dis)] = 0.0
+    inliers_mask = np.zeros_like(pairwise_dis)
+    inliers_mask[pairwise_dis<thres] = 1.0 # [N, N, M]
+    #
+    score = np.mean(inliers_mask, axis=1) # N, M
+    score_weighted = score * out_M # assume we have good predictions, and good predictions are close to each other, while bad predictions just randomly scatter around
+    R_best1 = out_R.reshape(3, -1)[:, np.argmax(score_weighted)]
+    pred_M  = np.argmax(out_M, axis=-1) # N
+    select_M  = np.bincount(pred_M).argmax()
+    R_best2 = out_R[:, :, select_M][:, np.argmax(score[:, select_M])]
+    # we could evalaute the voted R error, best_R ratio,
+    degree_err  = np.arccos(np.sum(out_R * (gt_R.T)[:, :, np.newaxis], axis=0))* 180 / np.pi
+    degree_err[np.isnan(degree_err)] = 0.0
+    degree_err[degree_err<thres] = 1.0
+    degree_err[degree_err>thres] = 0.0 # N, M
+    good_ratio = np.mean(degree_err, axis=0) # M
+
+    mode_acc =  len(np.where(pred_M==gt_M)[0])/N
+
+    pred_R  = out_R[:, :, select_M]
+    R_best3 = pred_R.mean(axis=-1)
+
+    if verbose:
+        print('---mode accuracy is ', mode_acc)
+        print('---per mode good_ratio: ', good_ratio)
+        print('---averaged mode is ', select_M)
+        print('---r_diff is ', axis_diff_degree(R_best1, gt_R), axis_diff_degree(R_best2, gt_R),  axis_diff_degree(R_best3, gt_R))
+
+    return R_best1, R_best2, R_best3, mode_acc, good_ratio
+
+def compute_pose_ransac(nocs_gt, nocs_pred, pcloud, partidx, num_parts, basename, r_raw_err, t_raw_err, s_raw_err, scale_gt=None, rt_gt=None, partidx_gt=None,
+            align_sym=False, target_category=None, is_special=False, verbose=False):
+    source_gt  = nocs_gt
+    s_dict = {'gt': [], 'baseline': [], 'nonlinear': []}
+    r_dict     = {'gt': [], 'baseline': [], 'nonlinear': []}
+    t_dict     = {'gt': [], 'baseline': [], 'nonlinear': []}
+    xyz_err    = {'baseline': [], 'nonlinear': []}
+    rpy_err    = {'baseline': [], 'nonlinear': []}
+    s_err  = {'baseline': [], 'nonlinear': []}
 
     if rt_gt is None:
         rt_gt = [None]
@@ -81,25 +179,25 @@ def compute_pose_ransac(nocs_gt, nocs_pred, pcloud, partidx, num_parts, basename
         best_model0 = best_model
         rpy_err['baseline'].append(rdiff)
         xyz_err['baseline'].append(tdiff)
-        scale_err['baseline'].append(sdiff)
+        s_err['baseline'].append(sdiff)
         r_raw_err['baseline'][j].append(rdiff)
         t_raw_err['baseline'][j].append(tdiff)
         s_raw_err['baseline'][j].append(sdiff)
 
-        scale_dict['baseline'].append(best_model0['scale'])
+        s_dict['baseline'].append(best_model0['scale'])
         r_dict['baseline'].append(best_model0['rotation'])
         t_dict['baseline'].append(best_model0['translation'])
-        scale_dict['gt'].append(scale_gt[j][0])
+        s_dict['gt'].append(scale_gt[j][0])
         r_dict['gt'].append(rt_gt[j][:3, :3])
         t_dict['gt'].append(rt_gt[j][:3, 3])
 
     rts_dict = {}
-    rts_dict['scale']   = scale_dict
+    rts_dict['scale']   = s_dict
     rts_dict['rotation']      = r_dict
     rts_dict['translation']   = t_dict
     rts_dict['xyz_err'] = xyz_err
     rts_dict['rpy_err'] = rpy_err
-    rts_dict['scale_err'] = scale_err
+    rts_dict['s_err'] = s_err
 
     return rts_dict
     # except:

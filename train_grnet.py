@@ -26,7 +26,7 @@ from common.vis_utils import get_ptcloud_img
 
 import common.loader_utils
 import dataset
-from dataset.obman_parser import ObmanParser
+from dataset.dataset_parser import DatasetParser
 from global_info import global_info
 from common.debugger import *
 
@@ -45,7 +45,7 @@ def test_net(cfg, epoch_idx=-1, test_data_loader=None, test_writer=None, grnet=N
         #                                                collate_fn=common.loader_utils.collate_fn,
         #                                                pin_memory=True,
         #                                                shuffle=False)
-        parser = ObmanParser(cfg)
+        parser = DatasetParser(cfg)
         val_dataset   = parser.valid_dataset
         test_data_loader = torch.utils.data.DataLoader(
                 val_dataset, batch_size=1, num_workers=cfg.CONST.NUM_WORKERS, shuffle=False,
@@ -157,7 +157,7 @@ def test_net(cfg, epoch_idx=-1, test_data_loader=None, test_writer=None, grnet=N
 def train_net(cfg):
     # Enable the inbuilt cudnn auto-tuner to find the best algorithm to use
     torch.backends.cudnn.benchmark = True
-    parser = ObmanParser(cfg)
+    parser = DatasetParser(cfg)
     val_dataset   = parser.valid_dataset
     train_dataset = parser.train_dataset
     train_data_loader = torch.utils.data.DataLoader(

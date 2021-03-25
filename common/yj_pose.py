@@ -231,17 +231,15 @@ def compute_pose_diff(nocs_gt, nocs_pred, target, category):
     def transform_center(rot, trans, scale):
         center = torch.ones((1, 3, 1)).to(rot.device) * 0.5
         return scale.unsqueeze(-1).unsqueeze(-1) * torch.matmul(rot, center) + trans
-
-    trans_err = (transform_center(gt_rot, gt_model['translation'], gt_model['scale']) -
-                 transform_center(pred_rot, pred_model['translation'], pred_model['scale']))
-
+    gt_trans   = transform_center(gt_rot, gt_model['translation'], gt_model['scale'])
+    pred_trans = transform_center(pred_rot, pred_model['translation'], pred_model['scale'])
+    trans_err   = gt_trans - pred_trans
     trans_err = torch.sqrt((trans_err ** 2).sum((-1, -2)))
 
     """
     trans_err = gt_model['translation'] - pred_model['translation']  # [B, 3, 1]
     trans_err = torch.sqrt((trans_err ** 2).sum(-1, -2))
     """
-
-    return {'rdiff': rot_err, 'tdiff': trans_err, 'sdiff': scale_err}
-
-
+    pose_err = {'rdiff': rot_err, 'tdiff': trans_err, 'sdiff': scale_err}
+    pose_info= {'r_gt': gt_rot, 't_gt': gt_trans, 's_gt': gt_model['scale'], 'r_pred': pred_rot, 't_pred': pred_trans, 's_pred': gt_model['scale']}
+    return pose_err, pose_info

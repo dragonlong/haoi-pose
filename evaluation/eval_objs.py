@@ -13,10 +13,10 @@ from omegaconf import DictConfig, ListConfig, OmegaConf
 # custom
 import __init__
 from global_info import global_info
-from dataset.obman_parser import ObmanParser
+from dataset.dataset_parser import DatasetParser
 from utils import config
 import dataset
-from dataset.obman_parser import ObmanParser
+from dataset.dataset_parser import DatasetParser
 from utils.eval import MeshEvaluator
 from utils.external.io import load_pointcloud
 from common import bp
@@ -70,7 +70,7 @@ def main(cfg):
         out_file = os.path.join(generation_dir, 'eval_input_full.pkl')
         out_file_class = os.path.join(generation_dir, 'eval_input.csv')
 
-    parser = ObmanParser(cfg)
+    parser = DatasetParser(cfg)
     val_dataset   = parser.valid_dataset
 
     # Evaluator

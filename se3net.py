@@ -194,7 +194,7 @@ class BuildGraph(nn.Module):
         neighbors_ind = self.e_sampler(pos, pos)
         glist = []
         for i in range(B):
-            src = neighbors_ind[i].contiguous().view(-1).cpu()
+            src = neighbors_ind[i].contiguous().view(-1).cpu().long()
             dst = torch.arange(pos[i].shape[0]).view(-1, 1).repeat(1, self.num_samples).view(-1)
             g = dgl.DGLGraph((src.cpu(), dst.cpu()))
             g.ndata['x'] = pos[i]
@@ -403,7 +403,7 @@ class SE3Transformer(nn.Module):
         if verbose:
             print(pred_dict['N'].shape, pred_dict['R'].shape)
 
-        return pred_dict['N'], pred_dict['R']
+        return pred_dict
 
     def _fetch_arguments(self, conv_opt, index, flow):
         """ Fetches arguments for building a convolution (up or down)
@@ -483,7 +483,7 @@ class InterDownGraph(nn.Module): #
         glist = []
         pos   = xyz_query
         neighbors_ind = self.e_sampler(pos, pos)
-        for i in range(B):
+        for i in range(BS):
             src = neighbors_ind[i].contiguous().view(-1).cpu()
             dst = torch.arange(pos[i].shape[0]).view(-1, 1).repeat(1, self.num_samples).view(-1)
             g = dgl.DGLGraph((src.cpu(), dst.cpu()))
@@ -659,51 +659,9 @@ def equivariance_test(model1):
     # diff = torch.max(torch.abs(p_out2 - p_out1 @ R2)).item()
     # print('case 2: type 1 diff max: ', diff)
 
-    # test orth prediction
-    tx, ty, tz = np.random.rand(1, 3)[0] * 180
-    out1 = rot(tx, ty, tz) # 3 * 3
-    tx, ty, tz = np.random.rand(1, 3)[0] * 180
-    R2 = rot(tx, ty, tz)
-    out2 = out1 @ R2
-    p_out1 = compute_rotation_matrix_from_ortho6d(out1[:, :2].contiguous().permute(1, 0).contiguous().view(-1, 6))
-    p_out2 = compute_rotation_matrix_from_ortho6d(out2[:, :2].contiguous().permute(1, 0).contiguous().view(-1, 6))
-    diff = torch.max(torch.abs(p_out2 - p_out1 @ R2)).item()
-    print('case 1: type 1 diff max: ', diff)
-
-    # test random prediction
-    out1 = torch.from_numpy(np.random.rand(3, 3)*5).float()
-    # out1 = out1 / torch.norm(out1, dim=1, keepdim=True) # must do the normalization
-    tx, ty, tz = np.random.rand(1, 3)[0] * 180
-    R2 = rot(tx, ty, tz)
-    out2   = out1 @ R2
-    p_out1 = compute_rotation_matrix_from_ortho6d(out1[:, :2].contiguous().permute(1, 0).contiguous().view(-1, 6))
-    p_out2 = compute_rotation_matrix_from_ortho6d(out2[:, :2].contiguous().permute(1, 0).contiguous().view(-1, 6))
-    diff = torch.max(torch.abs(p_out2 - R2 @ p_out1)).item()
-    print('case 2: type 1 diff max: ', diff)
-
-    bp()
     builder = BuildGraph(num_samples=10)
     G, _     = builder(pos)
 
-    # # use cpu
-    # for i in range(B):
-    #     center = torch.zeros((N)).to(dev)
-    #     center[centroids[i]] = 1 # find the chosen query
-    #     src = group_idx[i].contiguous().view(-1).long()  # real pair
-    #     dst = centroids[i].view(-1, 1).repeat(1, n_neighbor).view(-1).long()  # real pair
-    #
-    #     unified = torch.cat([src, dst])
-    #     uniq, inv_idx = torch.unique(unified, return_inverse=True)
-    #     src_idx = inv_idx[:src.shape[0]]
-    #     dst_idx = inv_idx[src.shape[0]:]
-    #
-    #     g = dgl.DGLGraph((src_idx.long(), dst_idx.long()))
-    #     g.ndata['x'] = pos[i][uniq]
-    #     g.ndata['f'] = torch.from_numpy(feat[i][uniq].astype(np.float32)[:, :, np.newaxis])
-    #     g.edata['d'] = pos[i][dst_idx] - pos[i][src_idx]
-    #     glist.append(g)
-    #
-    # G = dgl.batch(glist)
     dev = torch.device('cuda:0')
     model1.eval()
     for i in range(2):
@@ -721,13 +679,12 @@ def equivariance_test(model1):
         tx, ty, tz = np.random.rand(1, 3)[0] * 180
         R2 = rot(tx, ty, tz)
         G2, features = set_feat(G2, R2)
-
         # f2, out2 = apply_model(model, G2, features)
         out_dict2 = model1.forward(G2.to(dev))
         f2, out2  = out_dict2['N'], out_dict2['R']
         # print('...out2: ')
         # summary(out2)
-        print('...out1 * R: ')
+        # print('...out1 * R: ')
         # summary(out1 @ R2.cuda())
         diff = torch.max(torch.abs(f2 - f1)).item()
         print('type 0 diff max: ', diff)

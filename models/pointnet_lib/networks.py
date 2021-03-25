@@ -105,12 +105,14 @@ class PointTransformer(nn.Module):
             output[key] = head(points)
 
         return output
-
+def bp():
+    import pdb;pdb.set_trace()
 
 if __name__ == '__main__':
-    model = PointTransformer()
+    bp()
+    model = PointTransformer().cuda()
 
-    input = torch.randn((1, 1024, 3))
+    input = torch.randn((1, 1024, 3)).cuda()
 
     output = model(input)
     for key, value in output.items():

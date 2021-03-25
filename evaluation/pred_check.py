@@ -186,8 +186,8 @@ def save_pose_pred(all_rts, filename):
         pickle.dump(all_rts, f)
 
     for j in range(num_parts):
-        print('mean rotation err of part {}: \n'.format(j), 'baseline: {}'.format(np.array(r_raw_err['baseline'][j]).mean()))
-        print('mean translation err of part {}: \n'.format(j), 'baseline: {}'.format(np.array(t_raw_err['baseline'][j]).mean()))
+        print('mean rotation err of part {}: \n'.format(j), 'baseline: {}'.format(np.array(r_raw_err['pred'][j]).mean()))
+        print('mean translation err of part {}: \n'.format(j), 'baseline: {}'.format(np.array(t_raw_err['pred'][j]).mean()))
 
 def prepare_pose_eval(save_exp, args, num_parts=2, extra_key=None):
     file_name       = my_dir + '/results/test_pred/{}/{}_{}_{}_rt_pn_general.npy'.format(args.item, save_exp, args.domain, args.nocs)
@@ -195,19 +195,23 @@ def prepare_pose_eval(save_exp, args, num_parts=2, extra_key=None):
     if not os.path.exists(save_path):
         os.makedirs(save_path)
     all_rts   = {}
-    mean_err  = {'baseline': [], 'nonlinear': []}
-    if num_parts   == 2:
-        r_raw_err   = {'baseline': [[], []], 'nonlinear': [[], []]}
-        t_raw_err   = {'baseline': [[], []], 'nonlinear': [[], []]}
-        s_raw_err   = {'baseline': [[], []], 'nonlinear': [[], []]}
+    mean_err  = {'pred': [], 'nonlinear': []}
+    if num_parts   == 1:
+        r_raw_err   = {'pred': [[]], 'nonlinear': [[]]}
+        t_raw_err   = {'pred': [[]], 'nonlinear': [[]]}
+        s_raw_err   = {'pred': [[]], 'nonlinear': [[]]}
+    elif num_parts   == 2:
+        r_raw_err   = {'pred': [[], []], 'nonlinear': [[], []]}
+        t_raw_err   = {'pred': [[], []], 'nonlinear': [[], []]}
+        s_raw_err   = {'pred': [[], []], 'nonlinear': [[], []]}
     elif num_parts == 3:
-        r_raw_err   = {'baseline': [[], [], []], 'nonlinear': [[], [], []]}
-        t_raw_err   = {'baseline': [[], [], []], 'nonlinear': [[], [], []]}
-        s_raw_err   = {'baseline': [[], [], []], 'nonlinear': [[], [], []]}
+        r_raw_err   = {'pred': [[], [], []], 'nonlinear': [[], [], []]}
+        t_raw_err   = {'pred': [[], [], []], 'nonlinear': [[], [], []]}
+        s_raw_err   = {'pred': [[], [], []], 'nonlinear': [[], [], []]}
     elif num_parts == 4:
-        r_raw_err   = {'baseline': [[], [], [], []], 'nonlinear': [[], [], [], []]}
-        t_raw_err   = {'baseline': [[], [], [], []], 'nonlinear': [[], [], [], []]}
-        s_raw_err   = {'baseline': [[], [], [], []], 'nonlinear': [[], [], [], []]}
+        r_raw_err   = {'pred': [[], [], [], []], 'nonlinear': [[], [], [], []]}
+        t_raw_err   = {'pred': [[], [], [], []], 'nonlinear': [[], [], [], []]}
+        s_raw_err   = {'pred': [[], [], [], []], 'nonlinear': [[], [], [], []]}
     return all_rts, file_name, mean_err, r_raw_err, t_raw_err, s_raw_err
 
 def post_summary(all_rts, file_name=None, args=None, r_raw_err=None, t_raw_err=None, extra_key=None):
@@ -223,20 +227,20 @@ def post_summary(all_rts, file_name=None, args=None, r_raw_err=None, t_raw_err=N
         if category_name not in xyz_err_dict:
             xyz_err_dict[category_name] = []
             rpy_err_dict[category_name] = []
-        if isinstance(value_dict['rpy_err']['baseline'], list):
-            rpy_err_dict[category_name].append(value_dict['rpy_err']['baseline'][0])
+        if isinstance(value_dict['rpy_err']['pred'], list):
+            rpy_err_dict[category_name].append(value_dict['rpy_err']['pred'][0])
         else:
-            rpy_err_dict[category_name].append(value_dict['rpy_err']['baseline'])
-        if isinstance(value_dict['xyz_err']['baseline'], list):
-            xyz_err_dict[category_name].append(value_dict['xyz_err']['baseline'][0])
+            rpy_err_dict[category_name].append(value_dict['rpy_err']['pred'])
+        if isinstance(value_dict['xyz_err']['pred'], list):
+            xyz_err_dict[category_name].append(value_dict['xyz_err']['pred'][0])
         else:
-            xyz_err_dict[category_name].append(value_dict['xyz_err']['baseline'])
+            xyz_err_dict[category_name].append(value_dict['xyz_err']['pred'])
 
     # in total
     if r_raw_err is not None:
         for j in range(1, num_parts):
-            print('mean rotation err of part {}: \n'.format(j), 'baseline: {}'.format(np.array(r_raw_err['baseline'][j]).mean()))
-            print('mean translation err of part {}: \n'.format(j), 'baseline: {}'.format(np.array(t_raw_err['baseline'][j]).mean()))
+            print('mean rotation err of part {}: \n'.format(j), 'baseline: {}'.format(np.array(r_raw_err['pred'][j]).mean()))
+            print('mean translation err of part {}: \n'.format(j), 'baseline: {}'.format(np.array(t_raw_err['pred'][j]).mean()))
     all_categorys = xyz_err_dict.keys()
     print('category\trotation error\ttranslation error')
     for category in all_categorys:

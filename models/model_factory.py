@@ -11,8 +11,6 @@ from models.decoders.deeppcn import DPCN
 from models.decoders.pointnet2seq import PointMotionBaseModel
 from models.decoders.pointnet2 import PointBaseModel
 from models.decoders.pointnet_2 import PointNet2Segmenter
-from models.encoder.pointnet2_msg_sem import PointNet2SemSegMSG
-from models.vote_net.votenet import VoteNet #
 
 from common.debugger import bp
 import global_info
@@ -130,23 +128,8 @@ class ModelBuilder:
         elif arch == 'pointnet2':
             print(f'net_decoder has {num_class} classes')
             net_decoder = PointMotionBaseModel(options, 'pointnet2_charlesmsg', num_classes=num_class)
-        elif arch == 'pointnet2_single':
-            # net_decoder = PointBaseModel(options, 'point', in_features=1, num_classes=num_class)
-            hparams = {}
-            hparams['use_xyz'] = True
-            net_decoder = PointNet2SemSegMSG(hparams)
         elif arch == 'pointnet':
             net_decoder = pointnet.PointNetDecoder(k=num_class)
-        elif arch == 'votenet':
-            net_decoder = VoteNet(num_class=num_class,
-                           num_heading_bin=1,
-                           num_size_cluster=1,
-                           mean_size_arr=np.ones((1, 3)),
-                           num_proposal=128,
-                           input_feature_dim=2,
-                           vote_factor=1,
-                           sampling='vote_fps')
-
         elif arch == 'mlp':
             net_decoder = SimpleMLP(k=num_class)
         else:

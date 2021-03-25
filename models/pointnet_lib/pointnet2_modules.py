@@ -6,10 +6,14 @@ import os
 BASEPATH = os.path.dirname(__file__)
 sys.path.insert(0, BASEPATH)
 
+
+def bp():
+    import pdb;pdb.set_trace()
+
+# bp()
 CUDA = torch.cuda.is_available()
 if CUDA:
     import pointnet2_utils as futils
-
 
 def knn_point(k, pos2, pos1):
     '''

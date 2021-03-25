@@ -19,7 +19,7 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset
 from torchvision.transforms import functional as func_transforms
 from multiprocessing import Manager
-import open3d as o3d
+# import open3d as o3d
 
 import dgl
 import __init__

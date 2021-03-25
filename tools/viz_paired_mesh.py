@@ -18,7 +18,7 @@ from meshplot import plot, subplot, interact
 # custom
 import __init__
 from global_info import global_info
-from dataset.obman_parser import ObmanParser
+from dataset.dataset_parser import DatasetParser
 from common.train_utils import CheckpointIO
 from common import bp
 

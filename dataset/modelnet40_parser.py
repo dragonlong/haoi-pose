@@ -295,4 +295,4 @@ def main(cfg):
 
 if __name__ == '__main__':
     main()
-# python obman_parser.py training=ae_gan module=vae dataset_class='HandDatasetAEGan' task='adversarial_adaptation' is_testing=True target_category='bottle'
+# python dataset_parser.py training=ae_gan module=vae dataset_class='HandDatasetAEGan' task='adversarial_adaptation' is_testing=True target_category='bottle'

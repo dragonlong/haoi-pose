@@ -1,6 +1,0 @@
-# ninja log v5
-2	10749	1601057156571807896	/home/lxiaol9/3DGenNet2019/votenet/pointnet2/build/temp.linux-x86_64-3.6/_ext_src/src/interpolate_gpu.o	5aa537d03124407
-2	10766	1601057156570156540	/home/lxiaol9/3DGenNet2019/votenet/pointnet2/build/temp.linux-x86_64-3.6/_ext_src/src/group_points_gpu.o	e06914fb0139d668
-2	10868	1601057156690202155	/home/lxiaol9/3DGenNet2019/votenet/pointnet2/build/temp.linux-x86_64-3.6/_ext_src/src/sampling_gpu.o	75c9c94ce9dec0c3
-2	11090	1601057156913610653	/home/lxiaol9/3DGenNet2019/votenet/pointnet2/build/temp.linux-x86_64-3.6/_ext_src/src/ball_query_gpu.o	792271252b77ab18
-1	18475	1601057164191937637	/home/lxiaol9/3DGenNet2019/votenet/pointnet2/build/temp.linux-x86_64-3.6/_ext_src/src/bindings.o	1c8d86e25ea8cf88

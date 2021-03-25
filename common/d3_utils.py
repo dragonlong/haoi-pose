@@ -1143,6 +1143,14 @@ def point_rotate_about_axis(pts, anchor, unitvec, theta):
 
     return rotated_pts
 
+def rotate_eular(theta_x, theta_y, theta_z):
+    Rx = rotate_about_axis(theta_x / 180 * np.pi, axis='x')
+    Ry = rotate_about_axis(theta_x / 180 * np.pi, axis='y')
+    Rz = rotate_about_axis(theta_z / 180 * np.pi, axis='z')
+    r = Rz @ Ry @ Rx
+
+    return r
+
 def rotate_about_axis(theta, axis='x'):
     if axis == 'x':
         R = np.array([[1, 0, 0],

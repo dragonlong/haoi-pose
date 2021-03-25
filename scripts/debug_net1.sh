@@ -1,199 +1,71 @@
 -----pointAEPose architecture-----
-PointAE(
-  (encoder): SE3Transformer(
-    (pre_modules): ModuleList(
-      (0): GSE3Res(
-        (GMAB): ModuleDict(
-          (v): GConvSE3Partial(structure=[(4, 0), (4, 1)])
-          (k): GConvSE3Partial(structure=[(4, 0)])
-          (q): G1x1SE3(structure=[(4, 0)])
-          (attn): GMABSE3(n_heads=4, structure=[(4, 0), (4, 1)])
-        )
-        (project): G1x1SE3(structure=[(16, 0), (16, 1)])
-        (add): GSum(structure=[(16, 0), (16, 1)])
-      )
-      (1): GNormSE3(num_layers=0, nonlin=ReLU(inplace=True))
-    )
-    (down_modules): ModuleList(
-      (0): SE3TBlock(
-        (down_g): InterDownGraph(
-          (n_sampler): Sample()
-          (e_sampler): SampleNeighbors()
-        )
-        (stage1): ModuleList(
-          (0): GSE3Res(
-            (GMAB): ModuleDict(
-              (v): GConvSE3Partial(structure=[(4, 0), (4, 1)])
-              (k): GConvSE3Partial(structure=[(4, 0), (4, 1)])
-              (q): G1x1SE3(structure=[(4, 0), (4, 1)])
-              (attn): GMABSE3(n_heads=4, structure=[(4, 0), (4, 1)])
-            )
-            (project): G1x1SE3(structure=[(16, 0), (16, 1)])
-            (add): GSum(structure=[(16, 0), (16, 1)])
-          )
-          (1): GNormSE3(num_layers=0, nonlin=ReLU(inplace=True))
-        )
-        (stage2): ModuleList(
-          (0): GSE3Res(
-            (GMAB): ModuleDict(
-              (v): GConvSE3Partial(structure=[(4, 0), (4, 1)])
-              (k): GConvSE3Partial(structure=[(4, 0), (4, 1)])
-              (q): G1x1SE3(structure=[(4, 0), (4, 1)])
-              (attn): GMABSE3(n_heads=4, structure=[(4, 0), (4, 1)])
-            )
-            (project): G1x1SE3(structure=[(16, 0), (16, 1)])
-            (add): GSum(structure=[(16, 0), (16, 1)])
-          )
-          (1): GNormSE3(num_layers=0, nonlin=ReLU(inplace=True))
-        )
-      )
-      (1): SE3TBlock(
-        (down_g): InterDownGraph(
-          (n_sampler): Sample()
-          (e_sampler): SampleNeighbors()
-        )
-        (stage1): ModuleList(
-          (0): GSE3Res(
-            (GMAB): ModuleDict(
-              (v): GConvSE3Partial(structure=[(8, 0), (8, 1)])
-              (k): GConvSE3Partial(structure=[(8, 0), (8, 1)])
-              (q): G1x1SE3(structure=[(8, 0), (8, 1)])
-              (attn): GMABSE3(n_heads=4, structure=[(8, 0), (8, 1)])
-            )
-            (project): G1x1SE3(structure=[(32, 0), (32, 1)])
-            (add): GSum(structure=[(32, 0), (32, 1)])
-          )
-          (1): GNormSE3(num_layers=0, nonlin=ReLU(inplace=True))
-        )
-        (stage2): ModuleList(
-          (0): GSE3Res(
-            (GMAB): ModuleDict(
-              (v): GConvSE3Partial(structure=[(8, 0), (8, 1)])
-              (k): GConvSE3Partial(structure=[(8, 0), (8, 1)])
-              (q): G1x1SE3(structure=[(8, 0), (8, 1)])
-              (attn): GMABSE3(n_heads=4, structure=[(8, 0), (8, 1)])
-            )
-            (project): G1x1SE3(structure=[(32, 0), (32, 1)])
-            (add): GSum(structure=[(32, 0), (32, 1)])
-          )
-          (1): GNormSE3(num_layers=0, nonlin=ReLU(inplace=True))
-        )
-      )
-      (2): SE3TBlock(
-        (down_g): InterDownGraph(
-          (n_sampler): Sample()
-          (e_sampler): SampleNeighbors()
-        )
-        (stage1): ModuleList(
-          (0): GSE3Res(
-            (GMAB): ModuleDict(
-              (v): GConvSE3Partial(structure=[(16, 0), (16, 1)])
-              (k): GConvSE3Partial(structure=[(16, 0), (16, 1)])
-              (q): G1x1SE3(structure=[(16, 0), (16, 1)])
-              (attn): GMABSE3(n_heads=4, structure=[(16, 0), (16, 1)])
-            )
-            (project): G1x1SE3(structure=[(64, 0), (64, 1)])
-            (add): GSum(structure=[(64, 0), (64, 1)])
-          )
-          (1): GNormSE3(num_layers=0, nonlin=ReLU(inplace=True))
-        )
-        (stage2): ModuleList(
-          (0): GSE3Res(
-            (GMAB): ModuleDict(
-              (v): GConvSE3Partial(structure=[(16, 0), (16, 1)])
-              (k): GConvSE3Partial(structure=[(16, 0), (16, 1)])
-              (q): G1x1SE3(structure=[(16, 0), (16, 1)])
-              (attn): GMABSE3(n_heads=4, structure=[(16, 0), (16, 1)])
-            )
-            (project): G1x1SE3(structure=[(64, 0), (64, 1)])
-            (add): GSum(structure=[(64, 0), (64, 1)])
-          )
-          (1): GNormSE3(num_layers=0, nonlin=ReLU(inplace=True))
-        )
-      )
-      (3): SE3TBlock(
-        (down_g): InterDownGraph(
-          (n_sampler): Sample()
-          (e_sampler): SampleNeighbors()
-        )
-        (stage1): ModuleList(
-          (0): GSE3Res(
-            (GMAB): ModuleDict(
-              (v): GConvSE3Partial(structure=[(16, 0), (16, 1)])
-              (k): GConvSE3Partial(structure=[(16, 0), (16, 1)])
-              (q): G1x1SE3(structure=[(16, 0), (16, 1)])
-              (attn): GMABSE3(n_heads=4, structure=[(16, 0), (16, 1)])
-            )
-            (project): G1x1SE3(structure=[(64, 0), (64, 1)])
-            (add): GSum(structure=[(64, 0), (64, 1)])
-          )
-          (1): GNormSE3(num_layers=0, nonlin=ReLU(inplace=True))
-        )
-        (stage2): ModuleList(
-          (0): GSE3Res(
-            (GMAB): ModuleDict(
-              (v): GConvSE3Partial(structure=[(16, 0), (16, 1)])
-              (k): GConvSE3Partial(structure=[(16, 0), (16, 1)])
-              (q): G1x1SE3(structure=[(16, 0), (16, 1)])
-              (attn): GMABSE3(n_heads=4, structure=[(16, 0), (16, 1)])
-            )
-            (project): G1x1SE3(structure=[(64, 0), (64, 1)])
-            (add): GSum(structure=[(64, 0), (64, 1)])
-          )
-          (1): GNormSE3(num_layers=0, nonlin=ReLU(inplace=True))
-        )
-      )
-    )
-    (up_modules): ModuleList(
-      (0): GraphFPModule(
-        (Tblock): ModuleList(
-          (0): GConvSE3(structure=[(64, 0), (64, 1)], self_interaction=True)
-          (1): GNormSE3(num_layers=0, nonlin=ReLU(inplace=True))
-        )
-      )
-      (1): GraphFPModule(
-        (Tblock): ModuleList(
-          (0): GConvSE3(structure=[(32, 0), (32, 1)], self_interaction=True)
-          (1): GNormSE3(num_layers=0, nonlin=ReLU(inplace=True))
-        )
-      )
-      (2): GraphFPModule(
-        (Tblock): ModuleList(
-          (0): GConvSE3(structure=[(32, 0), (32, 1)], self_interaction=True)
-          (1): GNormSE3(num_layers=0, nonlin=ReLU(inplace=True))
-        )
-      )
-      (3): GraphFPModule(
-        (Tblock): ModuleList(
-          (0): GConvSE3(structure=[(32, 0), (32, 1)], self_interaction=True)
-          (1): GNormSE3(num_layers=0, nonlin=ReLU(inplace=True))
-        )
-      )
-    )
-    (Oblock): ModuleList(
-      (0): GConvSE3(structure=[(128, 0)], self_interaction=True)
-      (1): GConvSE3(structure=[(4, 0), (4, 1)], self_interaction=True)
-      (2): GConvSE3(structure=[(1, 0), (1, 1)], self_interaction=True)
-    )
-    (Pblock): GAvgPooling(
-      (pool): AvgPooling()
-    )
-  )
-  (regressor): RegressorFC()
-  (classifier_mode): RegressorC1D(
-    (module): Sequential(
-      (0): Conv1d(4, 2, kernel_size=(1,), stride=(1,))
-      (1): LeakyReLU(negative_slope=0.01, inplace=True)
-      (2): Softmax(dim=1)
-    )
-  )
-  (decoder): DecoderFC(
-    (model): Sequential(
-      (0): Linear(in_features=128, out_features=256, bias=True)
-      (1): LeakyReLU(negative_slope=0.01, inplace=True)
-      (2): Linear(in_features=256, out_features=256, bias=True)
-      (3): LeakyReLU(negative_slope=0.01, inplace=True)
-      (4): Linear(in_features=256, out_features=1536, bias=True)
-    )
-  )
-)
+/home/lxiaol9/anaconda3/envs/merl/lib/python3.6/site-packages/torch/include/c10/core/TensorTypeSet.h(44): warning: integer conversion resulted in a change of sign
+
+creating build/lib.linux-x86_64-3.6
+g++ -pthread -shared -B /home/lxiaol9/anaconda3/envs/merl/compiler_compat -L/home/lxiaol9/anaconda3/envs/merl/lib -Wl,-rpath=/home/lxiaol9/anaconda3/envs/merl/lib -Wl,--no-as-needed -Wl,--sysroot=/ build/temp.linux-x86_64-3.6/src/pointnet2_api.o build/temp.linux-x86_64-3.6/src/ball_query.o build/temp.linux-x86_64-3.6/src/ball_query_gpu.o build/temp.linux-x86_64-3.6/src/group_points.o build/temp.linux-x86_64-3.6/src/group_points_gpu.o build/temp.linux-x86_64-3.6/src/interpolate.o build/temp.linux-x86_64-3.6/src/interpolate_gpu.o build/temp.linux-x86_64-3.6/src/sampling.o build/temp.linux-x86_64-3.6/src/sampling_gpu.o -L/opt/apps/cuda/10.1.168/lib64 -lcudart -o build/lib.linux-x86_64-3.6/pointnet2_cuda.cpython-36m-x86_64-linux-gnu.so
+creating build/bdist.linux-x86_64
+creating build/bdist.linux-x86_64/egg
+copying build/lib.linux-x86_64-3.6/pointnet2_cuda.cpython-36m-x86_64-linux-gnu.so -> build/bdist.linux-x86_64/egg
+creating stub loader for pointnet2_cuda.cpython-36m-x86_64-linux-gnu.so
+byte-compiling build/bdist.linux-x86_64/egg/pointnet2_cuda.py to pointnet2_cuda.cpython-36.pyc
+creating build/bdist.linux-x86_64/egg/EGG-INFO
+copying pointnet2.egg-info/PKG-INFO -> build/bdist.linux-x86_64/egg/EGG-INFO
+copying pointnet2.egg-info/SOURCES.txt -> build/bdist.linux-x86_64/egg/EGG-INFO
+copying pointnet2.egg-info/dependency_links.txt -> build/bdist.linux-x86_64/egg/EGG-INFO
+copying pointnet2.egg-info/top_level.txt -> build/bdist.linux-x86_64/egg/EGG-INFO
+writing build/bdist.linux-x86_64/egg/EGG-INFO/native_libs.txt
+zip_safe flag not set; analyzing archive contents...
+__pycache__.pointnet2_cuda.cpython-36: module references __file__
+creating dist
+creating 'dist/pointnet2-0.0.0-py3.6-linux-x86_64.egg' and adding 'build/bdist.linux-x86_64/egg' to it
+removing 'build/bdist.linux-x86_64/egg' (and everything under it)
+Processing pointnet2-0.0.0-py3.6-linux-x86_64.egg
+removing '/home/lxiaol9/anaconda3/envs/merl/lib/python3.6/site-packages/pointnet2-0.0.0-py3.6-linux-x86_64.egg' (and everything under it)
+creating /home/lxiaol9/anaconda3/envs/merl/lib/python3.6/site-packages/pointnet2-0.0.0-py3.6-linux-x86_64.egg
+Extracting pointnet2-0.0.0-py3.6-linux-x86_64.egg to /home/lxiaol9/anaconda3/envs/merl/lib/python3.6/site-packages
+pointnet2 0.0.0 is already the active version in easy-install.pth
+
+Installed /home/lxiaol9/anaconda3/envs/merl/lib/python3.6/site-packages/pointnet2-0.0.0-py3.6-linux-x86_64.egg
+Processing dependencies for pointnet2==0.0.0
+Finished processing dependencies for pointnet2==0.0.0
+
+
+# >>>>>>>>>>>>>>>>>>>>>>>>>> another pointnet2
+(merl) [lxiaol9@ca215 pointnet2]$ ls
+build  dist  _ext_src  pointnet2.egg-info  pointnet2_modules.py  pointnet2_test.py  pointnet2_utils.py  __pycache__  pytorch_utils.py  setup.py
+(merl) [lxiaol9@ca215 pointnet2]$ python setup.py install
+running install
+running bdist_egg
+running egg_info
+writing pointnet2.egg-info/PKG-INFO
+writing dependency_links to pointnet2.egg-info/dependency_links.txt
+writing top-level names to pointnet2.egg-info/top_level.txt
+reading manifest file 'pointnet2.egg-info/SOURCES.txt'
+writing manifest file 'pointnet2.egg-info/SOURCES.txt'
+installing library code to build/bdist.linux-x86_64/egg
+running install_lib
+running build_ext
+creating build/bdist.linux-x86_64/egg
+creating build/bdist.linux-x86_64/egg/pointnet2
+copying build/lib.linux-x86_64-3.6/pointnet2/_ext.cpython-36m-x86_64-linux-gnu.so -> build/bdist.linux-x86_64/egg/pointnet2
+creating stub loader for pointnet2/_ext.cpython-36m-x86_64-linux-gnu.so
+byte-compiling build/bdist.linux-x86_64/egg/pointnet2/_ext.py to _ext.cpython-36.pyc
+creating build/bdist.linux-x86_64/egg/EGG-INFO
+copying pointnet2.egg-info/PKG-INFO -> build/bdist.linux-x86_64/egg/EGG-INFO
+copying pointnet2.egg-info/SOURCES.txt -> build/bdist.linux-x86_64/egg/EGG-INFO
+copying pointnet2.egg-info/dependency_links.txt -> build/bdist.linux-x86_64/egg/EGG-INFO
+copying pointnet2.egg-info/top_level.txt -> build/bdist.linux-x86_64/egg/EGG-INFO
+writing build/bdist.linux-x86_64/egg/EGG-INFO/native_libs.txt
+zip_safe flag not set; analyzing archive contents...
+pointnet2.__pycache__._ext.cpython-36: module references __file__
+creating 'dist/pointnet2-0.0.0-py3.6-linux-x86_64.egg' and adding 'build/bdist.linux-x86_64/egg' to it
+removing 'build/bdist.linux-x86_64/egg' (and everything under it)
+Processing pointnet2-0.0.0-py3.6-linux-x86_64.egg
+removing '/home/lxiaol9/anaconda3/envs/merl/lib/python3.6/site-packages/pointnet2-0.0.0-py3.6-linux-x86_64.egg' (and everything under it)
+creating /home/lxiaol9/anaconda3/envs/merl/lib/python3.6/site-packages/pointnet2-0.0.0-py3.6-linux-x86_64.egg
+Extracting pointnet2-0.0.0-py3.6-linux-x86_64.egg to /home/lxiaol9/anaconda3/envs/merl/lib/python3.6/site-packages
+pointnet2 0.0.0 is already the active version in easy-install.pth
+
+Installed /home/lxiaol9/anaconda3/envs/merl/lib/python3.6/site-packages/pointnet2-0.0.0-py3.6-linux-x86_64.egg
+Processing dependencies for pointnet2==0.0.0
+Finished processing dependencies for pointnet2==0.0.0

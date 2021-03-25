@@ -7,7 +7,11 @@ BASEPATH = os.path.dirname(__file__)
 sys.path.insert(0, BASEPATH)
 from pointnet2_modules import knn_point, farthest_point_sample, gather_operation, group_operation, \
     three_nn, three_interpolate
-
+from kaolin.models.PointNet2 import furthest_point_sampling
+from kaolin.models.PointNet2 import fps_gather_by_index
+from kaolin.models.PointNet2 import ball_query
+from kaolin.models.PointNet2 import three_nn
+from kaolin.models.PointNet2 import group_gather_by_index
 
 class MLP(nn.Module):
     def __init__(self, dim, in_channel, mlp, use_bn=True, skip_last=True, last_acti=None):

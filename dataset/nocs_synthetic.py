@@ -164,7 +164,7 @@ class NOCSDataset(data.Dataset):
             labels    = data_dict['labels']
             p_arr     = data_dict['points'][labels]
             if p_arr.shape[0] > self.npoints:
-                self.backup_cache.append([j, category_name, instance_name, data_dict, idx])
+                self.backup_cache.append([category_name, instance_name, data_dict, j])
 
     def get_sample_partial(self, idx, verbose=False):
         fn  = self.datapath[idx]
@@ -179,21 +179,20 @@ class NOCSDataset(data.Dataset):
             data_dict = np.load(fn, allow_pickle=True)['all_dict'].item()
             labels    = data_dict['labels']
             p_arr  = data_dict['points'][labels]
-            rgb    = data_dict['rgb'][labels]
             if p_arr.shape[0] < self.npoints:
                 category_name, instance_name, data_dict, idx = self.backup_cache[random.randint(0, len(self.backup_cache)-1)]
-
-            # self.npoints points, use enough points
-            # try to identify whether the points are enough
+                labels = data_dict['labels']
+                p_arr  = data_dict['points'][labels]
+            rgb       = data_dict['rgb'][labels]
             pose      = data_dict['pose']
             r, t, s   = pose['rotation'], pose['translation'].reshape(-1, 3), pose['scale']
             labels = labels[labels].astype(np.int).reshape(-1, 1) # only get true
             n_arr     = np.matmul(p_arr - t, r) / s # scale
-            center    = t.reshape(1, 3) # try
+            center    = t.reshape(1, 3)
             bb_pts    = np.array([[0.5, 0.5, 0.5]])
             bb_pts    = s * np.matmul(bb_pts, r.T)  + t.reshape(1, 3) # we actually don't know the exact bb, sad
             center_offset = p_arr - center #
-            bb_offset =  bb_pts - p_arr
+            bb_offset =  bb_pts - p_arr #
             up_axis   = np.matmul(np.array([[0.0, 1.0, 0.0]]), r.T)
             if verbose:
                 print(f'we have {p_arr.shape[0]} pts')
@@ -210,12 +209,12 @@ class NOCSDataset(data.Dataset):
             #     print('saving to ', save_name)
 
             full_points = np.concatenate([p_arr, rgb], axis=1)
-            # permutation
             full_points = np.random.permutation(full_points)
-            gt_points = torch.from_numpy(full_points[:self.npoints, :3].astype(np.float32))
-            feat      = torch.from_numpy(full_points[:self.npoints, 3:].astype(np.float32))
+            gt_points   = torch.from_numpy(full_points[:self.npoints, :3].astype(np.float32))
+            # feat      = torch.from_numpy(full_points[:self.npoints, 3:].astype(np.float32))
 
             pos = gt_points.clone().detach().unsqueeze(0)
+            feat      = torch.from_numpy(np.ones((pos.shape[0], pos.shape[1], 1)).astype(np.float32)) # if there is no feature
             centroids = torch.from_numpy(np.arange(gt_points.shape[0]).reshape(1, -1))
             group_idx = self.frnn(pos, centroids)
 
@@ -231,35 +230,17 @@ class NOCSDataset(data.Dataset):
         uniq, inv_idx = torch.unique(unified, return_inverse=True)
         src_idx = inv_idx[:src.shape[0]]
         dst_idx = inv_idx[src.shape[0]:]
-        # if verbose:
-        #     print('src_idx.shape', src_idx.shape, '\n', src_idx[0:100], '\n', 'dst_idx.shape', dst_idx.shape, '\n', dst_idx[0:100])
         g = dgl.DGLGraph((src_idx, dst_idx))
         g.ndata['x'] = pos[0][uniq] # use
-        g.ndata['f'] = feat[uniq]
+        g.ndata['f'] = feat[0][uniq].unsqueeze(-1)
         g.edata['d'] = pos[0][dst_idx] - pos[0][src_idx] #[num_atoms,3] but we only supervise the half
 
-        RR = torch.from_numpy(r.astype(np.float32)) # predict r
-        TT = torch.from_numpy(t.astype(np.float32))
+        R = torch.from_numpy(r.astype(np.float32)) # predict r
+        T = torch.from_numpy(t.astype(np.float32))
         center = torch.from_numpy(np.array([[0.5, 0.5, 0.5]])) # 1, 3
-        center_offset = pos[0].clone().detach()-TT #
-        bb_pts = torch.from_numpy(np.max(p_arr, axis=0).reshape(1, 3))  # get up, top, right points
-        bb_offset = bb_pts - pos[0] # 1, 3 - N, 3
+        center_offset = pos[0].clone().detach() - T #
 
-        # if we use en3 model, the R/T would be different
-        if 'en3' in self.cfg.encoder_type:
-            if self.cfg.pred_6d:
-                return g, gt_points.transpose(1, 0), instance_name, RR, center, idx, category_name
-            elif self.cfg.pred_bb:
-                return g, gt_points.transpose(1, 0), instance_name, bb_offset, center, idx, category_name
-            else:
-                return g, gt_points.transpose(1, 0), instance_name, up_axis, center, idx, category_name
-        else:
-            if self.cfg.pred_6d:
-                return g, gt_points.transpose(1, 0), instance_name, RR, center_offset, idx, category_name
-            elif self.cfg.pred_bb:
-                return g, gt_points.transpose(1, 0), instance_name, bb_offset, center_offset, idx, category_name
-            else:
-                return g, gt_points.transpose(1, 0), instance_name, up_axis, center_offset, idx, category_name
+        return g, gt_points, instance_name, R, center_offset, idx, category_name
 
     def __getitem__(self, idx, verbose=False):
         """

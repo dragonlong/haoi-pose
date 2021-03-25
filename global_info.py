@@ -98,7 +98,39 @@ _DATASETS = dict(
         joint_baseline='8.12',
         style='new'
        ),
-   humanhand=DatasetInfo(
+    oracle=DatasetInfo(
+        dataset_name='oracle',
+        num_object=10000,
+        parts_map=[[0], [1]],
+        num_parts=2,
+        train_size=None,
+        test_size=None,
+        train_list=None,
+        test_list=None,
+        spec_list=None,
+        spec_map=None,
+        exp='8.1',
+        baseline='8.11',
+        joint_baseline='8.12',
+        style='new'
+       ),
+    nocs_synthetic=DatasetInfo(
+        dataset_name='nocs_synthetic',
+        num_object=10000,
+        parts_map=[[0]],
+        num_parts=1,
+        train_size=None,
+        test_size=None,
+        train_list=None,
+        test_list=None,
+        spec_list=None,
+        spec_map=None,
+        exp='8.1',
+        baseline='8.11',
+        joint_baseline='8.12',
+        style='new'
+       ),
+    humanhand=DatasetInfo(
         dataset_name='shape2motion',
         num_object=1,
         parts_map=[[0]],
@@ -378,6 +410,7 @@ class global_info(object):
         sym_type['airplane']= {'y': 1}
         sym_type['chair']= {'y': 1}
         sym_type['car']= {'y': 1}
+        sym_type['laptop']= {'y': 1}
         self.sym_type = sym_type
 
         # bottle 33278
