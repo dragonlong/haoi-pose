@@ -97,6 +97,7 @@ def main(cfg):
             run_name = f'{cfg.exp_num}_{cfg.target_category}'
         wandb.init(project="haoi-pose", name=run_name)
         wandb.init(config=cfg)
+
     # copy the project codes into log_dir
     if (not cfg.eval) and (not cfg.debug):
         if not os.path.isdir(f'{cfg.log_dir}/code'):
@@ -112,7 +113,8 @@ def main(cfg):
 
     #>>>>>>>>>>>>>>>>>>>>>> create network and training agent
     tr_agent = get_agent(cfg)
-    equivariance_test(tr_agent.net.encoder)
+    if 'se3' in cfg.encoder_type:
+        equivariance_test(tr_agent.net.encoder)
     if cfg.use_wandb:
         if cfg.module=='gan':
             wandb.watch(tr_agent.netG)
@@ -133,10 +135,10 @@ def main(cfg):
     dp = valid_dataset.__getitem__(0)
     if cfg.eval_mini or cfg.eval:
         all_rts, file_name, mean_err, r_raw_err, t_raw_err, s_raw_err = prepare_pose_eval(cfg.exp_num, cfg)
-        infos_dict = {'basename': [], 'in': [],
+        infos_dict = {'basename': [], 'in': [], 'r_raw': [], 'n_raw': [],
                       'r_gt': [], 't_gt': [], 's_gt': [],
                       'r_pred': [], 't_pred': [], 's_pred': []}
-        track_dict = {'rdiff': [], 'tdiff': [], 'sdiff': [],
+        track_dict = {'rdiff': [], 'tdiff': [], 'sdiff': [], 'ndiff': [],
                       '5deg': [], '5cm': [], '5deg5cm': []}
         num_iteration = 1
         if 'partial' not in cfg.task:
@@ -146,8 +148,6 @@ def main(cfg):
             cfg.iteration = iteration
             for num, data in enumerate(test_loader):
                 idx = data['idx']
-                # if num > 20:
-                #     break
                 torch.cuda.empty_cache()
                 tr_agent.eval_func(data)
                 pose_diff = tr_agent.pose_err
@@ -165,9 +165,11 @@ def main(cfg):
                     basename   = f'{cfg.iteration}_' + data['id'][m] + f'_' + data['class'][m]
                     infos_dict['basename'].append(basename)
                     infos_dict['in'].append(input_pts[m].cpu().numpy())
+                tr_agent.visualize_batch(data, "test")
         # print
         for key, value in track_dict.items():
             print(key, ':', np.array(value).mean())
+
         # save
         if cfg.save:
             print('--saving to ', file_name)

@@ -187,6 +187,8 @@ class NOCSDataset(data.Dataset):
             pose      = data_dict['pose']
             r, t, s   = pose['rotation'], pose['translation'].reshape(-1, 3), pose['scale']
             labels = labels[labels].astype(np.int).reshape(-1, 1) # only get true
+            if s == 0:
+                s = 1
             n_arr     = np.matmul(p_arr - t, r) / s # scale
             center    = t.reshape(1, 3)
             bb_pts    = np.array([[0.5, 0.5, 0.5]])

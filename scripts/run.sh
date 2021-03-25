@@ -254,3 +254,9 @@ EXP=2.409196 # 2.40584 validation_9000*
 mkdir ${EXP}
 scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/obman/${EXP}/generation/test* ./${EXP}
 #
+
+# video/gif
+gifski --fps 24 -o output.gif *.png
+ffmpeg -i img%02d.png -vf palettegen palette.png
+ffmpeg -i img%02d.png -i palette.png -lavfi paletteuse video.gif
+ffmpeg -i input.mp4 -an -vf “fps=15,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse” -f gif - | gifsicle -o output.gif

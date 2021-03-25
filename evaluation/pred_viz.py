@@ -18,9 +18,8 @@ from matplotlib import cm
 from matplotlib.patches import Circle, Wedge, Polygon
 from matplotlib.colors import ListedColormap, LinearSegmentedColormap
 from matplotlib.collections import PatchCollection
-
 import matplotlib.patches as patches
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection, Line3DCollection
+from mpl_toolkits.mplot3d.art3d import Line3D, Text3D, Poly3DCollection, Line3DCollection
 from descartes import PolygonPatch
 
 import matplotlib.pyplot as plt  # matplotlib.use('Agg') # TkAgg
@@ -177,7 +176,7 @@ def plot_distribution(d, labelx='Value', labely='Frequency', title_name='Mine', 
 def plot3d_pts(pts, pts_name, s=1, dpi=350, title_name=None, sub_name='default', arrows=None, \
                     color_channel=None, colorbar=False, limits=None,\
                     bcm=None, puttext=None, view_angle=None,\
-                    save_fig=False, save_path=None, flip=True,\
+                    save_fig=False, save_path=None, save_name=None, flip=True,\
                     axis_off=False, show_fig=True, mode='pending'):
     """
     fig using,
@@ -197,11 +196,12 @@ def plot3d_pts(pts, pts_name, s=1, dpi=350, title_name=None, sub_name='default',
     # '.', '.', '.',
     all_poss=['o', 'o', 'o', 'o','o', '*', '.','o', 'v','^','>','<','s','p','*','h','H','D','d','1','','']
     c_set   = ['r', 'b', 'g', 'k', 'm']
+    arrow_len = [0.25, 0.45]
     num     = len(pts)
     for m in range(num):
         ax = plt.subplot(1, num, m+1, projection='3d')
         if view_angle==None:
-            ax.view_init(elev=36, azim=-49)
+            ax.view_init(elev=11, azim=-132)
         else:
             ax.view_init(elev=view_angle[0], azim=view_angle[1])
         # if len(pts[m]) > 1:
@@ -223,12 +223,17 @@ def plot3d_pts(pts, pts_name, s=1, dpi=350, title_name=None, sub_name='default',
                     fig.colorbar(p)
             if arrows is not None:
                 points, offset_sub = arrows[m][n]['p'], arrows[m][n]['v']
-                offset_sub = offset_sub * 0.2
+                offset_sub = offset_sub * arrow_len[n]
                 if len(points.shape) < 2:
                     points = points.reshape(-1, 3)
                 if len(offset_sub.shape) < 2:
                     offset_sub = offset_sub.reshape(-1, 3)
-                ax.quiver(points[:, 0], points[:, 1], points[:, 2], offset_sub[:, 0], offset_sub[:, 1], offset_sub[:, 2], color=c_set[n], linewidth=4)
+                if offset_sub.shape[0] == 3:
+                    ax.quiver(points[0:1, 0], points[0:1, 1], points[0:1, 2], offset_sub[0:1, 0], offset_sub[0:1, 1], offset_sub[0:1, 2], color='r', linewidth=2)
+                    ax.quiver(points[:, 0], points[:, 1], points[:, 2], offset_sub[1:2, 0], offset_sub[1:2, 1], offset_sub[1:2, 2], color='g', linewidth=2)
+                    ax.quiver(points[:, 0], points[:, 1], points[:, 2], offset_sub[2:3, 0], offset_sub[2:3, 1], offset_sub[2:3, 2], color='b', linewidth=2)
+                else:
+                    ax.quiver(points[:, 0], points[:, 1], points[:, 2], offset_sub[:, 0], offset_sub[:, 1], offset_sub[:, 2], color=c_set[n], linewidth=4)
         ax.set_xlabel('X Label')
         ax.set_ylabel('Y Label')
         ax.set_zlabel('Z Label')
@@ -269,14 +274,17 @@ def plot3d_pts(pts, pts_name, s=1, dpi=350, title_name=None, sub_name='default',
             plt.show()
 
     if save_fig:
-        if save_path is None:
+        if (save_path is None) and (save_name is None):
             if not os.path.exists('./results/test/'):
                 os.makedirs('./results/test/')
             fig.savefig('./results/test/{}_{}.png'.format(sub_name, title_name[0]), pad_inches=0)
         else:
-            if not os.path.exists(save_path):
-                os.makedirs(save_path)
-            fig.savefig('{}/{}_{}.png'.format(save_path, sub_name, title_name[0]), pad_inches=0)
+            if save_name is not None:
+                fig.savefig(save_name, pad_inches=0)
+            else:
+                if not os.path.exists(save_path):
+                    os.makedirs(save_path)
+                fig.savefig('{}/{}_{}.png'.format(save_path, sub_name, title_name[0]), pad_inches=0)
     if mode != 'continuous':
         plt.close()
 
@@ -369,19 +377,55 @@ def main(cfg):
     print('Are u ready!!!')
     cfg.log_dir     = infos.second_path + cfg.log_dir
     gen_dir = cfg.log_dir + '/generation'
-
+    res_path = f'{my_dir}/results/test_pred/oracle/{cfg.exp_num}_unseen_part_rt_pn_general.npy'
+    viz_path = f'{my_dir}/results/viz/oracle/{cfg.exp_num}'
+    if not exists(viz_path):
+        makedirs(viz_path)
     # NOCS visualization
     # file_name = f'{gen_dir}/validation_35500_0307_307_0.txt'
-    if cfg.pred_nocs:
+    if cfg.eval:
+        results = np.load(res_path, allow_pickle=True).item()
+        infos_dict, track_dict = results['info'], results['err']
+        basenames = infos_dict['basename']
+        inputs   = np.array(infos_dict['in'])
+        r_gt     = np.array(infos_dict['r_gt'])
+        t_gt     = np.array(infos_dict['t_gt'])
+        r_pred   = np.array(infos_dict['r_pred'])
+        rdiff    = np.array(track_dict['rdiff'])
+        num = len(basenames)
+        good_ind = np.where(rdiff<5)[0]
+        bad_ind  = np.where(rdiff>5)[0].astype(np.int16)
+        bad_names= [basenames[j] for j in bad_ind]
+        for i in bad_ind:
+            print(basenames[i], rdiff[i])
+            iteration, idx, class_name = basenames[i].split('_')
+            gt_coords   = np.matmul(np.eye(3), r_gt[i].T)
+            pred_coords = np.matmul(np.eye(3), r_pred[i].T)
+            gt_vect     = {'p': t_gt[i].reshape(-1, 3), 'v': gt_coords}
+            fitted_vect = {'p': t_gt[i].reshape(-1, 3), 'v': pred_coords}
+            plot3d_pts([[inputs[i], inputs[i]]], [['', '']],  title_name=[f'{idx} R err: {rdiff[i]:.2f}'],  arrows=[[gt_vect, fitted_vect]], s=3**2, dpi=300, axis_off=False, save_fig=True, save_name=f'{viz_path}/{idx}_{rdiff[i]:.2f}.png', show_fig=False)
+
+        # for i in good_ind:
+        #     print(basenames[i], rdiff[i])
+        #     iteration, idx, class_name = basenames[i].split('_')
+        #     gt_coords   = np.matmul(np.eye(3), r_gt[i].T)
+        #     pred_coords = np.matmul(np.eye(3), r_pred[i].T)
+        #     gt_vect     = {'p': t_gt[i].reshape(-1, 3), 'v': gt_coords}
+        #     fitted_vect = {'p': t_gt[i].reshape(-1, 3), 'v': pred_coords}
+        #     plot3d_pts([[inputs[i], inputs[i]]], [['', '']],  title_name=[f'{idx} R err: {rdiff[i]:.2f}'],  arrows=[[gt_vect, fitted_vect]], s=3**2, dpi=300, axis_off=False, save_fig=True, save_name=f'{viz_path}/{idx}_{rdiff[i]:.2f}.png', show_fig=False)
+
+        return
+    if cfg.pred_6d:
+        for fn in glob.glob('/home/dragon/Documents/ICML2021/model/oracle/0.64/generation/validation_3*'):
+            plot_arrows(fn)
+    elif cfg.pred_nocs:
         file_name = '/home/dragon/Documents/ICML2021/model/oracle/0.65/generation/validation_46000_0113_113_0.txt'
         points = get_txt(file_name)
         input = points[:, :3]
         pred  = points[:, 4:7]
         gt    = points[:, 4:7]
         plot3d_pts([[input], [pred], [gt]], [['input'], ['pred nocs'], ['gt nocs']],  title_name=['0', '1', '2'], s=4**2, dpi=300, axis_off=False, color_channel=[[gt], [gt], [gt]])
-    elif cfg.pred_6d:
-        for fn in glob.glob('/home/dragon/Documents/ICML2021/model/oracle/0.64/generation/validation_3*'):
-            plot_arrows(fn)
+
 
 if __name__ == '__main__':
     main()

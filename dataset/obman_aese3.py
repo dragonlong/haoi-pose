@@ -316,14 +316,14 @@ class HandDatasetAEGraph(HandDataset):
 
         # if we use en3 model, the R/T would be different
         if 'en3' in self.cfg.encoder_type:
-            return g, gt_points.transpose(1, 0), instance_name, RR, center, idx, category_name
+            return g, gt_points, instance_name, RR, center, idx, category_name
         else:
             if self.cfg.pred_6d:
-                return g, gt_points.transpose(1, 0), instance_name, RR, center_offset, idx, category_name
+                return g, gt_points, instance_name, RR, center_offset, idx, category_name
             elif self.cfg.pred_bb:
-                return g, gt_points.transpose(1, 0), instance_name, bb_offset, center_offset, idx, category_name
+                return g, gt_points, instance_name, bb_offset, center_offset, idx, category_name
             else:
-                return g, gt_points.transpose(1, 0), instance_name, up_axis, center_offset, idx, category_name
+                return g, gt_points, instance_name, up_axis, center_offset, idx, category_name
 
     def get_sample_pair(self, idx, verbose=False):
         if self.cfg.single_instance:

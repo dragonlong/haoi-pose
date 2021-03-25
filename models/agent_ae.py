@@ -67,7 +67,6 @@ class PointAEPoseAgent(BaseAgent):
         print(net)
         if config.parallel:
             net = nn.DataParallel(net)
-        bp()
         net = net.cuda()
         return net
 
@@ -103,7 +102,7 @@ class PointAEPoseAgent(BaseAgent):
         gt_rot = data['R'].cuda()  # [B, 3, 3]
         rot_err = rot_diff_degree(gt_rot, pred_rot, chosen_axis=None)  # [B, M]
 
-        input_pts  = data['G'].ndata['x'].view(BS, -1, 3).contiguous() # B, N, 3
+        input_pts  = data['G'].ndata['x'].view(BS, -1, 3).contiguous().cuda() # B, N, 3
         pred_center= input_pts - self.output_T.permute(0, 2, 1).contiguous()
         gt_center  = input_pts - data['T'].cuda() # B, N, 3
         trans_err = torch.norm(pred_center.mean(dim=1) - gt_center.mean(dim=1), dim=1)
@@ -111,7 +110,7 @@ class PointAEPoseAgent(BaseAgent):
         scale_err = torch.Tensor([0, 0])
         scale = torch.Tensor([1.0, 1.0])
         self.pose_err  = {'rdiff': rot_err, 'tdiff': trans_err, 'sdiff': scale_err}
-        self.pose_info = {'r_gt': gt_rot, 't_gt': gt_center.mean(dim=1), 's_gt': scale, 'r_pred': pred_rot, 't_pred': pred_center.mean(dim=1), 's_pred': scale}
+        self.pose_info = {'r_gt': gt_rot, 't_gt': gt_center.mean(dim=1), 's_gt': scale, 'r_pred': pred_rot, 'r_raw': self.output_R, 't_pred': pred_center.mean(dim=1), 's_pred': scale}
         return
 
     def eval_nocs(self, data):
@@ -127,8 +126,8 @@ class PointAEPoseAgent(BaseAgent):
 
     def predict_se3(self, data):
         input_pts  = data['points'].cuda()
-        BS = self.config.DATASET.train_batch
-        N  = self.config.num_points
+        BS = input_pts.shape[0]
+        N  = input_pts.shape[1] # B, N, 3
         M  = self.config.num_modes_R
         CS = self.config.MODEL.num_channels_R
         device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
@@ -136,6 +135,10 @@ class PointAEPoseAgent(BaseAgent):
         if self.config.pred_nocs:
             self.output_N = self.net.regressor_nocs(self.latent_vect['N'].squeeze().view(BS, -1, self.latent_vect['N'].shape[1]).contiguous().permute(0, 2, 1).contiguous()) # assume to be B*N, 128? --> 3 channel
         self.output_T = self.latent_vect['T'].permute(0, 2, 1).contiguous().squeeze().view(BS, -1, 3).contiguous().permute(0, 2, 1).contiguous()# [B, 3, N]
+
+        if self.config.pred_6d:
+            self.output_R = compute_rotation_matrix_from_ortho6d(self.latent_vect['R'].view(-1, 6).contiguous())
+            self.output_R_pooled = compute_rotation_matrix_from_ortho6d(self.latent_vect['1'].view(-1, 6).contiguous()) # dense by default!!! B, 2*C, 3
 
         if self.config.pred_seg:
             self.output_C = self.net.classifier_seg(self.latent_vect['N'].squeeze().view(BS, -1, self.latent_vect['N'].shape[1]).contiguous().permute(0, 2, 1).contiguous())
@@ -152,54 +155,48 @@ class PointAEPoseAgent(BaseAgent):
 
     def predict_pnet2(self, data):
         input_pts  = data['points'].cuda()
-        BS = self.config.DATASET.train_batch
-        N  = self.config.num_points
+        BS = input_pts.shape[0]
+        N  = input_pts.shape[1] # B, N, 3
         M  = self.config.num_modes_R
         CS = self.config.MODEL.num_channels_R
         # B, 3, N
-        input_pts            = data['G'].ndata['x'].view(target_pts.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous().cuda() #
+        input_pts            = data['G'].ndata['x'].view(BS, -1, 3).contiguous().permute(0, 2, 1).contiguous().cuda() #
         if 'plus' in self.config.encoder_type:
             input_pts        = input_pts - input_pts.mean(dim=-1, keepdim=True)
         self.latent_vect = self.net.encoder(input_pts) # double
+        self.output_T    = self.latent_vect['T']  # 3, N, no activation
         if self.config.pred_nocs:
-            self.output_N = self.latent_vect['N'] #
-        elif self.config.pred_6d:
-            print('Not implemented yet')
-        else:
-            self.output_T    = self.latent_vect['T']  # 3, N, no activation
-            if self.config.MODEL.num_channels_R > 1:
-                self.output_R = self.latent_vect['R'].view(BS, self.config.MODEL.num_channels_R, 3, -1).contiguous().permute(0, 2, 3, 1).contiguous()#  [B, M * 3, C] -> [Bs, M, 3, N] -> [Bs, 3, N, M]
-                self.output_R = self.output_R/(torch.norm(self.output_R, dim=1, keepdim=True) + epsilon)
-                self.output_R_full = self.output_R
-                self.degree_err = torch.acos( torch.sum(self.output_R*target_R.unsqueeze(-1), dim=1)) * 180 / np.pi
-            else:
-                self.output_R = self.latent_vect['R'].squeeze() # B, 3, N
-                self.output_R = self.output_R/(torch.norm(self.output_R, dim=1, keepdim=True) + epsilon)
-                self.degree_err = torch.acos( torch.sum(self.output_R*target_R, dim=1)) * 180 / np.pi
-                self.output_R_full = self.output_R # all use
-
-            # we have two ways to do the pooling
-            self.output_R_pooled = self.output_R.mean(dim=2) # TODO
-            self.output_R_pooled = self.output_R_pooled/(torch.norm(self.output_R_pooled, dim=1, keepdim=True) + epsilon)
+            self.output_N = self.latent_vect['N']
+        if self.config.pred_6d:
+            self.output_R = self.latent_vect['R'].view(BS, 2, 3, N).contiguous() # B, 6, N
+            self.output_R = self.output_R/(torch.norm(self.output_R, dim=2, keepdim=True) + epsilon)
+            self.output_R = self.output_R.permute(0, 3, 1, 2).contiguous().view(-1, 2, 3).contiguous().view(-1, 6).contiguous()
+            self.output_R = compute_rotation_matrix_from_ortho6d(self.output_R)
+        # else:
+        #     bp()
+        #     self.output_R = self.latent_vect['R'].squeeze() # B, 3, N
+        #     self.output_R = self.output_R/(torch.norm(self.output_R, dim=1, keepdim=True) + epsilon)
 
         if self.config.pred_seg:
             self.output_C = self.latent_vect['C']
+
         if self.config.pred_mode: # B, M, N
             self.output_M = self.latent_vect['M'].permute(0, 2, 1).contiguous().view(-1, M).contiguous() # BS*N, M
 
+        if self.config.pred_nocs:
+            self.eval_nocs(data)
+        elif self.config.pred_6d:
+            self.compute_and_eval_6d(data)
+        else:
+            self.compute_and_eval_axis(data)
+
     def compute_and_eval_6d(self, data):
-        BS = self.config.DATASET.train_batch
-        N  = self.config.num_points
+        input_pts  = data['points']
+        BS = input_pts.shape[0]
+        N  = input_pts.shape[1] # B, N, 3
         M  = self.config.num_modes_R
         CS = self.config.MODEL.num_channels_R
         target_R   = data['R'].cuda()
-        # [B*N, C, 3] --> [B*N*M, 6]
-        self.output_R = self.latent_vect['R'].view(-1, 6).contiguous()
-        self.output_R = compute_rotation_matrix_from_ortho6d(self.output_R) # .permute(0, 2, 1).contiguous()
-
-        # [B*M, 6]
-        self.output_R_pooled =self.latent_vect['1'].view(-1, 6).contiguous() # dense by default!!! B, 2*C, 3
-        self.output_R_pooled = compute_rotation_matrix_from_ortho6d(self.output_R_pooled) #
         #     target_R_tiled  = target_R.unsqueeze(1).contiguous().unsqueeze(1).contiguous().repeat(1, N, M, 1, 1).contiguous()
         #     geodesic_loss   = loss_geodesic(self.output_R, target_R_tiled.view(-1, 3, 3).contiguous())  # BS*N* C/2
         #     self.degree_err_full = geodesic_loss.view(BS, N, M).contiguous()       # BS, N, M
@@ -370,7 +367,7 @@ class PointAEPoseAgent(BaseAgent):
     def visualize_batch(self, data, mode, **kwargs):
         tb = self.train_tb if mode == 'train' else self.val_tb
         num = 2
-        target_pts = data['points'][:num].transpose(1, 2).detach().cpu().numpy() # canonical space
+        target_pts = data['points'].transpose(1, 2).detach().cpu().numpy() # canonical space
         input_pts = data['G'].ndata['x'].view(target_pts.shape[0], -1, 3).contiguous().cpu().numpy()
         ids  = data['id']
         idxs = data['idx']
@@ -378,17 +375,17 @@ class PointAEPoseAgent(BaseAgent):
         if self.config.pred_nocs:
             # nocs error
             nocs_err = self.nocs_err.cpu().detach().numpy() # GT mode degree error, [B, N]
-            output_N   = self.output_N.transpose(-1, -2).cpu().detach().numpy() # B, 3, N -->
+            output_N   = self.output_N.transpose(-1, -2).cpu().detach().numpy() # B, 3, N --> B, N, 3
             if len(nocs_err.shape) < 3:
                 nocs_err = nocs_err[:, :, np.newaxis]
-            save_path = f'{self.config.log_dir}/generation'
+            save_path = f'{self.config.log_dir}/generation/{mode}'
             if not exists(save_path):
                 print('making directories', save_path)
                 makedirs(save_path)
             # nocs_err
             for j in range(nocs_err.shape[-1]):
                 save_arr  = np.concatenate([input_pts, nocs_err[:, :, j:j+1], output_N], axis=-1)
-                for k in range(nocs_err.shape[0]): # batch
+                for k in range(num): # batch
                     save_name = f'{save_path}/{mode}_{self.clock.step}_{ids[k]}_{idxs[k]}_{j}.txt' #
                     np.savetxt(save_name, save_arr[k])
             return
