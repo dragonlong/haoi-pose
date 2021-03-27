@@ -18,7 +18,7 @@ import torch.utils.data as data
 from torch.utils.data import Dataset
 from multiprocessing import Manager
 # import open3d as o3d
-from sklearn.externals import joblib
+import joblib
 
 import dgl
 import __init__
@@ -120,7 +120,7 @@ class OracleDataset(Dataset):
 
         if self.cfg.eval or self.split != 'train':
             np.random.seed(0)
-            self.random_angle = np.random.rand(self.__len__(), 150, 3) * 360
+            self.random_angle = np.random.rand(self.__len__(), 150, 3) * 180
             self.random_T     = np.random.rand(self.__len__(), 150, 3)
 
     def __len__(self):
@@ -156,7 +156,7 @@ class OracleDataset(Dataset):
         center_offset = pos[0].clone().detach() # to 0
         center = torch.from_numpy(np.array([[0.0, 0.0, 0.0]])) # 1, 3
         up_axis= torch.tensor([[0.0, 1.0, 0.0]]).float() # y
-        if self.cfg.eval or self.split != 'train':
+        if self.cfg.eval:
             theta_x = self.random_angle[idx, self.cfg.iteration, 0]
             theta_z = self.random_angle[idx, self.cfg.iteration, 2]
             theta_y = 0

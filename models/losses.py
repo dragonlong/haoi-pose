@@ -6,8 +6,8 @@ from torch import nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 from scipy.optimize import linear_sum_assignment
-from kaolin.nnsearch import nnsearch
-import kaolin.cuda.sided_distance as sd
+# from kaolin.nnsearch import nnsearch
+# import kaolin.cuda.sided_distance as sd
 from scipy.spatial import cKDTree as Tree
 from typing import Any
 from collections import OrderedDict

@@ -17,11 +17,11 @@ from dgl.nn.pytorch import GraphConv, NNConv
 from equivariant_attention.from_se3cnn.SO3 import rot
 from equivariant_attention.modules import GConvSE3, GNormSE3, get_basis_and_r, GSE3Res, GMaxPooling, GAvgPooling
 from equivariant_attention.fibers import Fiber
-#
-from kaolin.models.PointNet2 import furthest_point_sampling
-from kaolin.models.PointNet2 import fps_gather_by_index, group_gather_by_index
-from kaolin.models.PointNet2 import ball_query
-from kaolin.models.PointNet2 import three_nn
+# #
+# from kaolin.models.PointNet2 import furthest_point_sampling
+# from kaolin.models.PointNet2 import fps_gather_by_index, group_gather_by_index
+# from kaolin.models.PointNet2 import ball_query
+# from kaolin.models.PointNet2 import three_nn
 
 from common.d3_utils import compute_rotation_matrix_from_ortho6d
 eps = 1e-10

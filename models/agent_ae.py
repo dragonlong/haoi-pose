@@ -89,7 +89,7 @@ class PointAEPoseAgent(BaseAgent):
 
     def eval_6d(self, data, thres=0.05):
         """one step of validation"""
-        BS = self.config.DATASET.test_batch
+        BS = data['points'].shape[0]
         N  = self.config.num_points
         M  = self.config.num_modes_R
         flatten_r = self.output_R.view(BS, N, -1).contiguous()
@@ -154,9 +154,8 @@ class PointAEPoseAgent(BaseAgent):
             self.compute_and_eval_axis(data)
 
     def predict_pnet2(self, data):
-        input_pts  = data['points'].cuda()
-        BS = input_pts.shape[0]
-        N  = input_pts.shape[1] # B, N, 3
+        BS = data['points'].shape[0]
+        N  = data['points'].shape[1] # B, N, 3
         M  = self.config.num_modes_R
         CS = self.config.MODEL.num_channels_R
         # B, 3, N
@@ -172,10 +171,6 @@ class PointAEPoseAgent(BaseAgent):
             self.output_R = self.output_R/(torch.norm(self.output_R, dim=2, keepdim=True) + epsilon)
             self.output_R = self.output_R.permute(0, 3, 1, 2).contiguous().view(-1, 2, 3).contiguous().view(-1, 6).contiguous()
             self.output_R = compute_rotation_matrix_from_ortho6d(self.output_R)
-        # else:
-        #     bp()
-        #     self.output_R = self.latent_vect['R'].squeeze() # B, 3, N
-        #     self.output_R = self.output_R/(torch.norm(self.output_R, dim=1, keepdim=True) + epsilon)
 
         if self.config.pred_seg:
             self.output_C = self.latent_vect['C']

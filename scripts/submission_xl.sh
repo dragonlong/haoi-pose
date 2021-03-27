@@ -357,19 +357,20 @@ eval=True save=True
 use_wandb=True
 
     0.641: # R regression with PointTransformer
-  TRAIN_OBJ='python train_aegan.py training=ae_gan models=ptrans encoder_type=point_transformer vis=True num_points=1024 n_pts=1024 name_model=ae dataset_class=HandDatasetAEGraph'
-  $TRAIN_OBJ task='pcloud_pose' target_category='bottle' exp_num='0.641' DATASET.train_batch=12 DATASET.test_batch=12 \
-  augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
-  pred_6d=True num_modes_R=1 HEAD.R='[128, 128, 6, None]' \
-  eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
-  use_wandb=True
+TRAIN_OBJ='python train_aegan.py training=ae_gan models=ptrans encoder_type=point_transformer vis=True num_points=1024 n_pts=1024 name_model=ae dataset_class=HandDatasetAEGraph'
+$TRAIN_OBJ task='pcloud_pose'  item='oracle' name_dset='oracle' target_category='airplane' exp_num='0.641' DATASET.train_batch=12 DATASET.test_batch=12 \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+pred_6d=True num_modes_R=1 \
+eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
+use_wandb=True
 
     0.642: # R regression with PointNet++, ca226, 0
-  TRAIN_OBJ='python train_aegan.py training=ae_gan models=pnet2 encoder_type=pnet2plusplus vis=True num_points=1024 n_pts=1024 name_model=ae dataset_class=AEGraph'
-  $TRAIN_OBJ task='pcloud_pose' datasets=modelnet40 item='oracle' name_dset='oracle' target_category='airplane' exp_num='0.642' DATASET.train_batch=12 DATASET.test_batch=12 \
-  augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
-  pred_6d=True num_modes_R=1 HEAD.R='[128, 128, 6, None]' \
-  eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
+TRAIN_OBJ='python train_aegan.py training=ae_gan models=pnet2 encoder_type=pnet2plusplus vis=True num_points=1024 n_pts=1024 name_model=ae dataset_class=AEGraph'
+$TRAIN_OBJ task='pcloud_pose' datasets=modelnet40 item='oracle' name_dset='oracle' target_category='airplane' exp_num='0.642' DATASET.train_batch=12 DATASET.test_batch=12 \
+augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
+pred_6d=True num_modes_R=1 HEAD.R='[128, 128, 6, None]' \
+eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
+eval=True save=True
   use_wandb=True
 
 0.65: # try airplane category-level data; NOCS
@@ -382,17 +383,18 @@ eval=True save=True
 use_wandb=True
 
   0.651: # NOCS regression with PointTransformer
-  TRAIN_OBJ='python train_aegan.py training=ae_gan models=ptrans encoder_type=point_transformer vis=True num_points=1024 n_pts=1024 name_model=ae dataset_class=AEGraph'
-  $TRAIN_OBJ task='pcloud_pose' item='oracle' name_dset='oracle' target_category='airplane' exp_num='0.651' DATASET.train_batch=12 DATASET.test_batch=12 \
-  augment=True MODEL.num_channels_R=1 pred_nocs=True use_objective_N=True \
-  eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
-  use_wandb=True
+TRAIN_OBJ='python train_aegan.py training=ae_gan models=ptrans encoder_type=point_transformer vis=True num_points=1024 n_pts=1024 name_model=ae dataset_class=AEGraph'
+$TRAIN_OBJ task='pcloud_pose' item='oracle' name_dset='oracle' target_category='airplane' exp_num='0.651' DATASET.train_batch=12 DATASET.test_batch=12 \
+augment=True MODEL.num_channels_R=1 pred_nocs=True use_objective_N=True \
+eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
+use_wandb=True
 
   0.652: # NOCS regression with PointNet++, ca226 1
-  TRAIN_OBJ='python train_aegan.py training=ae_gan models=pnet2 encoder_type=pnet2plusplus vis=True num_points=1024 n_pts=1024 name_model=ae dataset_class=AEGraph'
-  $TRAIN_OBJ task='pcloud_pose' datasets=modelnet40 item='oracle' name_dset='oracle' target_category='airplane' exp_num='0.652' DATASET.train_batch=12 DATASET.test_batch=12 \
-  augment=True MODEL.num_channels_R=1 pred_nocs=True use_objective_N=True \
-  eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
+TRAIN_OBJ='python train_aegan.py training=ae_gan models=pnet2 encoder_type=pnet2plusplus vis=True num_points=1024 n_pts=1024 name_model=ae dataset_class=AEGraph'
+$TRAIN_OBJ task='pcloud_pose' datasets=modelnet40 item='oracle' name_dset='oracle' target_category='airplane' exp_num='0.652' DATASET.train_batch=12 DATASET.test_batch=12 \
+augment=True MODEL.num_channels_R=1 pred_nocs=True use_objective_N=True \
+eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
+eval=True save=True
   use_wandb=True
 
 >>>>>>>>>>>>>>>>>>>>>> partial data
@@ -404,6 +406,7 @@ models=se3_transformer_default \
 augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
 pred_6d=True num_modes_R=1 MODEL.num_channels_R=2 \
 eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
+eval=True save=True
 use_wandb=True
 
   0.661: # camera, RT, point-transformer
@@ -435,11 +438,12 @@ eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
 use_wandb=True
 
   0.672: # NOCS regression with PointNet++, camera
-  TRAIN_OBJ='python train_aegan.py training=ae_gan models=pnet2 encoder_type=pnet2plusplus vis=True num_points=1024 n_pts=1024 name_model=ae dataset_class=AEGraph'
-  $TRAIN_OBJ datasets='nocs_synthetic' task='pcloud_pose' item='nocs_synthetic' name_dset='nocs_synthetic' \
-  target_category='camera' exp_num='0.672' DATASET.train_batch=12 DATASET.test_batch=12 \
-  augment=True MODEL.num_channels_R=1 pred_nocs=True use_objective_N=True \
-  eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
+TRAIN_OBJ='python train_aegan.py training=ae_gan models=pnet2 encoder_type=pnet2plusplus vis=True num_points=1024 n_pts=1024 name_model=ae dataset_class=AEGraph'
+$TRAIN_OBJ datasets='nocs_synthetic' task='pcloud_pose' item='nocs_synthetic' name_dset='nocs_synthetic' \
+target_category='camera' exp_num='0.672' DATASET.train_batch=12 DATASET.test_batch=12 \
+augment=True MODEL.num_channels_R=1 pred_nocs=True use_objective_N=True \
+eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
+eval=True save=True
   use_wandb=True
 
 0.68: # laptop, RT
@@ -450,6 +454,7 @@ models=se3_transformer_default \
 augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
 pred_6d=True num_modes_R=1 MODEL.num_channels_R=2 \
 eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
+eval=True save=True
 use_wandb=True
 
 0.69: # laptop, NOCS, ca219
@@ -463,11 +468,12 @@ use_wandb=True
 
 
   0.692: # NOCS regression with PointNet++, camera
-  TRAIN_OBJ='python train_aegan.py training=ae_gan models=pnet2 encoder_type=pnet2plusplus vis=True num_points=1024 n_pts=1024 name_model=ae dataset_class=AEGraph'
-  $TRAIN_OBJ datasets='nocs_synthetic' task='pcloud_pose' item='nocs_synthetic' name_dset='nocs_synthetic' \
-  target_category='laptop' exp_num='0.692' DATASET.train_batch=12 DATASET.test_batch=12 \
-  augment=True MODEL.num_channels_R=1 pred_nocs=True use_objective_N=True \
-  eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
+TRAIN_OBJ='python train_aegan.py training=ae_gan models=pnet2 encoder_type=pnet2plusplus vis=True num_points=1024 n_pts=1024 name_model=ae dataset_class=AEGraph'
+$TRAIN_OBJ datasets='nocs_synthetic' task='pcloud_pose' item='nocs_synthetic' name_dset='nocs_synthetic' \
+target_category='laptop' exp_num='0.692' DATASET.train_batch=12 DATASET.test_batch=12 \
+augment=True MODEL.num_channels_R=1 pred_nocs=True use_objective_N=True \
+eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
+eval=True save=True
   use_wandb=True
 
 remote

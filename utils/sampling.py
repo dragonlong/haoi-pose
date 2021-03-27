@@ -2,13 +2,13 @@ import torch
 import time
 import torch.nn as nn
 import numpy as np
-from kaolin.models.PointNet2 import furthest_point_sampling
-from kaolin.models.PointNet2 import fps_gather_by_index
-from kaolin.models.PointNet2 import ball_query
-# import torch
-from kaolin.models.PointNet2 import group_gather_by_index
-from kaolin.models.PointNet2 import three_nn
-from kaolin.models.PointNet2 import three_interpolate
+# from kaolin.models.PointNet2 import furthest_point_sampling
+# from kaolin.models.PointNet2 import fps_gather_by_index
+# from kaolin.models.PointNet2 import ball_query
+# # import torch
+# from kaolin.models.PointNet2 import group_gather_by_index
+# from kaolin.models.PointNet2 import three_nn
+# from kaolin.models.PointNet2 import three_interpolate
 
 def pdist2squared(x, y):
     xx = (x**2).sum(dim=1).unsqueeze(2)

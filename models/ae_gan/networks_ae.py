@@ -27,16 +27,16 @@ from equivariant_attention.fibers import Fiber
 eps=1e-10
 from common.debugger import *
 from models.model_factory import ModelBuilder
-# from models.pointnet_lib.networks import PointTransformer
-from models.decoders.pointnet_2 import PointNet2Segmenter
+from models.pointnet_lib.networks import PointTransformer
+# from models.decoders.pointnet_2 import PointNet2Segmenter
 # from models.decoders.equivariant_model import EquivariantDGCNN
 # except:
 #     print('~need env paths~')
-from kaolin.models.PointNet2 import furthest_point_sampling
-from kaolin.models.PointNet2 import fps_gather_by_index
-from kaolin.models.PointNet2 import ball_query
-from kaolin.models.PointNet2 import three_nn
-from kaolin.models.PointNet2 import group_gather_by_index
+# from kaolin.models.PointNet2 import furthest_point_sampling
+# from kaolin.models.PointNet2 import fps_gather_by_index
+# from kaolin.models.PointNet2 import ball_query
+# from kaolin.models.PointNet2 import three_nn
+# from kaolin.models.PointNet2 import group_gather_by_index
 from omegaconf import DictConfig, ListConfig
 import dgl
 
@@ -234,7 +234,6 @@ class Sample(nn.Module):
         return: [B, N1, 3]
         """
         xyz1_ind = furthest_point_sampling(points, self.num_points) # --> [B, N]
-        # print(self.num_points, ':', xyz1_ind) # sampling
         xyz1     = fps_gather_by_index(points.permute(0, 2, 1).contiguous(), xyz1_ind)                # batch_size, channel2, nsample
         return xyz1_ind, xyz1.permute(0, 2, 1).contiguous()
 

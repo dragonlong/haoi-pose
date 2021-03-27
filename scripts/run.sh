@@ -187,7 +187,6 @@ domain='unseen'
 mkdir -p /home/dragon/Documents/ICML2021/model/${item}/${EXP}/
 scp -r lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/${item}/${EXP}/generation/ /home/dragon/Documents/ICML2021/model/${item}/${EXP}/
 
-
 #
 scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/eyeglasses/1/viz/* /home/dragon/Documents/ICML2021/model/eyeglasses/1/viz/
 mkdir -p /home/dragon/Documents/ICML2021/model/eyeglasses/1.0/preds/seen/

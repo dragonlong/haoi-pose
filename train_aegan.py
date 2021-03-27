@@ -135,18 +135,18 @@ def main(cfg):
     dp = valid_dataset.__getitem__(0)
     if cfg.eval_mini or cfg.eval:
         all_rts, file_name, mean_err, r_raw_err, t_raw_err, s_raw_err = prepare_pose_eval(cfg.exp_num, cfg)
-        infos_dict = {'basename': [], 'in': [], 'r_raw': [], 'n_raw': [],
+        infos_dict = {'basename': [], 'in': [], 'r_raw': [],
                       'r_gt': [], 't_gt': [], 's_gt': [],
                       'r_pred': [], 't_pred': [], 's_pred': []}
-        track_dict = {'rdiff': [], 'tdiff': [], 'sdiff': [], 'ndiff': [],
+        track_dict = {'rdiff': [], 'tdiff': [], 'sdiff': [],
                       '5deg': [], '5cm': [], '5deg5cm': []}
         num_iteration = 1
         if 'partial' not in cfg.task:
             num_iteration = 10
         for iteration in range(num_iteration):
-            BS = cfg.DATASET.test_batch
             cfg.iteration = iteration
             for num, data in enumerate(test_loader):
+                BS = data['points'].shape[0]
                 idx = data['idx']
                 torch.cuda.empty_cache()
                 tr_agent.eval_func(data)
@@ -165,7 +165,7 @@ def main(cfg):
                     basename   = f'{cfg.iteration}_' + data['id'][m] + f'_' + data['class'][m]
                     infos_dict['basename'].append(basename)
                     infos_dict['in'].append(input_pts[m].cpu().numpy())
-                tr_agent.visualize_batch(data, "test")
+                # tr_agent.visualize_batch(data, "test")
         # print
         for key, value in track_dict.items():
             print(key, ':', np.array(value).mean())
@@ -217,7 +217,7 @@ def main(cfg):
                 for num, test_data in enumerate(test_loader):
                     if num > 100:
                         break
-                    tr_agent.eval_func(data)
+                    tr_agent.eval_func(test_data)
                     pose_diff = tr_agent.pose_err
                     for key in ['rdiff', 'tdiff', 'sdiff']:
                         track_dict[key].append(pose_diff[key].cpu().numpy().mean())

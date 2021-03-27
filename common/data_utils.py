@@ -12,14 +12,14 @@ import os.path
 import sys
 import struct
 import trimesh
-from numba import njit
+# from numba import njit
 from numpy.linalg import inv
 from pytransform3d.rotations import *
 import cv2
-try:
-    import open3d
-except:
-    print('loading warning')
+# try:
+#     import open3d
+# except:
+#     print('loading warning')
 from io import BytesIO
 
 import glob
