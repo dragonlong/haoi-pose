@@ -135,6 +135,7 @@ def main(cfg):
     dp = valid_dataset.__getitem__(0)
     if cfg.eval_mini or cfg.eval:
         all_rts, file_name, mean_err, r_raw_err, t_raw_err, s_raw_err = prepare_pose_eval(cfg.exp_num, cfg)
+        # file_name = file_name.replace('unseen', 'seen180') #'/groups/CESCA-CV/ICML2021/results/test_pred/oracle/0.64_unseen_part_rt_pn_general.npy'
         infos_dict = {'basename': [], 'in': [], 'r_raw': [],
                       'r_gt': [], 't_gt': [], 's_gt': [],
                       'r_pred': [], 't_pred': [], 's_pred': []}
@@ -142,10 +143,13 @@ def main(cfg):
                       '5deg': [], '5cm': [], '5deg5cm': []}
         num_iteration = 1
         if 'partial' not in cfg.task:
-            num_iteration = 10
+            num_iteration = 2
         for iteration in range(num_iteration):
             cfg.iteration = iteration
+            # for num, data in enumerate(train_loader):
             for num, data in enumerate(test_loader):
+                if num % 10 == 0:
+                    print('checking batch ', num)
                 BS = data['points'].shape[0]
                 idx = data['idx']
                 torch.cuda.empty_cache()

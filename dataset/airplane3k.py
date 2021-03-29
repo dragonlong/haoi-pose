@@ -159,13 +159,13 @@ class OracleDataset(Dataset):
         if self.cfg.eval:
             theta_x = self.random_angle[idx, self.cfg.iteration, 0]
             theta_z = self.random_angle[idx, self.cfg.iteration, 2]
-            theta_y = 0
+            theta_y = self.random_angle[idx, self.cfg.iteration, 1]
             r = rotate_eular(theta_x, theta_y, theta_z)
             t = self.random_T[idx, self.cfg.iteration].reshape(1, 3).astype(np.float32)
         elif self.augment:
-            theta_x = random.randint(0, 180)
-            theta_z = random.randint(0, 180)
-            theta_y = 0
+            theta_x = random.randint(0, 360)
+            theta_z = random.randint(0, 360)
+            theta_y = random.randint(0, 360)
             r = rotate_eular(theta_x, theta_y, theta_z)
             t = np.random.rand(1,3).astype(np.float32)
         else:

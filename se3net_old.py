@@ -10,7 +10,7 @@ from torch.nn import functional as F
 from typing import Dict, Tuple, List
 from copy import deepcopy
 from omegaconf import DictConfig, ListConfig
-# torch.manual_seed(0)
+torch.manual_seed(0)
 
 import dgl
 from dgl.nn.pytorch import GraphConv, NNConv
@@ -18,15 +18,10 @@ from equivariant_attention.from_se3cnn.SO3 import rot
 from equivariant_attention.modules import GConvSE3, GNormSE3, get_basis_and_r, GSE3Res, GMaxPooling, GAvgPooling
 from equivariant_attention.fibers import Fiber
 #
-# from kaolin.models.PointNet2 import furthest_point_sampling
-# from kaolin.models.PointNet2 import fps_gather_by_index, group_gather_by_index
-# from kaolin.models.PointNet2 import ball_query
-# from kaolin.models.PointNet2 import three_nn
-from models.pointnet_lib.pointnet2_modules import knn_point
-from models.pointnet_lib.pointnet2_modules import farthest_point_sample as furthest_point_sampling
-from models.pointnet_lib.pointnet2_modules import gather_operation as fps_gather_by_index
-from models.pointnet_lib.pointnet2_modules import group_operation as group_gather_by_index
-from models.pointnet_lib.pointnet2_modules import three_nn, three_interpolate
+from kaolin.models.PointNet2 import furthest_point_sampling
+from kaolin.models.PointNet2 import fps_gather_by_index, group_gather_by_index
+from kaolin.models.PointNet2 import ball_query
+from kaolin.models.PointNet2 import three_nn
 
 from common.d3_utils import compute_rotation_matrix_from_ortho6d
 eps = 1e-10
@@ -62,7 +57,8 @@ class Sample(nn.Module):
         points: [B, N, 3]
         return: [B, N1, 3]
         """
-        xyz1_ind = furthest_point_sampling(points, self.num_points).int() # --> [B, N]
+        xyz1_ind = furthest_point_sampling(points, self.num_points) # --> [B, N]
+        # print(self.num_points, ':', xyz1_ind) # sampling
         xyz1     = fps_gather_by_index(points.permute(0, 2, 1).contiguous(), xyz1_ind)                # batch_size, channel2, nsample
         return xyz1_ind, xyz1.permute(0, 2, 1).contiguous()
 
@@ -174,7 +170,7 @@ class BuildGraph(nn.Module):
             self.npoint      = npoint
             self.n_sampler   = Sample(npoint)
         self.num_samples = num_samples
-        self.e_sampler   = SampleNeighbors(r, self.num_samples, knn=True) # cpu or gpu, default CPU
+        self.e_sampler   = SampleNeighbors(r, self.num_samples, knn=True)
 
     def forward(self, xyz=None, G=None, h=None, BS=2):
         """
@@ -200,7 +196,7 @@ class BuildGraph(nn.Module):
         for i in range(B):
             src = neighbors_ind[i].contiguous().view(-1).cpu().long()
             dst = torch.arange(pos[i].shape[0]).view(-1, 1).repeat(1, self.num_samples).view(-1)
-            g = dgl.DGLGraph((src.long(), dst.long()))
+            g = dgl.DGLGraph((src.cpu(), dst.cpu()))
             g.ndata['x'] = pos[i]
             g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
             g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()] #[num_atoms,3] but we only supervise the half
@@ -277,7 +273,6 @@ class SE3Transformer(nn.Module):
     """Defines the Unet submodule with skip connection.
         X -------------------identity----------------------
         |-- downsampling -- |submodule| -- upsampling --|
-
     """
     def __init__(self, cfg, latent_dim: int=128, div: float=4, pooling: str='avg', n_heads: int=1, vector_attention=False, **kwargs):
         super().__init__()
@@ -411,7 +406,6 @@ class SE3Transformer(nn.Module):
 
     def _fetch_arguments(self, conv_opt, index, flow):
         """ Fetches arguments for building a convolution (up or down)
-
         Arguments:
             conv_opt
             index in sequential order (as they come in the config)
@@ -468,8 +462,7 @@ class InterDownGraph(nn.Module): #
         for i in range(BS):
             src = neighbors_ind[i].contiguous().view(-1)
             dst = xyz_ind[i].view(-1, 1).repeat(1, self.num_samples).view(-1)
-            # g = dgl.DGLGraph((src.cpu().long(), dst.cpu().long()))
-            g = dgl.DGLGraph((src.long(), dst.long()))
+            g = dgl.DGLGraph((src.cpu().long(), dst.cpu().long()))
             # try:
             g.ndata['x'] = pos[i] # dgl._ffi.base.DGLError: Expect number of features to match number of nodes (len(u)). Got 256 and 249 instead.
             g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
@@ -489,10 +482,9 @@ class InterDownGraph(nn.Module): #
         pos   = xyz_query
         neighbors_ind = self.e_sampler(pos, pos)
         for i in range(BS):
-            src = neighbors_ind[i].contiguous().view(-1)
-            dst = torch.arange(pos[i].shape[0], device=src.device).view(-1, 1).repeat(1, self.num_samples).view(-1)
-            # g = dgl.DGLGraph((src.cpu(), dst.cpu()))
-            g = dgl.DGLGraph((src.long(), dst.long()))
+            src = neighbors_ind[i].contiguous().view(-1).cpu()
+            dst = torch.arange(pos[i].shape[0]).view(-1, 1).repeat(1, self.num_samples).view(-1)
+            g = dgl.DGLGraph((src.cpu(), dst.cpu()))
             g.ndata['x'] = pos[i]
             g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
             g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()] #[num_atoms,3] but we only supervise the half
@@ -680,18 +672,18 @@ def equivariance_test(model1):
         G1, features = set_feat(G1, R1)
         out_dict1 = model1.forward(G1.to(dev))
         f1, out1  = out_dict1['N'], out_dict1['R']
-        print('...out1: ')
-        summary(out1)
-        tx, ty, tz = np.random.rand(1, 3)[0] * 360
+        # print('...out1: ')
+        # summary(out1)
+        tx, ty, tz = np.random.rand(1, 3)[0] * 180
         R2 = rot(tx, ty, tz)
         G2, features = set_feat(G2, R2)
         # f2, out2 = apply_model(model, G2, features)
         out_dict2 = model1.forward(G2.to(dev))
         f2, out2  = out_dict2['N'], out_dict2['R']
-        print('...out2: ')
-        summary(out2)
-        print('...out1 * R: ')
-        summary(out1 @ R2.cuda())
+        # print('...out2: ')
+        # summary(out2)
+        # print('...out1 * R: ')
+        # summary(out1 @ R2.cuda())
         diff = torch.max(torch.abs(f2 - f1)).item()
         print('type 0 diff max: ', diff)
         diff = torch.max(torch.abs(out2 - out1 @ R2.cuda())).item()
@@ -708,5 +700,5 @@ if __name__ == '__main__':
     model1 = SE3Transformer(cfg=cfg, edge_dim=0, pooling='avg', n_heads=cfg.MODEL.n_heads).cuda()
     print(model1)
     # model  = build_model()
-    np.random.seed(0)
+    # np.random.seed(0)
     equivariance_test(model1)

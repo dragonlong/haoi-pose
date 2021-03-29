@@ -28,16 +28,20 @@ eps=1e-10
 from common.debugger import *
 from models.model_factory import ModelBuilder
 from models.pointnet_lib.networks import PointTransformer
-# from models.decoders.pointnet_2 import PointNet2Segmenter
+from models.decoders.pointnet_2 import PointNet2Segmenter
 # from models.decoders.equivariant_model import EquivariantDGCNN
-# except:
-#     print('~need env paths~')
+
 # from kaolin.models.PointNet2 import furthest_point_sampling
 # from kaolin.models.PointNet2 import fps_gather_by_index
 # from kaolin.models.PointNet2 import ball_query
 # from kaolin.models.PointNet2 import three_nn
 # from kaolin.models.PointNet2 import group_gather_by_index
 from omegaconf import DictConfig, ListConfig
+from models.pointnet_lib.pointnet2_modules import knn_point
+from models.pointnet_lib.pointnet2_modules import farthest_point_sample as furthest_point_sampling
+from models.pointnet_lib.pointnet2_modules import gather_operation as fps_gather_by_index
+from models.pointnet_lib.pointnet2_modules import group_operation as group_gather_by_index
+from models.pointnet_lib.pointnet2_modules import three_nn, three_interpolate
 import dgl
 
 def bp():
@@ -133,7 +137,8 @@ class InterDownGraph(nn.Module): #
         for i in range(BS):
             src = neighbors_ind[i].contiguous().view(-1)
             dst = xyz_ind[i].view(-1, 1).repeat(1, self.num_samples).view(-1)
-            g = dgl.DGLGraph((src.cpu().long(), dst.cpu().long()))
+            # g = dgl.DGLGraph((src.cpu().long(), dst.cpu().long()))
+            g = dgl.DGLGraph((src.long(), dst.long()))
             try:
                 g.ndata['x'] = pos[i] # dgl._ffi.base.DGLError: Expect number of features to match number of nodes (len(u)). Got 256 and 249 instead.
                 g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
@@ -153,9 +158,12 @@ class InterDownGraph(nn.Module): #
         pos   = xyz_query
         neighbors_ind = self.e_sampler(pos, pos)
         for i in range(B):
-            src = neighbors_ind[i].contiguous().view(-1).cpu()
-            dst = torch.arange(pos[i].shape[0]).view(-1, 1).repeat(1, self.num_samples).view(-1)
-            g = dgl.DGLGraph((src.cpu(), dst.cpu()))
+            # src = neighbors_ind[i].contiguous().view(-1).cpu()
+            # dst = torch.arange(pos[i].shape[0]).view(-1, 1).repeat(1, self.num_samples).view(-1)
+            # g = dgl.DGLGraph((src.cpu(), dst.cpu()))
+            src = neighbors_ind[i].contiguous().view(-1)
+            dst = torch.arange(pos[i].shape[0], device=src.device).view(-1, 1).repeat(1, self.num_samples).view(-1)
+            g = dgl.DGLGraph((src.long(), dst.long()))
             g.ndata['x'] = pos[i]
             g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
             g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()] #[num_atoms,3] but we only supervise the half
@@ -233,8 +241,9 @@ class Sample(nn.Module):
         points: [B, N, 3]
         return: [B, N1, 3]
         """
-        xyz1_ind = furthest_point_sampling(points, self.num_points) # --> [B, N]
+        xyz1_ind = furthest_point_sampling(points, self.num_points).int() # --> [B, N]
         xyz1     = fps_gather_by_index(points.permute(0, 2, 1).contiguous(), xyz1_ind)                # batch_size, channel2, nsample
+
         return xyz1_ind, xyz1.permute(0, 2, 1).contiguous()
 
 # class for neighborhoods sampling of points
