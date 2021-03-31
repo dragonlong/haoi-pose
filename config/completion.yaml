@@ -76,6 +76,7 @@ rot_align: False
 sym_aligned_nocs: False
 hand_only: False
 use_partial: False
+use_background: False
 fixed_sampling: False
 
 # eval

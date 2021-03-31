@@ -17,7 +17,7 @@ python dataset_parser.py dataset_class='HandDatasetAEGraph' target_category='bot
 python dataset_parser.py task='pcloud_pose' item='oracle' name_dset='oracle' target_category='airplane' dataset_class='AEGraph' augment=True num_points=1024 \
 
 # check NOCS datasets
-python dataset_parser.py datasets='nocs_synthetic' task='pcloud_pose' item='nocs_synthetic' name_dset='nocs_synthetic' target_category='camera' dataset_class='AEGraph' augment=True num_points=1024 \
+python dataset_parser.py datasets='nocs_synthetic' task='pcloud_pose' item='nocs_synthetic' name_dset='nocs_synthetic' target_category='camera' dataset_class='AEGraph' augment=True num_points=512 \
 
 # 3. bottleneck concat,
 python modelnet40.py datasets=modelnet40

@@ -836,11 +836,11 @@ class PointNet2GroupingLayer(nn.Module):
             return new_features
 
         else:
-            idx = ball_query(self.radius, self.num_samples, xyz,
-                             new_xyz, self.use_random_ball_query)
+            _, idx = knn_point(self.num_samples, new_xyz, xyz)
+            # idx = ball_query(self.radius, self.num_samples, xyz,
+            #                  new_xyz, self.use_random_ball_query)
             xyz_trans = xyz.transpose(1, 2).contiguous()
-            grouped_xyz = group_gather_by_index(
-                xyz_trans, idx)  # (B, 3, npoint, nsample)
+            grouped_xyz = group_gather_by_index(xyz_trans, idx)  # (B, 3, npoint, nsample)
             grouped_xyz -= new_xyz.transpose(1, 2).unsqueeze(-1)
 
             if features is not None:
@@ -990,7 +990,7 @@ class PointNet2SetAbstraction(nn.Module):
         new_xyz = None
         if self.num_points_out is not None:
             # TODO: implement: this is flipped here for some reason
-            new_xyz_idx = furthest_point_sampling(xyz, self.num_points_out)
+            new_xyz_idx = furthest_point_sampling(xyz, self.num_points_out).int()
             new_xyz = fps_gather_by_index(
                 xyz.transpose(1, 2).contiguous(), new_xyz_idx)
             new_xyz = new_xyz.transpose(1, 2).contiguous()

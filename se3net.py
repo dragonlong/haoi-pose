@@ -17,6 +17,7 @@ from dgl.nn.pytorch import GraphConv, NNConv
 from equivariant_attention.from_se3cnn.SO3 import rot
 from equivariant_attention.modules import GConvSE3, GNormSE3, get_basis_and_r, GSE3Res, GMaxPooling, GAvgPooling
 from equivariant_attention.fibers import Fiber
+from models.ae_gan.networks_ae import SE3Transformer
 #
 # from kaolin.models.PointNet2 import furthest_point_sampling
 # from kaolin.models.PointNet2 import fps_gather_by_index, group_gather_by_index
@@ -49,7 +50,6 @@ def pdist2squared(x, y):
     dist[dist != dist] = 0
     dist = torch.clamp(dist, 0.0, np.inf)
     return dist
-
 
 # class for fps sampling of points
 class Sample(nn.Module):
@@ -202,7 +202,7 @@ class BuildGraph(nn.Module):
             dst = torch.arange(pos[i].shape[0]).view(-1, 1).repeat(1, self.num_samples).view(-1)
             g = dgl.DGLGraph((src.long(), dst.long()))
             g.ndata['x'] = pos[i]
-            g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
+            g.ndata['f'] = torch.ones(pos[i].shape[0], 3, 1, device=pos.device).float() # num=3
             g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()] #[num_atoms,3] but we only supervise the half
             #
             glist.append(g)
@@ -272,7 +272,7 @@ def apply_model(model, G, features, num_degrees=2):
 
     return features['0'], features['1']
 
-class SE3Transformer(nn.Module):
+class SE3Transformer1(nn.Module):
     """SE(3) equivariant GCN with attention"""
     """Defines the Unet submodule with skip connection.
         X -------------------identity----------------------
@@ -283,7 +283,8 @@ class SE3Transformer(nn.Module):
         super().__init__()
         # Build the network
         self.num_nlayers  = cfg.MODEL.num_nlayers
-        self.num_in_channels  = cfg.MODEL.num_in_channels
+        # self.num_in_channels  = cfg.MODEL.num_in_channels
+        self.num_in_channels  = 3
         self.num_mid_channels = cfg.MODEL.num_mid_channels
         self.num_out_channels = cfg.MODEL.num_out_channels
         self.num_channels_R   = cfg.MODEL.num_channels_R
@@ -356,6 +357,7 @@ class SE3Transformer(nn.Module):
         # Compute equivariant weight basis from relative positions
         basis, r = get_basis_and_r(G, self.num_degrees-1)
         h0 = {'0': G.ndata['f']}
+        #
         G0 = G
 
         for i in range(len(self.pre_modules)):
@@ -465,21 +467,16 @@ class InterDownGraph(nn.Module): #
         xyz_ind, xyz_query = self.n_sampler(pos)
         neighbors_ind      = self.e_sampler(pos, xyz_query)
         glist              = []
+        _, N, _ = pos.shape
+        feat    = G.ndata['f'].view(BS, N, -1).contiguous()
+        feat_query = fps_gather_by_index(feat.permute(0, 2, 1).contiguous(), xyz_ind).permute(0, 2, 1).contiguous()
         for i in range(BS):
             src = neighbors_ind[i].contiguous().view(-1)
             dst = xyz_ind[i].view(-1, 1).repeat(1, self.num_samples).view(-1)
-            # g = dgl.DGLGraph((src.cpu().long(), dst.cpu().long()))
             g = dgl.DGLGraph((src.long(), dst.long()))
-            # try:
-            g.ndata['x'] = pos[i] # dgl._ffi.base.DGLError: Expect number of features to match number of nodes (len(u)). Got 256 and 249 instead.
-            g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
+            g.ndata['x'] = pos[i]
+            g.ndata['f'] = feat[i].unsqueeze(-1)
             g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()] #[num_atoms,3] but we only supervise the half
-            # except:
-            #     print('---something wrong!!!')
-            #     g = dgl.unbatch(G)[i]
-            #     g.remove_edges( np.arange( len(g.all_edges()[0]) ).tolist()) # this line comes with bug
-            #     g.add_edges(src.cpu().long(), dst.cpu().long())
-            #     g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()]
             glist.append(g)
 
         Gmid = dgl.batch(glist)
@@ -491,10 +488,9 @@ class InterDownGraph(nn.Module): #
         for i in range(BS):
             src = neighbors_ind[i].contiguous().view(-1)
             dst = torch.arange(pos[i].shape[0], device=src.device).view(-1, 1).repeat(1, self.num_samples).view(-1)
-            # g = dgl.DGLGraph((src.cpu(), dst.cpu()))
             g = dgl.DGLGraph((src.long(), dst.long()))
             g.ndata['x'] = pos[i]
-            g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
+            g.ndata['f'] = feat_query[i].unsqueeze(-1)
             g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()] #[num_atoms,3] but we only supervise the half
             glist.append(g)
         Gout = dgl.batch(glist)
@@ -621,7 +617,7 @@ class GraphFPModule(nn.Module):
 
         return h
 
-def equivariance_test(model1):
+def equivariance_test(model1, num_features=1):
     B, N, M        = 2, 512, 10
     base_points = np.random.rand(B, N, 3).astype(np.float32) * 1.0
     frnn      = FixedRadiusNearNeighbors(0.2, 10)
@@ -670,21 +666,21 @@ def equivariance_test(model1):
 
     dev = torch.device('cuda:0')
     model1.eval()
-    for i in range(2):
+    for i in range(1):
         print(f'---{i}th data---')
         torch.cuda.empty_cache()
         G1 = deepcopy(G)
         G2 = deepcopy(G)
 
         R1 = rot(0, 0, 0)
-        G1, features = set_feat(G1, R1)
+        G1, features = set_feat(G1, R1, num_features=num_features)
         out_dict1 = model1.forward(G1.to(dev))
         f1, out1  = out_dict1['N'], out_dict1['R']
         print('...out1: ')
         summary(out1)
         tx, ty, tz = np.random.rand(1, 3)[0] * 360
         R2 = rot(tx, ty, tz)
-        G2, features = set_feat(G2, R2)
+        G2, features = set_feat(G2, R2, num_features=num_features)
         # f2, out2 = apply_model(model, G2, features)
         out_dict2 = model1.forward(G2.to(dev))
         f2, out2  = out_dict2['N'], out_dict2['R']

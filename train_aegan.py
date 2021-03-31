@@ -114,7 +114,7 @@ def main(cfg):
     #>>>>>>>>>>>>>>>>>>>>>> create network and training agent
     tr_agent = get_agent(cfg)
     if 'se3' in cfg.encoder_type:
-        equivariance_test(tr_agent.net.encoder)
+        equivariance_test(tr_agent.net.encoder, num_features=cfg.MODEL.num_in_channels)
     if cfg.use_wandb:
         if cfg.module=='gan':
             wandb.watch(tr_agent.netG)
@@ -143,10 +143,9 @@ def main(cfg):
                       '5deg': [], '5cm': [], '5deg5cm': []}
         num_iteration = 1
         if 'partial' not in cfg.task:
-            num_iteration = 2
+            num_iteration = 10
         for iteration in range(num_iteration):
             cfg.iteration = iteration
-            # for num, data in enumerate(train_loader):
             for num, data in enumerate(test_loader):
                 if num % 10 == 0:
                     print('checking batch ', num)
@@ -173,7 +172,7 @@ def main(cfg):
         # print
         for key, value in track_dict.items():
             print(key, ':', np.array(value).mean())
-
+        print(f'experiment {cfg.exp_num} for {cfg.target_category}\n')
         # save
         if cfg.save:
             print('--saving to ', file_name)

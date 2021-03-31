@@ -87,6 +87,15 @@ def collate_graph(samples):
     Tx = torch.stack(center_offsets, 0)
     return {'G': batched_graph, "points": gt_points, "id": instance_names, 'R': Rx, 'T': Tx, 'idx': idx, 'class': category_name}
 
+def collate_graph_full(samples):
+    graphs, gt_points, instance_names, Rx, center_offsets, idx, category_name, labels = map(list, zip(*samples))
+    batched_graph = dgl.batch(graphs)
+    gt_points = torch.stack(gt_points, 0)
+    Rx = torch.stack(Rx, 0)
+    Tx = torch.stack(center_offsets, 0)
+    labels = torch.stack(labels, 0)
+    return {'G': batched_graph, "points": gt_points, "id": instance_names, 'R': Rx, 'T': Tx, 'idx': idx, 'class': category_name, 'C': labels}
+
 def collate_graph_partial(samples):
     graphs_raw, graphs_real, n_arr, c_arr, m_arr, gt_points, instance_name, instance_name1, RR, center_offsets, idx, category_name = map(list, zip(*samples))
     batched_graph_raw = dgl.batch(graphs_raw)
@@ -224,7 +233,11 @@ class DatasetParser(Parser):
                     collate = collate_graph_partial
                 else:
                     print('---use special collate fn: collate_graph')
-                    collate = collate_graph
+                    if cfg.use_background:
+                        collate = collate_graph_full
+                    else:
+                        collate = collate_graph
+
         self.train_dataset = get_dataset(
             cfg,
             name_dset,
@@ -279,6 +292,8 @@ def main(cfg):
     val_loader   = parser.validloader
     train_loader   = parser.trainloader
 
+    cfg.root_data   = infos.second_path + '/data'
+    cfg.log_dir     = infos.second_path + cfg.log_dir
     if cfg.split == 'train':
         dset          = train_dataset
         dloader       = train_loader
@@ -336,8 +351,9 @@ def main(cfg):
                 # vis_utils.plot3d_pts([[input], [full_pts]], [['input'], ['full shape']],  s=2**2, dpi=300, axis_off=False)
                 # vis_utils.visualize_pointcloud([input, gt], title_name='partial + complete', backend='pyrender')
         else:
-            for j in range(10):
-                g_raw, n_arr, instance_name, RR, center_offset, idx, category_name = dset.__getitem__(j)
+            indexs = np.random.randint(len(dset), size=100)
+            for j in indexs:
+                g_raw, n_arr, instance_name, RR, center_offset, idx, category_name = dset.__getitem__(j, verbose=True)
                 gt_points = n_arr
                 input = g_raw.ndata['x'].numpy()
                 gt    = n_arr.numpy()

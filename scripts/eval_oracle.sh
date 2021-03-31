@@ -152,3 +152,37 @@ sdiff : 0.7511075423278661
 5deg5cm : 0.0004927163667523565
 --saving to  /groups/CESCA-CV/ICML2021/results/test_pred/nocs_synthetic/0.692_unseen_part_rt_pn_general.npy
 --saving fig to  ./results/test/rdiff_0.692.png
+
+
+rdiff : 40.83196672249561
+tdiff : 0.5038497757173249
+sdiff : 0.0
+5deg : 0.1975240206947524
+5cm : 0.001755358462675536
+5deg5cm : 0.0002771618625277162
+experiment 0.661 for camera
+
+--saving to  /groups/CESCA-CV/ICML2021/results/test_pred/nocs_synthetic/0.661_unseen_part_rt_pn_general.npy
+--saving fig to  ./results/test/rdiff_0.661.png
+--saving fig to  ./results/test/tdiff_0.661.png
+--saving fig to  ./results/test/sdiff_0.661.png
+--saving fig to  ./results/test/5deg_0.661.png
+--saving fig to  ./results/test/5cm_0.661.png
+--saving fig to  ./results/test/5deg5cm_0.661.png
+
+checking batch  330
+checking batch  340
+checking batch  350
+checking batch  360
+checking batch  370
+checking batch  380
+rdiff : 3.838942724203447
+tdiff : 0.05564042385502373
+sdiff : 0.03853001978309009
+5deg : 0.9206298200514139
+5cm : 0.9889674378748929
+5deg5cm : 0.9192373607540703
+experiment 0.691 for laptop
+
+--saving to  /groups/CESCA-CV/ICML2021/results/test_pred/nocs_synthetic/0.691_unseen_part_rt_pn_general.npy
+--saving fig to  ./results/test/rdiff_0.691.png

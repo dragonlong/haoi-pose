@@ -120,7 +120,7 @@ class OracleDataset(Dataset):
 
         if self.cfg.eval or self.split != 'train':
             np.random.seed(0)
-            self.random_angle = np.random.rand(self.__len__(), 150, 3) * 180
+            self.random_angle = np.random.rand(self.__len__(), 150, 3) * 360
             self.random_T     = np.random.rand(self.__len__(), 150, 3)
 
     def __len__(self):

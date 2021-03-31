@@ -23,7 +23,7 @@ from common.train_utils import cycle
 from models.ae_gan.networks_ae import BuildGraph
 from models.base import BaseAgent
 from models.ae_gan import get_network
-from utils.emd import earth_mover_distance
+# from utils.emd import earth_mover_distance
 from models.losses import loss_geodesic, compute_vect_loss, compute_1vN_nocs_loss, compute_miou_loss
 from common.yj_pose import compute_pose_diff, rot_diff_degree
 
@@ -228,120 +228,121 @@ def main(cfg):
     os.environ['MASTER_ADDR'] = '127.0.0.1'
     is_cuda = (torch.cuda.is_available() and not cfg.no_cuda)
     device = torch.device("cuda" if is_cuda else "cpu")
-    # Set t0
-    t0 = time()
-    # category-wise training setup
-    infos       = global_info()
-    data_infos  = infos.datasets[cfg.item]
-    cfg.root_data   = infos.second_path + '/data'
-    cfg.log_dir     = infos.second_path + cfg.log_dir
-    cfg.model_dir   = cfg.log_dir + '/checkpoints'
-    if not os.path.isdir(cfg.log_dir):
-        os.makedirs(cfg.log_dir)
-        os.makedirs(cfg.log_dir + '/checkpoints'
-        )
-
-    if cfg.use_wandb:
-        if cfg.eval:
-            run_name = f'{cfg.exp_num}_{cfg.target_category}_eval'
-        else:
-            run_name = f'{cfg.exp_num}_{cfg.target_category}'
-        wandb.init(project="haoi-pose", name=run_name)
-        wandb.init(config=cfg)
-    # copy the project codes into log_dir
-    if (not cfg.eval) and (not cfg.debug):
-        if not os.path.isdir(f'{cfg.log_dir}/code'):
-            os.makedirs(f'{cfg.log_dir}/code')
-            os.makedirs(f'{cfg.log_dir}/code/dataset')
-        os.system('cp -r ./models {}/code'.format(cfg.log_dir))
-        os.system('cp -r ./config {}/code'.format(cfg.log_dir))
-        os.system('cp ./dataset/*py {}/code/dataset'.format(cfg.log_dir))
-
-    # Shorthands
-    out_dir = cfg.log_dir
-    print('Saving to ', out_dir)
-
-    # create network and training agent
-    tr_agent = get_agent(cfg)
-    # tr_agent = PointAEPoseAgent(cfg)
-    equivariance_test(tr_agent.net.encoder)
-    if cfg.use_wandb:
-        if cfg.module=='gan':
-            wandb.watch(tr_agent.netG)
-            wandb.watch(tr_agent.netD)
-        else:
-            wandb.watch(tr_agent.net)
-
-    # load from checkpoint if provided
-    if cfg.use_pretrain or cfg.eval:
-        tr_agent.load_ckpt(cfg.ckpt)
-
-    # train_pts, targets = get_test_data()
-    # train_pts, test_pts = get_category_data()
-    train_pts, train_targets = get_single_data('airplane')
-    # test_pts, test_targets = get_test_data(nx=8, ny=1, nz=1)
-    test_pts, test_targets =  get_single_data('airplane', augment=True)
-
-    builder = BuildGraph(num_samples=10)
-    device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
-    inputs = []
-    BS     = 2
-    N  = cfg.num_points
-    M  = cfg.num_modes_R
-    CS = cfg.MODEL.num_channels_R
-    npoints= cfg.num_points
-    fixed_sampling = cfg.fixed_sampling
-
-    # start training
-    clock = tr_agent.clock #
-    epoch_size = max(int(len(train_pts)/2), 1000)
-    pbar = tqdm(range(0, epoch_size))
-    for e in range(clock.epoch, 200):
-        for _, b in enumerate(pbar):
-            data, xyz1, target_R = getitem(train_pts[:2], train_targets[:2], builder, npoints=N, fixed_sampling=fixed_sampling)
-            torch.cuda.empty_cache()
-            loss_dict, info_dict = tr_agent.train_func(data)
-            pbar.set_description("EPOCH[{}][{}]".format(0, e)) #
-            pbar.set_postfix(OrderedDict({k: v.item() for k, v in  {**loss_dict, **info_dict}.items()}))
-
-            if cfg.vis and clock.step % cfg.vis_frequency == 0:
-                tr_agent.visualize_batch(data, "train")
-
-            # if clock.step % cfg.eval_frequency == 0:
-            #     track_dict = {'rdiff': [], 'tdiff': [], 'sdiff': [],
-            #                   '5deg': [], '5cm': [], '5deg5cm': []}
-            #     for num in range(10):
-            #         data, xyz1, target_R = getitem(train_pts[:2], train_targets[:2], builder, npoints=N, fixed_sampling=fixed_sampling)
-            #         data['idx'] = [b, b]
-            #         tr_agent.eval_func(data)
-            #         pose_diff = tr_agent.pose_err
-            #         for key in ['rdiff', 'tdiff', 'sdiff']:
-            #             track_dict[key].append(pose_diff[key].cpu().numpy().mean())
-            #         deg = pose_diff['rdiff'] <= 5.0
-            #         cm = pose_diff['tdiff'] <= 0.05
-            #         degcm = deg & cm
-            #         for key, value in zip(['5deg', '5cm', '5deg5cm'], [deg, cm, degcm]):
-            #             track_dict[key].append(value.float().cpu().numpy().mean())
-            #     if cfg.use_wandb:
-            #         for key, value in track_dict.items():
-            #             wandb.log({f'test/{key}': np.array(value).mean(), 'step': clock.step})
-
-            if clock.step % cfg.val_frequency == 0:
-                inds = random.sample(range(0, len(test_pts)-1), BS)
-                data2, xyz2, target_R2 = getitem(test_pts[inds[:]], test_targets[inds[:]], builder, npoints=N, fixed_sampling=fixed_sampling)
-                loss_dict, info_dict = tr_agent.val_func(data2)
-                if cfg.vis and clock.step % cfg.vis_frequency == 0:
-                    tr_agent.visualize_batch(data2, "validation")
-
-            clock.tick()
-            if clock.step % cfg.save_step_frequency == 0:
-                tr_agent.save_ckpt('latest')
-
-        tr_agent.update_learning_rate()
-        clock.tock()
-
-        if clock.epoch % 10 == 0:
-            tr_agent.save_ckpt()
+    print('Con!')
+    # # Set t0
+    # t0 = time()
+    # # category-wise training setup
+    # infos       = global_info()
+    # data_infos  = infos.datasets[cfg.item]
+    # cfg.root_data   = infos.second_path + '/data'
+    # cfg.log_dir     = infos.second_path + cfg.log_dir
+    # cfg.model_dir   = cfg.log_dir + '/checkpoints'
+    # if not os.path.isdir(cfg.log_dir):
+    #     os.makedirs(cfg.log_dir)
+    #     os.makedirs(cfg.log_dir + '/checkpoints'
+    #     )
+    #
+    # if cfg.use_wandb:
+    #     if cfg.eval:
+    #         run_name = f'{cfg.exp_num}_{cfg.target_category}_eval'
+    #     else:
+    #         run_name = f'{cfg.exp_num}_{cfg.target_category}'
+    #     wandb.init(project="haoi-pose", name=run_name)
+    #     wandb.init(config=cfg)
+    # # copy the project codes into log_dir
+    # if (not cfg.eval) and (not cfg.debug):
+    #     if not os.path.isdir(f'{cfg.log_dir}/code'):
+    #         os.makedirs(f'{cfg.log_dir}/code')
+    #         os.makedirs(f'{cfg.log_dir}/code/dataset')
+    #     os.system('cp -r ./models {}/code'.format(cfg.log_dir))
+    #     os.system('cp -r ./config {}/code'.format(cfg.log_dir))
+    #     os.system('cp ./dataset/*py {}/code/dataset'.format(cfg.log_dir))
+    #
+    # # Shorthands
+    # out_dir = cfg.log_dir
+    # print('Saving to ', out_dir)
+    #
+    # # create network and training agent
+    # tr_agent = get_agent(cfg)
+    # # tr_agent = PointAEPoseAgent(cfg)
+    # equivariance_test(tr_agent.net.encoder)
+    # if cfg.use_wandb:
+    #     if cfg.module=='gan':
+    #         wandb.watch(tr_agent.netG)
+    #         wandb.watch(tr_agent.netD)
+    #     else:
+    #         wandb.watch(tr_agent.net)
+    #
+    # # load from checkpoint if provided
+    # if cfg.use_pretrain or cfg.eval:
+    #     tr_agent.load_ckpt(cfg.ckpt)
+    #
+    # # train_pts, targets = get_test_data()
+    # # train_pts, test_pts = get_category_data()
+    # train_pts, train_targets = get_single_data('airplane')
+    # # test_pts, test_targets = get_test_data(nx=8, ny=1, nz=1)
+    # test_pts, test_targets =  get_single_data('airplane', augment=True)
+    #
+    # builder = BuildGraph(num_samples=10)
+    # device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+    # inputs = []
+    # BS     = 2
+    # N  = cfg.num_points
+    # M  = cfg.num_modes_R
+    # CS = cfg.MODEL.num_channels_R
+    # npoints= cfg.num_points
+    # fixed_sampling = cfg.fixed_sampling
+    #
+    # # start training
+    # clock = tr_agent.clock #
+    # epoch_size = max(int(len(train_pts)/2), 1000)
+    # pbar = tqdm(range(0, epoch_size))
+    # for e in range(clock.epoch, 200):
+    #     for _, b in enumerate(pbar):
+    #         data, xyz1, target_R = getitem(train_pts[:2], train_targets[:2], builder, npoints=N, fixed_sampling=fixed_sampling)
+    #         torch.cuda.empty_cache()
+    #         loss_dict, info_dict = tr_agent.train_func(data)
+    #         pbar.set_description("EPOCH[{}][{}]".format(0, e)) #
+    #         pbar.set_postfix(OrderedDict({k: v.item() for k, v in  {**loss_dict, **info_dict}.items()}))
+    #
+    #         if cfg.vis and clock.step % cfg.vis_frequency == 0:
+    #             tr_agent.visualize_batch(data, "train")
+    #
+    #         # if clock.step % cfg.eval_frequency == 0:
+    #         #     track_dict = {'rdiff': [], 'tdiff': [], 'sdiff': [],
+    #         #                   '5deg': [], '5cm': [], '5deg5cm': []}
+    #         #     for num in range(10):
+    #         #         data, xyz1, target_R = getitem(train_pts[:2], train_targets[:2], builder, npoints=N, fixed_sampling=fixed_sampling)
+    #         #         data['idx'] = [b, b]
+    #         #         tr_agent.eval_func(data)
+    #         #         pose_diff = tr_agent.pose_err
+    #         #         for key in ['rdiff', 'tdiff', 'sdiff']:
+    #         #             track_dict[key].append(pose_diff[key].cpu().numpy().mean())
+    #         #         deg = pose_diff['rdiff'] <= 5.0
+    #         #         cm = pose_diff['tdiff'] <= 0.05
+    #         #         degcm = deg & cm
+    #         #         for key, value in zip(['5deg', '5cm', '5deg5cm'], [deg, cm, degcm]):
+    #         #             track_dict[key].append(value.float().cpu().numpy().mean())
+    #         #     if cfg.use_wandb:
+    #         #         for key, value in track_dict.items():
+    #         #             wandb.log({f'test/{key}': np.array(value).mean(), 'step': clock.step})
+    #
+    #         if clock.step % cfg.val_frequency == 0:
+    #             inds = random.sample(range(0, len(test_pts)-1), BS)
+    #             data2, xyz2, target_R2 = getitem(test_pts[inds[:]], test_targets[inds[:]], builder, npoints=N, fixed_sampling=fixed_sampling)
+    #             loss_dict, info_dict = tr_agent.val_func(data2)
+    #             if cfg.vis and clock.step % cfg.vis_frequency == 0:
+    #                 tr_agent.visualize_batch(data2, "validation")
+    #
+    #         clock.tick()
+    #         if clock.step % cfg.save_step_frequency == 0:
+    #             tr_agent.save_ckpt('latest')
+    #
+    #     tr_agent.update_learning_rate()
+    #     clock.tock()
+    #
+    #     if clock.epoch % 10 == 0:
+    #         tr_agent.save_ckpt()
 
 if __name__ == '__main__':
     main()

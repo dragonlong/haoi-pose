@@ -71,28 +71,41 @@ class PointAEPoseAgent(BaseAgent):
         return net
 
     def forward(self, data, verbose=False):
+        """
+        1. forwarding;
+        2. pred+loss+info for pose;
+        3. extra losses;
+        """
         self.infos    = {}
         if 'se3' in self.config.encoder_type:
             self.predict_se3(data)
         else:
             self.predict_pnet2(data)
 
+        if self.config.pred_6d:
+            self.compute_and_eval_6d(data)
+        if self.config.pred_axis:
+            self.compute_and_eval_axis(data)
+
         self.compute_loss(data)
 
     def eval_func(self, data):
         self.net.eval()
         with torch.no_grad():
-            self.forward(data) # already have eval_nocs
+            self.forward(data)
 
+        # get pose_err and pose_info
         if self.config.pred_6d:
             self.eval_6d(data)
+        else:
+            self.eval_nocs(data)
 
     def eval_6d(self, data, thres=0.05):
         """one step of validation"""
         BS = data['points'].shape[0]
         N  = self.config.num_points
         M  = self.config.num_modes_R
-        flatten_r = self.output_R.view(BS, N, -1).contiguous()
+        flatten_r    = self.output_R.view(BS, N, -1).contiguous()
         pairwise_dis = torch.norm(flatten_r.unsqueeze(2) - flatten_r.unsqueeze(1), dim=-1) # [2, 512, 512]
         inliers_mask = torch.zeros_like(pairwise_dis)
         inliers_mask[pairwise_dis<thres] = 1.0   # [B, N, N]
@@ -127,7 +140,7 @@ class PointAEPoseAgent(BaseAgent):
     def predict_se3(self, data):
         input_pts  = data['points'].cuda()
         BS = input_pts.shape[0]
-        N  = input_pts.shape[1] # B, N, 3
+        N  = input_pts.shape[1]      # B, N, 3
         M  = self.config.num_modes_R
         CS = self.config.MODEL.num_channels_R
         device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
@@ -145,13 +158,6 @@ class PointAEPoseAgent(BaseAgent):
 
         if self.config.pred_mode: # map 4 to 2
             self.output_M = self.net.classifier_mode(self.latent_vect['R0']).squeeze() # [BS * N, M, 1]-->[BS * N, M] --> [BS, M, N]
-
-        if self.config.pred_nocs:
-            self.eval_nocs(data)
-        elif self.config.pred_6d:
-            self.compute_and_eval_6d(data)
-        else:
-            self.compute_and_eval_axis(data)
 
     def predict_pnet2(self, data):
         BS = data['points'].shape[0]
@@ -178,13 +184,6 @@ class PointAEPoseAgent(BaseAgent):
         if self.config.pred_mode: # B, M, N
             self.output_M = self.latent_vect['M'].permute(0, 2, 1).contiguous().view(-1, M).contiguous() # BS*N, M
 
-        if self.config.pred_nocs:
-            self.eval_nocs(data)
-        elif self.config.pred_6d:
-            self.compute_and_eval_6d(data)
-        else:
-            self.compute_and_eval_axis(data)
-
     def compute_and_eval_6d(self, data):
         input_pts  = data['points']
         BS = input_pts.shape[0]
@@ -192,18 +191,17 @@ class PointAEPoseAgent(BaseAgent):
         M  = self.config.num_modes_R
         CS = self.config.MODEL.num_channels_R
         target_R   = data['R'].cuda()
-        #     target_R_tiled  = target_R.unsqueeze(1).contiguous().unsqueeze(1).contiguous().repeat(1, N, M, 1, 1).contiguous()
-        #     geodesic_loss   = loss_geodesic(self.output_R, target_R_tiled.view(-1, 3, 3).contiguous())  # BS*N* C/2
-        #     self.degree_err_full = geodesic_loss.view(BS, N, M).contiguous()       # BS, N, M
-        #     self.output_R_full   = self.output_R.view(BS, N, M, 3, 3).contiguous() # BS, N, M, 3, 3
-        #     self.output_R   = self.output_R_full.squeeze()
-        #     self.norm_err   = torch.norm(self.output_R.view(BS, N, M, -1).contiguous() - target_R_tiled.view(BS, N, M, -1).contiguous(), dim=-1)
-        #
+        if 'C' in data:
+            mask = data['C'].cuda() # B, N
+        else:
+            mask = torch.ones(B, N, device=target_R.device)
+
         target_R_tiled  = target_R.unsqueeze(1).contiguous().repeat(1, N, 1, 1).contiguous()
         geodesic_loss   = loss_geodesic(self.output_R, target_R_tiled.view(-1, 3, 3).contiguous().float())  # BS*N* C/2
         self.degree_err_full = geodesic_loss.view(BS, N).contiguous()       # BS, N
         self.output_R_full   = self.output_R.view(BS, N, 3, 3).contiguous() # BS, N, 3, 3
-        self.output_R   = self.output_R_full.squeeze()
+        self.output_R   = self.output_R_full.squeeze()                      # BS, N, 3, 3
+        # BS, N
         self.norm_err   = torch.norm(self.output_R.view(BS, N, 9).contiguous() - target_R_tiled.view(BS, N, 9).contiguous(), dim=-1)
 
         if self.config.check_consistency: # BS, N, M, 3, 3
@@ -224,8 +222,8 @@ class PointAEPoseAgent(BaseAgent):
                 self.regressionR_loss = min_loss
                 self.degree_err = self.degree_err_full[torch.arange(BS), :, min_indices] # degree err is raw GT mode prediction
         else:
-            self.regressionR_loss = self.norm_err.mean(dim=1)
-            self.degree_err = self.degree_err_full.squeeze()
+            self.regressionR_loss = torch.sum(self.norm_err * mask, dim=1)/torch.sum(mask, dim=1)
+            self.degree_err = self.degree_err_full.squeeze() * mask
 
         self.regressionR_loss = self.regressionR_loss.mean()
         correctness_mask = torch.zeros((self.degree_err.shape[0], self.degree_err.shape[1]), device=self.output_R.device) # B, N
@@ -309,6 +307,8 @@ class PointAEPoseAgent(BaseAgent):
         target_pts = input_pts.clone().detach()
         target_T   = data['T'].cuda().permute(0, 2, 1).contiguous() # B, 3, N
         target_C   = None  # target_C   = data['C'].cuda()
+        if 'C' in data:
+            target_C   = data['C'].cuda()
         confidence = target_C
         #>>>>>>>>>>>>>>>>>> 2. computing loss <<<<<<<<<<<<<<<<<<<#
         if self.config.pred_seg:

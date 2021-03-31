@@ -129,44 +129,43 @@ class InterDownGraph(nn.Module): #
         BS: batch size
         """
         glist = []
-        pos = G.ndata['x'].view(BS, -1, 3).contiguous() # it should be 256, but only got 249, then the input doesn't have enough points
+        # update the gr
+        pos = G.ndata['x'].view(BS, -1, 3).contiguous()
         B, N, _ = pos.shape
-        xyz_ind, xyz_query = self.n_sampler(pos)        # downsample, might be that I actually sampled 256 > 249, so that
+        xyz_ind, xyz_query = self.n_sampler(pos)
         neighbors_ind      = self.e_sampler(pos, xyz_query) #
+        feat    = G.ndata['f'].view(BS, N, -1).contiguous()
+        feat_query = fps_gather_by_index(feat.permute(0, 2, 1).contiguous(), xyz_ind).permute(0, 2, 1).contiguous()
         glist              = []                          # works for all complete shapes
+        # for i in range(BS):
+        #     src = neighbors_ind[i].contiguous().view(-1)
+        #     dst = xyz_ind[i].view(-1, 1).repeat(1, self.num_samples).view(-1)
+        #     g = dgl.DGLGraph((src.long(), dst.long()))
+        #     g.ndata['x'] = pos[i]
+        #     g.ndata['f'] = feat[i].unsqueeze(-1)
+        #     g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()] #[num_atoms,3] but we only supervise the half
+        #     glist.append(g)
         for i in range(BS):
             src = neighbors_ind[i].contiguous().view(-1)
             dst = xyz_ind[i].view(-1, 1).repeat(1, self.num_samples).view(-1)
-            # g = dgl.DGLGraph((src.cpu().long(), dst.cpu().long()))
-            g = dgl.DGLGraph((src.long(), dst.long()))
-            try:
-                g.ndata['x'] = pos[i] # dgl._ffi.base.DGLError: Expect number of features to match number of nodes (len(u)). Got 256 and 249 instead.
-                g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
-                g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()] #[num_atoms,3] but we only supervise the half
-            except:
-                print('---something wrong!!!')
-                g = dgl.unbatch(G)[i]
-                g.remove_edges( np.arange( len(g.all_edges()[0]) ).tolist()) # this line comes with bug
-                g.add_edges(src.cpu().long(), dst.cpu().long())
-                g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()]
+            g = dgl.graph((src.long(), dst.long()), num_nodes=len(pos[i]))
+            g.ndata['x'] = pos[i]
+            g.ndata['f'] = feat[i].unsqueeze(-1)
+            g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()]
             glist.append(g)
-
         Gmid = dgl.batch(glist)
 
         # updated graph
         glist = []
-        pos   = xyz_query
-        neighbors_ind = self.e_sampler(pos, pos)
+        neighbors_ind = self.e_sampler(xyz_query, xyz_query)
         for i in range(B):
-            # src = neighbors_ind[i].contiguous().view(-1).cpu()
-            # dst = torch.arange(pos[i].shape[0]).view(-1, 1).repeat(1, self.num_samples).view(-1)
-            # g = dgl.DGLGraph((src.cpu(), dst.cpu()))
             src = neighbors_ind[i].contiguous().view(-1)
-            dst = torch.arange(pos[i].shape[0], device=src.device).view(-1, 1).repeat(1, self.num_samples).view(-1)
-            g = dgl.DGLGraph((src.long(), dst.long()))
-            g.ndata['x'] = pos[i]
-            g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
-            g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()] #[num_atoms,3] but we only supervise the half
+            dst = torch.arange(xyz_query[i].shape[0], device=src.device).view(-1, 1).repeat(1, self.num_samples).view(-1)
+            # g = dgl.DGLGraph((src.long(), dst.long()))
+            g = dgl.graph((src.long(), dst.long()), num_nodes=len(xyz_query[i]))
+            g.ndata['x'] = xyz_query[i]
+            g.ndata['f'] = feat_query[i].unsqueeze(-1)
+            g.edata['d'] = xyz_query[i][dst.long()] - xyz_query[i][src.long()] #[num_atoms,3] but we only supervise the half
             glist.append(g)
         Gout = dgl.batch(glist)
 
@@ -213,7 +212,6 @@ class BuildGraph(nn.Module):
             g.ndata['x'] = pos[i]
             g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
             g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()] #[num_atoms,3] but we only supervise the half
-            #
             glist.append(g)
         G = dgl.batch(glist)
         return G, h
@@ -264,8 +262,6 @@ class SampleNeighbors(nn.Module):
         if self.knn:
             dist= pdist2squared(xyz2.permute(0, 2, 1).contiguous(), xyz1.permute(0, 2, 1).contiguous())
             ind = dist.topk(self.num_samples+1, dim=1, largest=False)[1].int().permute(0, 2, 1).contiguous()[:, :, 1:]
-            # print('knn neighbors, ', self.num_samples, ':')
-            # print(ind[0])
         else:
             # TODO: need to remove self from neighborhood index
             ind = ball_query(self.radius, self.num_samples+1, xyz2, xyz1, False)
@@ -363,6 +359,7 @@ class SE3Transformer(nn.Module):
         # Build the network
         self.num_nlayers  = cfg.MODEL.num_nlayers
         self.num_in_channels  = cfg.MODEL.num_in_channels
+        # self.num_in_channels  = 3
         self.num_mid_channels = cfg.MODEL.num_mid_channels
         self.num_out_channels = cfg.MODEL.num_out_channels
         self.num_channels_R   = cfg.MODEL.num_channels_R
@@ -453,7 +450,6 @@ class SE3Transformer(nn.Module):
         h4, G4, r4, basis4 = self.down_modules[3](h3, Gin=G3, BS=self.batch_size) # 64-32
         # pred_dict['h4'] =  {'0': h4['0'].detach().clone(), '1': h4['1'].detach().clone()}
         # h, G, r, basis = h4, G4, r4, basis4
-        # return h['0'], h['1']
 
         # decoding
         if not self.encoder_only:
@@ -989,7 +985,7 @@ if __name__ == '__main__':
         # print('src_idx.shape', '\n', src_idx[0:100], '\n', 'dst_idx.shape', '\n', dst_idx[0:100])
         g = dgl.DGLGraph((src_idx, dst_idx))
         g.ndata['x'] = pos[i][uniq]
-        g.ndata['f'] = torch.from_numpy(feat[i][uniq].astype(np.float32)[:, :, np.newaxis])
+        g.ndata['f'] = torch.from_numpy(feat[i][uniq].astype(np.float32)[:, :, np.newaxis]) # BS, N,
         g.edata['d'] = pos[i][dst_idx] - pos[i][src_idx] #[num_atoms,3]
         glist.append(g)
     batched_graph = dgl.batch(copy(glist)).to(device)
