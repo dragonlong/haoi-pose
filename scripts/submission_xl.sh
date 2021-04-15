@@ -396,7 +396,7 @@ pred_6d=True num_modes_R=4 MODEL.num_in_channels=1 use_adaptive_mode=True \
 eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
 use_wandb=True
 
-0.6413: # dgcnn for R regression, mode=2
+0.6413: # original dgcnn for R regression, mode=2
 TRAIN_OBJ='python train_aegan.py training=ae_gan models=dgcnn encoder_type=dgcnn vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
 $TRAIN_OBJ task='pcloud_pose' item='oracle' name_dset='oracle' target_category='airplane' exp_num='0.6413' DATASET.train_batch=12 DATASET.test_batch=12 \
 augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
@@ -404,7 +404,7 @@ pred_6d=True num_modes_R=2 MODEL.num_in_channels=1 use_adaptive_mode=True \
 eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
 use_wandb=True
 
-0.6414: # dgcnn for R regression, mode=1
+0.6414: # original dgcnn for R regression, mode=1
 TRAIN_OBJ='python train_aegan.py training=ae_gan models=dgcnn encoder_type=dgcnn vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
 $TRAIN_OBJ task='pcloud_pose' item='oracle' name_dset='oracle' target_category='airplane' exp_num='0.6414' DATASET.train_batch=12 DATASET.test_batch=12 \
 augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
@@ -412,7 +412,7 @@ pred_6d=True num_modes_R=1 MODEL.num_in_channels=1 use_adaptive_mode=True \
 eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
 use_wandb=True
 
-0.6415: # dgcnn for R regression, mode=2
+0.6415: # adapted dgcnn for R regression, mode=2
 TRAIN_OBJ='python train_aegan.py training=ae_gan models=en3 encoder_type=en3 vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
 $TRAIN_OBJ task='pcloud_pose' item='oracle' name_dset='oracle' target_category='airplane' exp_num='0.6415' DATASET.train_batch=12 DATASET.test_batch=12 \
 augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
@@ -420,7 +420,7 @@ pred_6d=True num_modes_R=2 MODEL.num_in_channels=3 use_adaptive_mode=True \
 eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
 use_wandb=True
 
-0.6416: # dgcnn for R regression, mode=1
+0.6416: # adapted dgcnn for R regression, mode=1
 TRAIN_OBJ='python train_aegan.py training=ae_gan models=en3 encoder_type=en3 vis=True num_points=512 n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
 $TRAIN_OBJ task='pcloud_pose' item='oracle' name_dset='oracle' target_category='airplane' exp_num='0.6416' DATASET.train_batch=12 DATASET.test_batch=12 \
 augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
@@ -495,23 +495,52 @@ augment=True MODEL.num_channels_R=1 pred_nocs=True use_objective_N=True \
 eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
 use_wandb=True
 
-0.6511: # NOCS regression with dgcnn, 360
+0.6511: # NOCS regression with original dgcnn, 360
 TRAIN_OBJ='python train_aegan.py training=ae_gan models=dgcnn encoder_type=dgcnn vis=True num_points=512 n_pts=512 name_model=ae dataset_class=AEGraph'
 $TRAIN_OBJ task='pcloud_pose' item='oracle' name_dset='oracle' target_category='airplane' exp_num='0.6511' DATASET.train_batch=12 DATASET.test_batch=12 \
 augment=True MODEL.num_channels_R=1 pred_nocs=True use_objective_N=True \
 eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
 use_wandb=True
 
-0.6512: # NOCS regression with en3, 360, use feature knn
+0.6512: # NOCS regression with adpated dgcnn, 360, use feature knn
 TRAIN_OBJ='python train_aegan.py training=ae_gan models=en3 encoder_type=en3 vis=True num_points=512 n_pts=512 name_model=ae dataset_class=AEGraph'
 $TRAIN_OBJ task='pcloud_pose' item='oracle' name_dset='oracle' target_category='airplane' exp_num='0.6512' DATASET.train_batch=12 DATASET.test_batch=12 \
 augment=True MODEL.num_channels_R=1 pred_nocs=True MODEL.num_in_channels=3 use_objective_N=True \
 eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
 use_wandb=True
 
-0.6513: # NOCS regression with en3, 360, use xyz knn
+0.6513: # NOCS regression with adpated dgcnn, 360, use xyz knn
 TRAIN_OBJ='python train_aegan.py training=ae_gan models=en3 encoder_type=en3 vis=True num_points=512 n_pts=512 name_model=ae dataset_class=AEGraph'
 $TRAIN_OBJ task='pcloud_pose' item='oracle' name_dset='oracle' target_category='airplane' exp_num='0.6513' DATASET.train_batch=12 DATASET.test_batch=12 \
+augment=True MODEL.num_channels_R=1 pred_nocs=True MODEL.num_in_channels=3 use_objective_N=True \
+eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
+use_wandb=True
+
+0.6514: # NOCS regression with en3-dgcnn, 360, use xyz knn
+TRAIN_OBJ='python train_aegan.py training=ae_gan models=en3 encoder_type=en3 vis=True num_points=512 n_pts=512 name_model=ae dataset_class=AEGraph'
+$TRAIN_OBJ task='pcloud_pose' item='oracle' name_dset='oracle' target_category='airplane' exp_num='0.6514' DATASET.train_batch=12 DATASET.test_batch=12 \
+augment=True MODEL.num_channels_R=1 pred_nocs=True MODEL.num_in_channels=3 use_objective_N=True \
+eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
+use_wandb=True
+
+# 0.1 cleaned EGNN;
+# 1. use largest=True, knn
+# 2. further remove rela_dist
+# 3. replace e_mlp with the same in dgcnn: bn, leaky_relu, better?
+
+0.6515: # NOCS regression with en3-dgcnn, 360, use xyz knn
+TRAIN_OBJ='python train_aegan.py training=ae_gan models=en3 encoder_type=en3 vis=True num_points=512 n_pts=512 name_model=ae dataset_class=AEGraph'
+$TRAIN_OBJ task='pcloud_pose' item='oracle' name_dset='oracle' target_category='airplane' exp_num='0.6515' DATASET.train_batch=12 DATASET.test_batch=12 \
+augment=True MODEL.num_channels_R=1 pred_nocs=True MODEL.num_in_channels=3 use_objective_N=True \
+eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
+use_wandb=True
+# 0 only remove batch_norm:       not working;
+# 1 replace leaky_relu with silu: almost as good
+# 2 change 64 --> 14?     :       almost as good
+# 3 only change 128 --> 64:       guess to be same good!
+# 4 
+TRAIN_OBJ='python train_aegan.py training=ae_gan models=en3 encoder_type=en3 vis=True num_points=512 n_pts=512 name_model=ae dataset_class=AEGraph'
+$TRAIN_OBJ task='pcloud_pose' item='oracle' name_dset='oracle' target_category='airplane' exp_num='0.65153' DATASET.train_batch=12 DATASET.test_batch=12 \
 augment=True MODEL.num_channels_R=1 pred_nocs=True MODEL.num_in_channels=3 use_objective_N=True \
 eval_frequency=1000 vis_frequency=500 val_frequency=100 save_frequency=10 \
 use_wandb=True
