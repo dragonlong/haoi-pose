@@ -249,7 +249,6 @@ def compute_1vN_nocs_loss(nocs, nocs_gt, confidence=None, target_category='remot
     nocs_gt_aug = torch.matmul(rmats, torch.unsqueeze(nocs_gt, 1)-0.5) + 0.5
     for i in range(num_parts): #
         diff_l2 = torch.norm(nocs_splits[i].unsqueeze(1) - nocs_gt_aug, dim=2) # BxMxN
-        # diff_abs= torch.sum(torch.abs(nocs_splits[i] - nocs_gt), dim=1)        # BxMxN
         if mask_splits is not None:
             loss_part = torch.sum(mask_splits[i][:, 0:1, :]  * diff_l2, dim=-1)/(torch.sum(mask_splits[i][:, 0:1, :], dim=-1) + 1)   # [B, M, N] * [B, 1, N] -> B, M
         else:

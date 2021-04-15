@@ -51,7 +51,14 @@ class BaseAgent(object):
     def set_optimizer(self, config):
         """set optimizer used in training"""
         self.base_lr = config.lr
-        self.optimizer = optim.Adam(self.net.parameters(), config.lr)
+        if config.DATASET.train_batch == 1:
+            self.optimizer = optim.SGD(
+                self.net.parameters(),
+                lr=config.lr,
+                momentum=0.9,
+                weight_decay=1e-4)
+        else:
+            self.optimizer = optim.Adam(self.net.parameters(), config.lr)
 
     def set_scheduler(self, config):
         """set lr scheduler used in training"""

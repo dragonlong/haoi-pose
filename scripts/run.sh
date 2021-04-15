@@ -111,6 +111,8 @@ end=`date +%s`
 runtime=$((end-start))
 echo ${runtime}
 
+python nocs_samplepoints.py --start_idx=0 --group_by=800 2>&1 | tee shapenet_n.log
+
 hao
 cd tools
 for i in 0 1 2 3 4

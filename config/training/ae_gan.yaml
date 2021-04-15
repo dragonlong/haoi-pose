@@ -5,7 +5,7 @@ n_pts: 2048 # network output, hyper_para
 enc_filters: (64, 128, 128, 256)
 latent_dim: 128
 dec_features: (256, 256)
-nocs_features: [128, 128, 3]
+nocs_features: [128, 128, 3, 'sigmoid']
 seg_features: [128, 128, 2, 'softmax']
 confi_features: [128, 1, 'sigmoid']
 mode_features: ['softmax']

@@ -1,5 +1,5 @@
 MODEL:
-  num_layers: 3
+  num_layers: 6
   num_in_channels: 1
   num_mid_channels: 1
   num_out_channels: 32

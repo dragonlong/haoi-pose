@@ -107,8 +107,7 @@ class NOCSDataset(data.Dataset):
         self.task  = cfg.task
         self.split = split
         # needed number
-        self.batch_size    = cfg.DATASET.batch_size
-        self.npoints       = cfg.DATASET.num_points
+        self.npoints       = cfg.num_points
         self.num_gen_samples=cfg.DATASET.num_gen_samples
         self.num_of_class  =cfg.DATASET.num_of_class
         self.radius = 0.1
@@ -147,7 +146,7 @@ class NOCSDataset(data.Dataset):
         self.cloud_dict = manager.dict()
         self.g_dict    = manager.dict()
         self.r_dict    = manager.dict()
-        self.frnn  = FixedRadiusNearNeighbors(self.radius, self.num_samples, knn=True)
+        self.frnn      = FixedRadiusNearNeighbors(self.radius, self.num_samples, knn=True)
 
         if self.cfg.eval or self.split != 'train':
             np.random.seed(0)
@@ -156,7 +155,7 @@ class NOCSDataset(data.Dataset):
 
         # pre-fetch
         self.backup_cache = []
-        for j in range(100):
+        for j in range(300):
             fn  = self.datapath[j]
             category_name = fn.split('.')[0].split('/')[-4]
             instance_name = fn.split('.')[0].split('/')[-5]
@@ -165,6 +164,7 @@ class NOCSDataset(data.Dataset):
             p_arr     = data_dict['points'][labels]
             if p_arr.shape[0] > self.npoints:
                 self.backup_cache.append([category_name, instance_name, data_dict, j])
+        print('backup has ', len(self.backup_cache))
 
     def get_sample_partial(self, idx, verbose=False):
         fn  = self.datapath[idx]
@@ -185,11 +185,11 @@ class NOCSDataset(data.Dataset):
                     print('use ', idx)
                 labels = data_dict['labels']
                 p_arr  = data_dict['points'][labels]
-            rgb       = data_dict['rgb'][labels]
+            rgb       = data_dict['rgb'][labels] / 255.0
             pose      = data_dict['pose']
             r, t, s   = pose['rotation'], pose['translation'].reshape(-1, 3), pose['scale']
             labels = labels[labels].astype(np.int).reshape(-1, 1) # only get true
-            if s == 0:
+            if s < 0.00001:
                 s = 1
             n_arr     = np.matmul(p_arr - t, r) / s + 0.5 # scale
             center    = t.reshape(1, 3)
@@ -200,27 +200,17 @@ class NOCSDataset(data.Dataset):
             up_axis   = np.matmul(np.array([[0.0, 1.0, 0.0]]), r.T)
             if verbose:
                 print(f'we have {p_arr.shape[0]} pts')
-            # if verbose:
-            #     save_path = self.cfg.log_dir + '/input'
-            #     if not exists(save_path):
-            #         makedirs(save_path)
-            #     save_name = save_path + f'/{idx}.txt'
-            #     labels    = labels.reshape(-1, 1)
-            #     save_arr  = np.concatenate([p_arr, labels], axis=1)
-            #     np.savetxt(save_name, save_arr)
-            #     save_name = save_path + f'/{idx}_canon.txt'
-            #     save_arr  = np.concatenate([n_arr, labels], axis=1)
-            #     np.savetxt(save_name, save_arr)
-            #     print('saving to ', save_name)
             full_points = np.concatenate([p_arr, n_arr, rgb], axis=1)
             full_points = np.random.permutation(full_points)
             pos         = torch.from_numpy(full_points[:self.npoints, :3].astype(np.float32)).unsqueeze(0)
             nocs_gt     = torch.from_numpy(full_points[:self.npoints, 3:6].astype(np.float32))
 
             if self.cfg.MODEL.num_in_channels == 1:
-                feat= torch.from_numpy(np.ones((pos.shape[0], pos.shape[1], 1)).astype(np.float32))
+                feat = torch.from_numpy(np.ones((pos.shape[0], pos.shape[1], 1)).astype(np.float32))
+            elif self.cfg.use_rgb:
+                feat = torch.from_numpy(full_points[:self.npoints, 6:9].astype(np.float32)).unsqueeze(0)
             else:
-                feat      = torch.from_numpy(full_points[:self.npoints, 6:9].astype(np.float32)).unsqueeze(0)
+                feat = torch.from_numpy(full_points[:self.npoints, 6:9].astype(np.float32)).unsqueeze(0)
             centroids = torch.from_numpy(np.arange(pos.shape[1]).reshape(1, -1))
             group_idx = self.frnn(pos, centroids)
             src = group_idx[0].contiguous().view(-1)
@@ -248,8 +238,6 @@ class NOCSDataset(data.Dataset):
 
     def get_sample_full(self, idx, verbose=False):
         fn  = self.datapath[idx]
-        if verbose:
-            print(fn)
         category_name = fn.split('.')[0].split('/')[-4]
         instance_name = fn.split('.')[0].split('/')[-5]
 
@@ -259,16 +247,18 @@ class NOCSDataset(data.Dataset):
             data_dict = np.load(fn, allow_pickle=True)['all_dict'].item()
             labels    = data_dict['labels']
             p_arr     = data_dict['points']
-            extra_points = data_dict['points']
             if p_arr.shape[0] < self.npoints:
                 category_name, instance_name, data_dict, idx = self.backup_cache[random.randint(0, len(self.backup_cache)-1)]
                 labels = data_dict['labels']
                 p_arr  = data_dict['points']
-            rgb       = data_dict['rgb']
+            ind_fore  = np.where(labels)[0]
+            ind_back  = np.where(~labels)[0]
+
+            rgb       = data_dict['rgb'] / 255.0
             pose      = data_dict['pose']
             r, t, s   = pose['rotation'], pose['translation'].reshape(-1, 3), pose['scale']
-            labels    = labels.astype(np.int).reshape(-1, 1) # only get true
-            if s == 0:
+            labels    = labels.astype(np.int)
+            if s < 0.00001:
                 s = 1
             n_arr     = np.matmul(p_arr - t, r) / s + 0.5 # scale
             center    = t.reshape(1, 3)
@@ -277,19 +267,23 @@ class NOCSDataset(data.Dataset):
             center_offset = p_arr - center #
             bb_offset =  bb_pts - p_arr #
             up_axis   = np.matmul(np.array([[0.0, 1.0, 0.0]]), r.T)
-            if verbose:
-                print(f'we have {p_arr.shape[0]} pts')
 
-            full_points = np.concatenate([p_arr, n_arr, rgb, labels], axis=1)
-            full_points = np.random.permutation(full_points)
-            pos         = torch.from_numpy(full_points[:self.npoints, :3].astype(np.float32)).unsqueeze(0)
-            nocs_gt     = torch.from_numpy(full_points[:self.npoints, 3:6].astype(np.float32))
-            labels      = torch.from_numpy(full_points[:self.npoints, 9].astype(np.float32)) # N
+            # choose inds
+            half_num    = int(self.npoints/2)
+            if len(ind_back) < half_num:
+                half_num = self.npoints - len(ind_back)
+            fore_choose = np.random.permutation(ind_fore)[:half_num]
+            another_half_num = self.npoints - len(fore_choose)
+            back_choose = np.random.permutation(ind_back)[:another_half_num]
+            all_inds    = np.concatenate([fore_choose, back_choose])
+            pos         = torch.from_numpy(p_arr[all_inds].astype(np.float32)).unsqueeze(0)
+            nocs_gt     = torch.from_numpy(n_arr[all_inds].astype(np.float32))
+            labels      = torch.from_numpy(labels[all_inds].astype(np.float32)) # N
 
             if self.cfg.MODEL.num_in_channels == 1:
                 feat= torch.from_numpy(np.ones((pos.shape[0], pos.shape[1], 1)).astype(np.float32))
             else:
-                feat      = torch.from_numpy(full_points[:self.npoints, 6:9].astype(np.float32)).unsqueeze(0)
+                feat      = torch.from_numpy(rgb[all_inds].astype(np.float32)).unsqueeze(0)
             centroids = torch.from_numpy(np.arange(pos.shape[1]).reshape(1, -1))
             group_idx = self.frnn(pos, centroids)
             src = group_idx[0].contiguous().view(-1)
@@ -304,14 +298,14 @@ class NOCSDataset(data.Dataset):
         src_idx = inv_idx[:src.shape[0]]
         dst_idx = inv_idx[src.shape[0]:]
         g = dgl.DGLGraph((src_idx, dst_idx))
-        g.ndata['x'] = pos[0][uniq] # use
+        g.ndata['x'] = pos[0][uniq]
         g.ndata['f'] = feat[0][uniq].unsqueeze(-1)
         g.edata['d'] = pos[0][dst_idx] - pos[0][src_idx]
 
         R = torch.from_numpy(r.astype(np.float32)) # predict r
         T = torch.from_numpy(t.astype(np.float32))
         center = torch.from_numpy(np.array([[0.5, 0.5, 0.5]])) # 1, 3
-        center_offset = pos[0].clone().detach() - T #
+        center_offset = pos[0].clone().detach() - T
 
         return g, nocs_gt, instance_name, R, center_offset, idx, category_name, labels
 

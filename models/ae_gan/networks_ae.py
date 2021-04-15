@@ -29,7 +29,9 @@ from common.debugger import *
 from models.model_factory import ModelBuilder
 from models.pointnet_lib.networks import PointTransformer
 from models.decoders.pointnet_2 import PointNet2Segmenter
+from models.decoders.egnn_model import EquivariantDGCNN
 # from models.decoders.equivariant_model import EquivariantDGCNN
+from models.decoders.dgcnn import DGCNN_semseg
 
 # from kaolin.models.PointNet2 import furthest_point_sampling
 # from kaolin.models.PointNet2 import fps_gather_by_index
@@ -129,14 +131,13 @@ class InterDownGraph(nn.Module): #
         BS: batch size
         """
         glist = []
-        # update the gr
         pos = G.ndata['x'].view(BS, -1, 3).contiguous()
         B, N, _ = pos.shape
         xyz_ind, xyz_query = self.n_sampler(pos)
         neighbors_ind      = self.e_sampler(pos, xyz_query) #
         feat    = G.ndata['f'].view(BS, N, -1).contiguous()
         feat_query = fps_gather_by_index(feat.permute(0, 2, 1).contiguous(), xyz_ind).permute(0, 2, 1).contiguous()
-        glist              = []                          # works for all complete shapes
+        glist      = []                          # works for all complete shapes
         # for i in range(BS):
         #     src = neighbors_ind[i].contiguous().view(-1)
         #     dst = xyz_ind[i].view(-1, 1).repeat(1, self.num_samples).view(-1)
@@ -273,7 +274,7 @@ class PointNetplusplus(nn.Module):
     """PointNet++ with multiple heads"""
     def __init__(self, cfg):
         super().__init__()
-        self.backbone   = PointNet2Segmenter(num_classes=3, use_random_ball_query=True)
+        self.backbone   = PointNet2Segmenter(num_classes=3, in_features=cfg.MODEL.num_in_channels, use_random_ball_query=True)
         net_header, head_names  = ModelBuilder.build_header(layer_specs=cfg.HEAD)
         self.head       = net_header
         self.head_names = head_names
@@ -371,7 +372,7 @@ class SE3Transformer(nn.Module):
         self.n_heads    = n_heads
         self.vector_attention = vector_attention
         self.latent_dim = latent_dim
-        self.batch_size = 2 # TODO
+        self.batch_size = cfg.DATASET.train_batch # TODO
 
         self.fibers = {'in': Fiber(1, self.num_in_channels),
                        'mid': Fiber(self.num_degrees, self.num_mid_channels),         # should match with first downsample layer input
@@ -762,32 +763,34 @@ class GraphFPResNoSkipLinkModule(nn.Module):
 
         return h
 
-class en3_transformer(nn.Module):
-    """en3_transformer with multiple heads"""
-    def __init__(self, cfg):
-        super().__init__()
-        k = 16
-        C               = cfg.MODEL.num_mid_channels
-        C_in            = cfg.MODEL.num_in_channels
-        self.num_R      = cfg.MODEL.num_channels_R
-        C_out           = self.num_R                # for 6D rotation, use 2; for 3D rotation, use 1.
-        self.backbone   = EquivariantDGCNN(k, C, C_in, C_out) # k, C, C_in=1, C_out=2):
-        net_header, head_names  = ModelBuilder.build_header(layer_specs=cfg.HEAD)
-        self.head       = net_header
-        self.head_names = head_names
-
-
-    def forward(self, xyz):
-        BS, _, N = xyz.shape
-        x = torch.cat([xyz.double(), torch.ones((BS, 1, N), device=xyz.device).double()], dim=1)
-        x_out, f_out = self.backbone(x) # x: # [batch_size, C_out, 3, num_points];  f: [batch_size, 64, num_points]
-        pred_dict = {}
-        pred_dict['R'] = x_out[:, :self.num_R, :, :]# N, C, 3, N
-        pred_dict['T'] = x_out[:, -1, :, :]
-        for i, sub_head in enumerate(self.head):
-            pred_dict[self.head_names[i]] = self.head[i](f_out)
-
-        return pred_dict
+# class en3_transformer(nn.Module):
+#     """en3_transformer with multiple heads"""
+#     def __init__(self, cfg):
+#         super().__init__()
+#         k = 16
+#         C               = cfg.MODEL.num_mid_channels
+#         C_in            = cfg.MODEL.num_in_channels
+#         self.num_R      = cfg.MODEL.num_channels_R
+#         C_out           = self.num_R                # for 6D rotation, use 2; for 3D rotation, use 1.
+#         self.backbone   = EquivariantDGCNN(k, C, C_in, C_out) # k, C, C_in=1, C_out=2):
+#         net_header, head_names  = ModelBuilder.build_header(layer_specs=cfg.HEAD)
+#         self.head       = net_header
+#         self.head_names = head_names
+#
+#
+#     def forward(self, f=None, x=None, pts=None):
+#         if pts is not None:
+#             x = pts[:, :3, :].permute(0, 2, 1).contiguous()
+#             f = pts[:, 3:, :].permute(0, 2, 1).contiguous()
+#
+#         x_out, f_out = self.backbone(x) # x: # [batch_size, C_out, 3, num_points];  f: [batch_size, 64, num_points]
+#         pred_dict = {}
+#         pred_dict['R'] = x_out[:, :self.num_R, :, :]# N, C, 3, N
+#         pred_dict['T'] = x_out[:, -1, :, :]
+#         for i, sub_head in enumerate(self.head):
+#             pred_dict[self.head_names[i]] = self.head[i](f_out)
+#
+#         return pred_dict
 
 # PointNet as Encoder
 ##############################################################################
@@ -829,12 +832,15 @@ class PointAE(nn.Module):
         elif 'plus' in self.encoder_type:
             self.encoder = PointNetplusplus(cfg)
         elif 'en3' in self.encoder_type:
-            default_type = torch.DoubleTensor
-            torch.set_default_tensor_type(default_type)
-            self.encoder = en3_transformer(cfg)
+            # default_type = torch.DoubleTensor
+            # torch.set_default_tensor_type(default_type)
+            # self.encoder = en3_transformer(cfg)
+            self.encoder = EquivariantDGCNN(C_in=cfg.MODEL.num_in_channels, num_mode=cfg.num_modes_R, depth=cfg.MODEL.num_layers) # k, C, C_in=1, C_out=2):
         elif 'point_transformer' in self.encoder_type:
             self.encoder = PointTransformer(num_channels_R=cfg.MODEL.num_channels_R,
-                                            R_dim=6 if cfg.pred_6d else 3)
+                                            R_dim=6 if cfg.pred_6d else 3, num_in_channels=cfg.MODEL.num_in_channels)
+        elif 'dgcnn' in self.encoder_type:
+            self.encoder = DGCNN_semseg(num_mode=cfg.num_modes_R)
         else:
             self.encoder = EncoderPointNet(eval(cfg.enc_filters), cfg.latent_dim, cfg.enc_bn)
 
@@ -940,7 +946,7 @@ class FixedRadiusNearNeighbors(nn.Module):
             group_idx = group_idx[:, :, 1:self.n_neighbor+1]
         else:
             group_idx[sqrdists > self.radius ** 2] = N
-            group_idx = group_idx.sort(dim=-1)[0][:, :, :self.n_neighbor]
+            group_idx   = group_idx.sort(dim=-1)[0][:, :, :self.n_neighbor]
             group_first = group_idx[:, :, 0].view(B, S, 1).repeat([1, 1, self.n_neighbor])
             mask = group_idx == N
             group_idx[mask] = group_first[mask]

@@ -113,7 +113,7 @@ def main(cfg):
 
     #>>>>>>>>>>>>>>>>>>>>>> create network and training agent
     tr_agent = get_agent(cfg)
-    if 'se3' in cfg.encoder_type:
+    if 'se3' in cfg.encoder_type and cfg.DATASET.train_batch > 1:
         equivariance_test(tr_agent.net.encoder, num_features=cfg.MODEL.num_in_channels)
     if cfg.use_wandb:
         if cfg.module=='gan':
@@ -124,7 +124,7 @@ def main(cfg):
 
     # load from checkpoint if provided
     if cfg.use_pretrain or cfg.eval:
-        tr_agent.load_ckpt(cfg.ckpt)
+        tr_agent.load_ckpt('best')
 
     #>>>>>>>>>>>>>>>>>>>> dataset
     parser = DatasetParser(cfg)
@@ -135,7 +135,7 @@ def main(cfg):
     dp = valid_dataset.__getitem__(0)
     if cfg.eval_mini or cfg.eval:
         all_rts, file_name, mean_err, r_raw_err, t_raw_err, s_raw_err = prepare_pose_eval(cfg.exp_num, cfg)
-        # file_name = file_name.replace('unseen', 'seen180') #'/groups/CESCA-CV/ICML2021/results/test_pred/oracle/0.64_unseen_part_rt_pn_general.npy'
+        # file_name = file_name.replace('unseen', 'seen360') #'/groups/CESCA-CV/ICML2021/results/test_pred/oracle/0.64_unseen_part_rt_pn_general.npy'
         infos_dict = {'basename': [], 'in': [], 'r_raw': [],
                       'r_gt': [], 't_gt': [], 's_gt': [],
                       'r_pred': [], 't_pred': [], 's_pred': []}
@@ -143,10 +143,11 @@ def main(cfg):
                       '5deg': [], '5cm': [], '5deg5cm': []}
         num_iteration = 1
         if 'partial' not in cfg.task:
-            num_iteration = 10
+            num_iteration = 2
         for iteration in range(num_iteration):
             cfg.iteration = iteration
             for num, data in enumerate(test_loader):
+            # for num, data in enumerate(train_loader):
                 if num % 10 == 0:
                     print('checking batch ', num)
                 BS = data['points'].shape[0]
@@ -187,7 +188,8 @@ def main(cfg):
 
     # >>>>>>>>>>> main training
     clock = tr_agent.clock #
-    val_loader   = cycle(val_loader)
+    val_loader  = cycle(val_loader)
+    best_5deg   = 0
     for e in range(clock.epoch, cfg.nr_epochs):
         pbar = tqdm(train_loader)
         for b, data in enumerate(pbar):
@@ -236,6 +238,9 @@ def main(cfg):
             clock.tick()
             if clock.step % cfg.save_step_frequency == 0:
                 tr_agent.save_ckpt('latest')
+            if np.array(track_dict['5deg']).mean() > best_5deg:
+                tr_agent.save_ckpt('best')
+                best_5deg = np.array(track_dict['5deg']).mean()
 
         tr_agent.update_learning_rate()
         clock.tock()

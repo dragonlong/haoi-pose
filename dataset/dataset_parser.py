@@ -33,7 +33,8 @@ from dataset.modelnet40 import ModelNetDataset
 from dataset.airplane3k import OracleDataset
 # nocs
 from dataset.nocs_synthetic import NOCSDataset
-#
+# shapenet
+from dataset.shapenetv2 import ShapeNetDataset
 from common.queries import BaseQueries, TransQueries
 from common.debugger import *
 from common import vis_utils
@@ -133,6 +134,10 @@ def get_dataset(cfg,
     elif name_dset == 'oracle':
         print('using toy data ', split)
         return OracleDataset(cfg=cfg, root=cfg.DATASET.data_path, split=split)
+
+    elif name_dset == 'shapenet':
+        print('using toy data ', split)
+        return ShapeNetDataset(cfg=cfg, root=cfg.DATASET.data_path, split=split)
 
     # obman dataset
     meta={

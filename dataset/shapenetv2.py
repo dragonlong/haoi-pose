@@ -19,7 +19,7 @@ from torch.utils.data import Dataset
 from multiprocessing import Manager
 # import open3d as o3d
 import joblib
-
+import glob
 import dgl
 import __init__
 from global_info import global_info
@@ -91,7 +91,7 @@ class FixedRadiusNearNeighbors(nn.Module):
             group_idx[mask] = group_first[mask]
         return group_idx
 
-class OracleDataset(Dataset):
+class ShapeNetDataset(Dataset):
     def __init__(self, cfg, root, split='train', npoint_shift=False, is_testing=False, rand_seed=999):
         self.root  = root
         self.cfg   = cfg
@@ -110,13 +110,20 @@ class OracleDataset(Dataset):
 
         manager    = Manager()
         self.frnn  = FixedRadiusNearNeighbors(self.radius, self.num_samples, knn=True)
-        # get data
-        self.data_size = 0
-        fpath  = f'{my_dir}/data/modelnet40'
-        f_train= f'{fpath}/airplane_{split}_2048.pk'
-        with open(f_train, "rb") as f:
-            self.full_data = joblib.load(f)
-        self.data_size = self.full_data.shape[0]
+
+        name_instances = []
+
+        for item in glob.glob(f'/groups/CESCA-CV/ICML2021/data/nocs/obj_models/{split}/02942699/*'):
+            if os.path.isdir(item):
+                name_instances.append(item.split('/')[-1])
+        self.full_data = []
+        for instance_name in name_instances:
+            surface_pts_path = f'/groups/CESCA-CV/external/ShapeNetCore.v2/02942699/{instance_name}/models/surface_points.pkl'
+            print('loading ', surface_pts_path)
+            all_pts = np.load(surface_pts_path, allow_pickle=True)
+            self.full_data.append(all_pts.astype(np.float32))
+
+        self.data_size = len(self.full_data)
 
         if self.cfg.eval or self.split != 'train':
             np.random.seed(0)
@@ -130,7 +137,7 @@ class OracleDataset(Dataset):
         if self.cfg.single_instance:
             idx= 2
 
-        category_name = 'airplane'
+        category_name = 'camera'
         instance_name = f'{idx:04d}'
         raw_pts     = self.full_data[idx]
 
@@ -138,14 +145,7 @@ class OracleDataset(Dataset):
         center_pt = (boundary_pts[0] + boundary_pts[1])/2
         length_bb = np.linalg.norm(boundary_pts[0] - boundary_pts[1])
         canon_pts = (raw_pts - center_pt.reshape(1, 3))/length_bb
-        # if self.use_partial:
-        #     pcd = o3d.geometry.PointCloud()
-        #     pcd.points  = o3d.utility.Vector3dVector(raw_pts)
-        #     pcd.normals = o3d.utility.Vector3dVector(point_normal_set[:, 3:])
-        #     camera_location, radius = np.matmul(np.array([[2, 2, 2]]), r.T), 1000 # from randomly rotate
-        #     camera_location = camera_location.astype(np.float64).reshape(3, 1)
-        #     visible_pts = pcd.hidden_point_removal(camera_location, radius)
-        #     canon_pts = canon_pts[visible_pts[1]]
+
         if self.fixed_sampling:
             pos = torch.from_numpy(np.copy(canon_pts)[:self.npoints, :]).unsqueeze(0)
         else:
@@ -162,14 +162,12 @@ class OracleDataset(Dataset):
             theta_y = self.random_angle[idx, self.cfg.iteration, 1]
             r = rotate_eular(theta_x, theta_y, theta_z)
             t = self.random_T[idx, self.cfg.iteration].reshape(1, 3).astype(np.float32)
-            # t = np.array([[0, 0, 0]]).astype(np.float32)
         elif self.augment:
             theta_x = random.randint(0, 360)
             theta_z = random.randint(0, 360)
             theta_y = random.randint(0, 360)
             r = rotate_eular(theta_x, theta_y, theta_z)
             t = np.random.rand(1,3).astype(np.float32)
-            # t = np.array([[0, 0, 0]]).astype(np.float32)
         else:
             r = np.eye(3).astype(np.float32)#
             t = np.array([[0, 0, 0]]).astype(np.float32)
@@ -180,14 +178,12 @@ class OracleDataset(Dataset):
         pos[0] = torch.matmul(pos[0], R.T) # to have random rotation
         pos[0] = pos[0] + T
         center_offset = pos[0] - T  # N, 3
-        if 'en3' in self.cfg.encoder_type:
-            center_offset = T - pos[0].mean(dim=0, keepdim=True)# vote for center
         up_axis = torch.matmul(up_axis, R.T)
         nocs_pts= gt_points + 0.5 #
         g = self.__build_graph__(pos, k=self.num_samples)
         return g, nocs_pts, instance_name, R, center_offset, idx, category_name
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx, verbose=False):
         sample = self.get_sample(idx)
         return sample
 
@@ -220,7 +216,7 @@ def main(cfg):
     os.chdir(utils.get_original_cwd())
     os.environ['MASTER_ADDR'] = '127.0.0.1'
     random.seed(30)
-    dset = OracleDataset(cfg=cfg, root='/home/dragon/Documents/ICML2021/data/modelnet40/', split='train')
+    dset = ShapeNetDataset(cfg=cfg, root='/home/dragon/Documents/ICML2021/data/nocs/', split='train')
     dp   = dset.__getitem__(0)
     print(dp)
 
