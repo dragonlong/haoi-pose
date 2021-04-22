@@ -29,3 +29,6 @@ python dataset_parser.py datasets='nocs_synthetic' task='pcloud_pose' item='nocs
 python modelnet40.py datasets=modelnet40
 
 python modelnet40_parser.py task='pcloud_pose' datasets='modelnet40' item='modelnet40' name_dset='modelnet40' DATASET.num_of_class=40 target_category='airplane'
+
+# 3. bottleneck concat,
+python nocs_synthetic_simple.py datasets=nocs_synthetic target_category='laptop' 

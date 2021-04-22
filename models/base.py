@@ -51,7 +51,7 @@ class BaseAgent(object):
     def set_optimizer(self, config):
         """set optimizer used in training"""
         self.base_lr = config.lr
-        if config.DATASET.train_batch == 1:
+        if config.TRAIN.train_batch == 1:
             self.optimizer = optim.SGD(
                 self.net.parameters(),
                 lr=config.lr,

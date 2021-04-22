@@ -52,6 +52,7 @@ rot_diff_rad
 mat_from_rvec
 mat_from_euler
 mat_from_quat
+spherical_to_vector
 
 # discretization
 voxelize()
@@ -348,6 +349,29 @@ def fix_Rt_camera(Rt, loc, scale):
 
     assert(Rt_new.size() == (batch_size, 3, 4))
     return Rt_new
+
+def spherical_to_vector(spherical):
+    """
+    Copied from trimesh great library !
+    see https://github.com/mikedh/trimesh/blob/4c9ab1e9906acaece421f
+    b189437c8f4947a9c5a/trimesh/util.py
+    Convert a set of (n,2) spherical vectors to (n,3) vectors
+    Parameters
+    -----------
+    spherical : (n , 2) float
+       Angles, in radians
+    Returns
+    -----------
+    vectors : (n, 3) float
+      Unit vectors
+    """
+    spherical = np.asanyarray(spherical, dtype=np.float64)
+
+    theta, phi = spherical.T
+    st, ct = np.sin(theta), np.cos(theta)
+    sp, cp = np.sin(phi), np.cos(phi)
+    vectors = np.column_stack((ct * sp, st * sp, cp))
+    return vectors
 
 def normalize_coordinate(p, padding=0.1, plane='xz'):
     ''' Normalize coordinate to [0, 1] for unit cube experiments

@@ -31,6 +31,7 @@ from dataset.obman_aese3 import HandDatasetAEGraph
 # modelnet40
 from dataset.modelnet40 import ModelNetDataset
 from dataset.airplane3k import OracleDataset
+from dataset.modelnet40aligned import Dataloader_ModelNet40, Dataloader_ModelNet40Alignment
 # nocs
 from dataset.nocs_synthetic import NOCSDataset
 # shapenet
@@ -126,6 +127,10 @@ def get_dataset(cfg,
     if name_dset == 'modelnet40':
         print('using modelnet40 data ', split)
         return ModelNetDataset(cfg=cfg, root=cfg.DATASET.data_path, split=split)
+
+    elif name_dset == 'modelnet40aligned':
+        print('using modelnet40 data ', split)
+        return Dataloader_ModelNet40(opt=cfg, mode=split)
 
     elif name_dset == 'nocs_synthetic':
         print('using nocs_synthetic data ', split)
@@ -260,19 +265,19 @@ class DatasetParser(Parser):
         if return_loader:
             self.trainloader = torch.utils.data.DataLoader(
                 self.train_dataset,
-                batch_size=cfg.DATASET.train_batch,
+                batch_size=cfg.TRAIN.train_batch,
                 shuffle=True,
                 collate_fn=collate,
-                num_workers=int(cfg.DATASET.workers),
+                num_workers=int(cfg.TRAIN.workers),
                 pin_memory=True,
                 drop_last=False,
             )
             self.validloader = torch.utils.data.DataLoader(
                 self.valid_dataset,
-                batch_size=cfg.DATASET.test_batch,
+                batch_size=cfg.TRAIN.test_batch,
                 shuffle=False,
                 collate_fn=collate,
-                num_workers=int(cfg.DATASET.workers),
+                num_workers=int(cfg.TRAIN.workers),
                 pin_memory=True,
                 drop_last=True,
             )

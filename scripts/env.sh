@@ -58,3 +58,8 @@ pip install dgl-cu110==0.5.3 open3d==0.8.0
 
 source activate ptrans36
 module load cuda/11.0.1
+
+cp -r vgtk/ ../haoi-pose/utils/
+cp SPConvNets/models/*so3* ../haoi-pose/models/encoder/
+cp SPConvNets/utils/*so3* ../haoi-pose/models/encoder/
+cp SPConvNets/options.py ../haoi-pose/

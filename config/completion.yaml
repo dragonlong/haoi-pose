@@ -1,18 +1,23 @@
 # @package _global_
 defaults:
-  - training: grnet # it may contain specific parameters
+  - training: ae_gan # it may contain specific parameters
     optional: True
   - models: se3_transformer_default # for encoder setting only
     optional: True
   - datasets: obman
     optional: True
 
+seed: 2913
+mode: 'train'
+no_cuda: False
+device: ''
+
 exp_num: '1'
 exp_name: 'default'
 task: 'pcloud_completion' # hand_regression, obj_reconstruction, hand_reconstruction, contacts_vote, pcloud_pose, pcloud_completion, partial_pcloud_pose
 name_model: grnet         # Name of the specific model to load
 encoder_type: 'se3_transformer'
-use_wgan: False # GAN training
+use_wgan: False
 is_debug: False
 
 # datasets
@@ -25,7 +30,6 @@ n_max_parts : 2
 num_points: 512
 nocs_type: 'A'
 use_hand: False
-num_expr: 0.01
 
 # pred objective
 pred_hand: True

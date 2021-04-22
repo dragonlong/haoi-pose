@@ -39,3 +39,8 @@ weight_partial_rec: 6 # weight factor for partial reconstruction loss
 # testing
 num_sample: 10
 num_z: 5
+
+TRAIN:
+  train_batch: 2
+  test_batch: 2
+  workers: 8

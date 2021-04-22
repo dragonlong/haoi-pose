@@ -7,7 +7,7 @@
 
 3.1 # encoder-decoder full training, pooled prediction, 1 mode
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae datasets=modelnet40 dataset_class=AEGraph'
-$TRAIN_OBJ task='pcloud_pose' item='modelnet40' name_dset='modelnet40' exp_num='3.1' DATASET.train_batch=2 DATASET.test_batch=2 \
+$TRAIN_OBJ task='pcloud_pose' item='modelnet40' name_dset='modelnet40' exp_num='3.1' TRAIN.train_batch=2 TRAIN.test_batch=2 \
 augment=True rotation_loss_type=1 use_objective_R=True \
 vis_frequency=1000 vis=True \
 MODEL.down_conv.npoint='[256, 64, 32, 16]' \
@@ -18,7 +18,7 @@ use_wandb=True
 
 3.11 # encoder-decoder, 2 mode, dense prediction, check visulizations and log
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae datasets=modelnet40 dataset_class=AEGraph'
-$TRAIN_OBJ task='pcloud_pose' item='modelnet40' name_dset='modelnet40' exp_num='3.11' DATASET.train_batch=2 DATASET.test_batch=2 \
+$TRAIN_OBJ task='pcloud_pose' item='modelnet40' name_dset='modelnet40' exp_num='3.11' TRAIN.train_batch=2 TRAIN.test_batch=2 \
 augment=True rotation_loss_type=1 use_objective_R=True rotation_use_dense=True \
 vis_frequency=1000 vis=True \
 MODEL.down_conv.npoint='[256, 64, 32, 16]' \
@@ -30,7 +30,7 @@ use_wandb=True
 
 3.12 # mode=1, category chair, pooled training
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae datasets=modelnet40 dataset_class=AEGraph'
-$TRAIN_OBJ task='pcloud_pose' item='modelnet40' name_dset='modelnet40' target_category='chair' exp_num='3.12' DATASET.train_batch=2 DATASET.test_batch=2 \
+$TRAIN_OBJ task='pcloud_pose' item='modelnet40' name_dset='modelnet40' target_category='chair' exp_num='3.12' TRAIN.train_batch=2 TRAIN.test_batch=2 \
 augment=True rotation_loss_type=1 use_objective_R=True \
 vis_frequency=1000 vis=True \
 MODEL.down_conv.npoint='[256, 64, 32, 16]' \
@@ -41,7 +41,7 @@ use_wandb=True
 
 3.13 # mode=1, category monitor
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae datasets=modelnet40 dataset_class=AEGraph'
-$TRAIN_OBJ task='pcloud_pose' item='modelnet40' name_dset='modelnet40' target_category='monitor' exp_num='3.13' DATASET.train_batch=2 DATASET.test_batch=2 \
+$TRAIN_OBJ task='pcloud_pose' item='modelnet40' name_dset='modelnet40' target_category='monitor' exp_num='3.13' TRAIN.train_batch=2 TRAIN.test_batch=2 \
 augment=True rotation_loss_type=1 use_objective_R=True \
 vis_frequency=1000 vis=True \
 MODEL.down_conv.npoint='[256, 64, 32, 16]' \
@@ -52,7 +52,7 @@ use_wandb=True
 
 3.2 # completion
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae datasets=modelnet40 dataset_class=AEGraph'
-$TRAIN_OBJ task='pcloud_completion' item='modelnet40' name_dset='modelnet40' exp_num='3.2' DATASET.train_batch=2 DATASET.test_batch=2 \
+$TRAIN_OBJ task='pcloud_completion' item='modelnet40' name_dset='modelnet40' exp_num='3.2' TRAIN.train_batch=2 TRAIN.test_batch=2 \
 augment=True rotation_loss_type=1 \
 vis_frequency=1000 vis=True \
 MODEL.down_conv.npoint='[256, 64, 32, 16]' \
@@ -64,7 +64,7 @@ use_wandb=True
 
 3.21 # completion for chair
 TRAIN_OBJ='python train_aegan.py training=ae_gan vis=True num_points=512 n_pts=512 name_model=ae datasets=modelnet40 dataset_class=AEGraph'
-$TRAIN_OBJ task='pcloud_completion' item='modelnet40' name_dset='modelnet40' exp_num='3.2' target_category='chair' DATASET.train_batch=2 DATASET.test_batch=2 \
+$TRAIN_OBJ task='pcloud_completion' item='modelnet40' name_dset='modelnet40' exp_num='3.2' target_category='chair' TRAIN.train_batch=2 TRAIN.test_batch=2 \
 augment=True rotation_loss_type=1 \
 vis_frequency=1000 vis=True \
 MODEL.down_conv.npoint='[256, 64, 32, 16]' \

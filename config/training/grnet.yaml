@@ -1,5 +1,8 @@
 # @package _global_
 TRAIN:
+  train_batch: 2
+  test_batch: 2
+  workers: 8
   BATCH_SIZE: 32
   N_EPOCHS: 50
   SAVE_FREQ: 25

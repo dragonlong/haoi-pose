@@ -113,7 +113,7 @@ def main(cfg):
 
     #>>>>>>>>>>>>>>>>>>>>>> create network and training agent
     tr_agent = get_agent(cfg)
-    if 'se3' in cfg.encoder_type and cfg.DATASET.train_batch > 1:
+    if 'se3' in cfg.encoder_type and cfg.TRAIN.train_batch > 1:
         equivariance_test(tr_agent.net.encoder, num_features=cfg.MODEL.num_in_channels)
     if cfg.use_wandb:
         if cfg.module=='gan':

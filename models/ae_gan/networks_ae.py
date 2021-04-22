@@ -372,7 +372,7 @@ class SE3Transformer(nn.Module):
         self.n_heads    = n_heads
         self.vector_attention = vector_attention
         self.latent_dim = latent_dim
-        self.batch_size = cfg.DATASET.train_batch # TODO
+        self.batch_size = cfg.TRAIN.train_batch # TODO
 
         self.fibers = {'in': Fiber(1, self.num_in_channels),
                        'mid': Fiber(self.num_degrees, self.num_mid_channels),         # should match with first downsample layer input
@@ -832,10 +832,7 @@ class PointAE(nn.Module):
         elif 'plus' in self.encoder_type:
             self.encoder = PointNetplusplus(cfg)
         elif 'en3' in self.encoder_type:
-            # default_type = torch.DoubleTensor
-            # torch.set_default_tensor_type(default_type)
-            # self.encoder = en3_transformer(cfg)
-            self.encoder = EquivariantDGCNN(C_in=cfg.MODEL.num_in_channels, num_mode=cfg.num_modes_R, depth=cfg.MODEL.num_layers) # k, C, C_in=1, C_out=2):
+            self.encoder = EquivariantDGCNN(C_in=cfg.MODEL.num_in_channels, num_mode=cfg.num_modes_R, depth=cfg.MODEL.num_layers, config=cfg.MODEL) # k, C, C_in=1, C_out=2):
         elif 'point_transformer' in self.encoder_type:
             self.encoder = PointTransformer(num_channels_R=cfg.MODEL.num_channels_R,
                                             R_dim=6 if cfg.pred_6d else 3, num_in_channels=cfg.MODEL.num_in_channels)

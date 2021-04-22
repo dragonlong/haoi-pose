@@ -6,7 +6,6 @@ from equivariant_attention.from_se3cnn.SO3 import rot as rot_mat
 from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
 
-
 from typing import Optional, List, Union
 from torch_geometric.typing import Adj, Size, Tensor
 
@@ -46,9 +45,9 @@ def get_graph_feature(x, xyz=None, k=20, idx=None, use_delta=False):
 
     idx = idx.view(-1)
 
-    _, num_dims, _ = x.size()
+    _, numid_dims, _ = x.size()
 
-    x = x.transpose(2, 1).contiguous()   # (batch_size, num_points, num_dims)  -> (batch_size*num_points, num_dims) #   batch_size * num_points * k + range(0, batch_size*num_points)
+    x = x.transpose(2, 1).contiguous()   # (batch_size, num_points, numid_dims)  -> (batch_size*num_points, numid_dims) #   batch_size * num_points * k + range(0, batch_size*num_points)
 
     if use_delta:
         x_neighbours = x.view(batch_size*num_points, num_channels)[idx, :]
@@ -58,8 +57,8 @@ def get_graph_feature(x, xyz=None, k=20, idx=None, use_delta=False):
         x_diff_square = torch.sum(x_diff.pow(2),dim=-1, keepdim=True)
 
     feature = x.view(batch_size*num_points, -1)[idx, :]
-    feature = feature.view(batch_size, num_points, k, num_dims)
-    x = x.view(batch_size, num_points, 1, num_dims).repeat(1, 1, k, 1)
+    feature = feature.view(batch_size, num_points, k, numid_dims)
+    x = x.view(batch_size, num_points, 1, numid_dims).repeat(1, 1, k, 1)
 
     if use_delta:
         feature = torch.cat((feature-x, x, ), dim=3).permute(0, 3, 1, 2).contiguous()
@@ -67,7 +66,7 @@ def get_graph_feature(x, xyz=None, k=20, idx=None, use_delta=False):
         feature = torch.cat((feature-x, x), dim=3).permute(0, 3, 1, 2).contiguous()
 
 
-    return feature      # (batch_size, 2*num_dims, num_points, k)
+    return feature      # (batch_size, 2*numid_dims, num_points, k)
 
 def exists(val):
     return val is not None
@@ -177,7 +176,7 @@ class EquivariantAttention(nn.Module):
         dim_head = 64,
         heads = 4,
         edge_dim = 0,
-        m_dim = 16,
+        mid_dim = 16,
         fourier_features = 4,
         norm_rel_coors = False,
         num_nearest_neighbors = 0,
@@ -209,21 +208,21 @@ class EquivariantAttention(nn.Module):
         self.edge_mlp = nn.Sequential(
             nn.Linear(edge_input_dim, edge_input_dim * 2),
             nn.ReLU(),
-            nn.Linear(edge_input_dim * 2, m_dim),
+            nn.Linear(edge_input_dim * 2, mid_dim),
             nn.ReLU()
         )
 
         self.to_attn_mlp = nn.Sequential(
-            nn.Linear(m_dim, m_dim * 4),
+            nn.Linear(mid_dim, mid_dim * 4),
             nn.ReLU(),
-            nn.Linear(m_dim * 4, 1),
+            nn.Linear(mid_dim * 4, 1),
             Rearrange('... () -> ...')
         )
 
         self.coors_mlp = nn.Sequential(
-            nn.Linear(m_dim, m_dim * 4),
+            nn.Linear(mid_dim, mid_dim * 4),
             nn.ReLU(),
-            nn.Linear(m_dim * 4, 1),
+            nn.Linear(mid_dim * 4, 1),
             Rearrange('... () -> ...')
         )
 
@@ -394,11 +393,12 @@ class EquivariantAttention(nn.Module):
 class EGNN(nn.Module):
     def __init__(
         self,
-        dim,
-        edge_dim = 0,
-        m_dim = 16,
-        x_channel = 1,
+        in_dim,
+        mid_dim = 64,
         out_dim = 64,
+        edge_dim = 0,
+        layer_num = 1,
+        x_channel = 1,
         fourier_features = 0,
         num_nearest_neighbors = 16,
         dropout = 0.0,
@@ -410,7 +410,8 @@ class EGNN(nn.Module):
         update_coors = True,
         only_sparse_neighbors = False,
         valid_radius = float('inf'),
-        m_pool_method = 'sum'
+        m_pool_method = 'max',
+        knn_method = 'max'
     ):
         super().__init__()
         assert m_pool_method in {'sum', 'mean', 'max'}, 'pool method must be either sum or mean'
@@ -418,47 +419,41 @@ class EGNN(nn.Module):
 
         self.fourier_features = fourier_features
 
-        edge_input_dim = (fourier_features * 2) + (dim * 2) + edge_dim # + 1
+        edge_input_dim = (fourier_features * 2) + (in_dim * 2) + edge_dim + 1
         dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
 
-        # TODO: better output edge feature, like 64, 64
-        # here it is c --> 2*c --> m_dim
+        # here it is c --> 2*c --> mid_dim
         # 3-(6,64)->64-(128,64)->64-(128)->64 : concat 192-->1024, maxpooling & repeat: concat: 1024 + 192 --> 512 --> 256 --> 128 --> 3/6
-        # self.e_mlp = nn.Sequential(
-        #     nn.Linear(edge_input_dim, edge_input_dim * 2),
-        #     dropout,
-        #     SiLU(),
-        #     nn.Linear(edge_input_dim * 2, m_dim),
-        #     SiLU()
-        # )
-        mid_dim = 64
-        if edge_input_dim < 64:
-            mid_dim = 64
         self.e_mlp = nn.Sequential(nn.Conv2d(edge_input_dim, mid_dim, kernel_size=1, bias=False),
                                    nn.BatchNorm2d(mid_dim),
                                    nn.LeakyReLU(negative_slope=0.2),
-                                   nn.Conv2d(mid_dim, m_dim, kernel_size=1, bias=False),
-                                   nn.BatchNorm2d(m_dim),
+                                   nn.Conv2d(mid_dim, mid_dim, kernel_size=1, bias=False),
+                                   nn.BatchNorm2d(mid_dim),
                                    nn.LeakyReLU(negative_slope=0.2))
 
-        self.node_norm = nn.LayerNorm(dim) if norm_feats else nn.Identity()
+        self.node_norm  = nn.LayerNorm(in_dim) if norm_feats else nn.Identity()
         self.coors_norm = CoorsNorm() if norm_coors else nn.Identity()
 
         self.m_pool_method = m_pool_method
+        self.knn_method    = knn_method
         self.resi_connect  = resi_connect
 
         self.f_mlp = nn.Sequential(
-            nn.Linear(dim + m_dim, dim * 2),
-            dropout,
-            SiLU(),
-            nn.Linear(dim * 2, out_dim),
+            nn.Linear(in_dim + mid_dim, mid_dim, bias=False),
+            nn.LeakyReLU(negative_slope=0.2),
+            nn.Linear(mid_dim, out_dim, bias=False),
+            nn.LeakyReLU(negative_slope=0.2)
         ) if update_feats else None
 
+        # self.x_mlp = nn.Sequential(nn.Conv2d(mid_dim, mid_dim * 4, kernel_size=1, bias=False),
+        #                            nn.BatchNorm2d(mid_dim * 4),
+        #                            nn.LeakyReLU(negative_slope=0.2),
+        #                            nn.Conv2d(mid_dim * 4, x_channel, kernel_size=1, bias=False)) if update_coors else None
         self.x_mlp = nn.Sequential(
-            nn.Linear(m_dim, m_dim * 4),
+            nn.Linear(mid_dim, mid_dim * 4),
             dropout,
             SiLU(),
-            nn.Linear(m_dim * 4, x_channel)
+            nn.Linear(mid_dim * 4, x_channel)
         ) if update_coors else None
 
         self.num_nearest_neighbors = num_nearest_neighbors
@@ -475,77 +470,37 @@ class EGNN(nn.Module):
 
     def forward(self, feats, coors, edges = None, mask = None, adj_mat = None):
         b, n, d, device, fourier_features, num_nearest, valid_radius, only_sparse_neighbors = *feats.shape, feats.device, self.fourier_features, self.num_nearest_neighbors, self.valid_radius, self.only_sparse_neighbors
-        # if exists(mask):
-        #     num_nodes = mask.sum(dim = -1)
-
         use_nearest = num_nearest > 0 or only_sparse_neighbors
         rel_coors = rearrange(coors, 'b i d -> b i () d') - rearrange(coors, 'b j d -> b () j d')
         rel_dist = (rel_coors ** 2).sum(dim = -1, keepdim = True)
 
-        # i = j = n
         ranking = rel_dist[..., 0]
-        #
-        # if exists(mask):
-        #     rank_mask = mask[:, None, :] * mask[:, None, :]
-        #     ranking.masked_fill_(~rank_mask, 1e5)
-        #
-        # if exists(adj_mat):
-        #     if len(adj_mat.shape) == 2:
-        #         adj_mat = repeat(adj_mat.clone(), 'i j -> b i j', b = b)
-        #
-        #     if only_sparse_neighbors:
-        #         num_nearest = int(adj_mat.float().sum(dim = -1).max().item())
-        #         valid_radius = 0
-        #
-        #     self_mask = rearrange(torch.eye(n, device = device, dtype = torch.bool), 'i j -> () i j')
-        #
-        #     adj_mat = adj_mat.masked_fill(self_mask, False)
-        #     ranking.masked_fill_(self_mask, -1.)
-        #     ranking.masked_fill_(adj_mat, 0.)
-
-        nbhd_ranking, nbhd_indices = ranking.topk(num_nearest, dim = -1)
+        if self.knn_method == 'max':
+            nbhd_ranking, nbhd_indices = ranking.topk(num_nearest, dim = -1)
+        else:
+            nbhd_ranking, nbhd_indices = ranking.topk(num_nearest, dim = -1, largest=False)
 
         # nbhd_mask = nbhd_ranking <= valid_radius
 
         rel_coors = batched_index_select(rel_coors, nbhd_indices, dim = 2)
-        rel_dist = batched_index_select(rel_dist, nbhd_indices, dim = 2)
+        rel_dist  = batched_index_select(rel_dist, nbhd_indices, dim = 2)
 
         if exists(edges):
             edges = batched_index_select(edges, nbhd_indices, dim = 2)
-
-        j = num_nearest
-
         # if fourier_features > 0:
         #     rel_dist = fourier_encode_dist(rel_dist, num_encodings = fourier_features)
         #     rel_dist = rearrange(rel_dist, 'b i j () d -> b i j d')
 
         feats_j = batched_index_select(feats, nbhd_indices, dim = 1)
-        # else:
-        #     feats_j = rearrange(feats, 'b j d -> b () j d')
-
         feats_i = rearrange(feats, 'b i d -> b i () d')
         feats_i, feats_j = broadcast_tensors(feats_i, feats_j)
 
-        # edge_input = torch.cat((feats_i-feats_j, feats_j, rel_dist), dim = -1)
-        edge_input = torch.cat((feats_i-feats_j, feats_j), dim = -1)
-
-        # if exists(edges):
-        #     edge_input = torch.cat((edge_input, edges), dim = -1)
-        # m_ij = self.e_mlp(edge_input)
-        m_ij = self.e_mlp(edge_input.permute(0, 3, 1, 2).contiguous()).permute(0, 2, 3, 1).contiguous()
-        # if exists(mask):
-        #     mask_i = rearrange(mask, 'b i -> b i ()')
-        #
-        #     if use_nearest:
-        #         mask_j = batched_index_select(mask, nbhd_indices, dim = 1)
-        #         mask = (mask_i * mask_j) & nbhd_mask
-        #     else:
-        #         mask_j = rearrange(mask, 'b j -> b () j')
-        #         mask = mask_i * mask_j
+        edge_input = torch.cat((feats_i-feats_j, feats_j, rel_dist), dim = -1).permute(0, 3, 1, 2).contiguous()
+        m_ij = self.e_mlp(edge_input).permute(0, 2, 3, 1).contiguous()
 
         if exists(self.x_mlp):
-            coor_weights = self.x_mlp(m_ij) # [B, N, k, cx]
-            # coor_weights = rearrange(coor_weights, 'b i j () -> b i j')
+            coor_weights = self.x_mlp(m_ij)
+            # coor_weights = self.x_mlp(m_ij.permute(0, 3, 1, 2).contiguous()).permute(0, 2, 3, 1).contiguous() # [B, N, k, cx]
             rel_coors = rearrange(rel_coors, 'b i j (m c) -> b i j m c', c=3)
             if exists(mask):
                 coor_weights.masked_fill_(~mask, 0.)
@@ -554,23 +509,18 @@ class EGNN(nn.Module):
             coors_out = rearrange(coors_out, 'b i k c -> b i (k c)')
         else:
             coors_out = coors
-        #
-        # if exists(mask):
-        #     m_ij_mask = rearrange(mask, '... -> ... ()')
-        #     m_ij = m_ij.masked_fill(~m_ij_mask, 0.)
 
         if self.m_pool_method == 'mean':
             if exists(mask):
-                # masked mean
                 mask_sum = m_ij_mask.sum(dim = -2)
                 m_i = safe_div(m_ij.sum(dim = -2), mask_sum)
             else:
                 m_i = m_ij.mean(dim = -2)
 
         elif self.m_pool_method == 'sum':
-            m_i = m_ij.sum(dim = -2) # original dgcnn is maxpooling
+            m_i = m_ij.sum(dim = -2)
 
-        elif self.m_pool_method == 'max':
+        elif self.m_pool_method == 'max': # original dgcnn is maxpooling
             m_i = m_ij.max(dim=-2, keepdim=False)[0]
 
         normed_feats = self.node_norm(feats)
@@ -613,7 +563,7 @@ class MLP(nn.Module):
         return self.layers(x)
 
 class EquivariantDGCNN(nn.Module):
-    def __init__(self, k=16, C_in=3, C_mid=64, emb_dims=1024, num_mode=1, depth=3):
+    def __init__(self, k=16, C_in=3, C_mid=64, emb_dims=1024, num_mode=1, depth=3, config=None):
         """
         k,
         C_mid,
@@ -626,66 +576,63 @@ class EquivariantDGCNN(nn.Module):
         self.k = k # nsamples
         self.C_in  = C_in
         self.depth = depth
+        self.is_equivalence = config.is_equivalence
         self.layers = nn.ModuleList([])
         for i in range(depth): # 4 blocks
-            in_feat_dim = C_mid
+            in_feat_dim  = C_mid
             mid_feat_dim = C_mid
             out_feat_dim = C_mid
+            resi_connect = False
             if i == 0:
                 in_feat_dim = C_in
-            self.layers.append(EGNN(dim = in_feat_dim, # 64
+                resi_connect = False
+            self.layers.append(EGNN(in_dim = in_feat_dim, # 64
                     x_channel = 1,
-                    m_dim = mid_feat_dim,
+                    mid_dim = mid_feat_dim,
                     out_dim = out_feat_dim,
-                    num_nearest_neighbors = 16,
-                    dropout = 0.0,
-                    resi_connect=False,
-                    m_pool_method='max',
-                    update_feats = False,
-                    update_coors = True,
-                    norm_coors = False,
-                    norm_feats = False))
-        # 1024 layer further concatenate, then get 1216 --> 512 --> 256
-        # heads
-        # self.heads_R = EGNN(dim = 256, x_channel = 2 * num_mode,
-        #         out_dim = 3,
-        #         num_nearest_neighbors = 16,
-        #         resi_connect=False,
-        #         norm_feats = True)
-        #
-        # self.heads_T = EGNN(dim = 256, x_channel = 1,
-        #         out_dim = 3,
-        #         num_nearest_neighbors = 16,
-        #         resi_connect=False,
-        #         norm_feats = True)
-
-        # # 3-(6,64)->64-(128,64)->64-(128)->64 : concat 192-->1024, maxpooling & repeat: concat: 1024 + 192 --> 512 --> 256 --> 128 --> 3/6
-        # # layer 1
-        # self.layers = nn.ModuleList([])
-        # self.conv1 =  nn.Sequential(nn.Conv2d(self.C_in*2, 64, kernel_size=1, bias=False),
-        #                            nn.BatchNorm2d(64),
-        #                            nn.LeakyReLU(negative_slope=0.2),
-        #                            nn.Conv2d(64, 64, kernel_size=1, bias=False),
-        #                            nn.BatchNorm2d(64),
-        #                            nn.LeakyReLU(negative_slope=0.2))
-        # self.layers.append(self.conv1)
-        #
-        # # layer 2
-        # self.conv3 = nn.Sequential(nn.Conv2d(64*2, 64, kernel_size=1, bias=False),
-        #                            nn.BatchNorm2d(64),
-        #                            nn.LeakyReLU(negative_slope=0.2),
-        #                            nn.Conv2d(64, 64, kernel_size=1, bias=False),
-        #                            nn.BatchNorm2d(64),
-        #                            nn.LeakyReLU(negative_slope=0.2))
-        # self.layers.append(self.conv3)
-        #
-        # # layer 3
-        # self.conv5 = nn.Sequential(nn.Conv2d(64*2, 64, kernel_size=1, bias=False),
-        #                            nn.BatchNorm2d(64),
-        #                            nn.LeakyReLU(negative_slope=0.2))
-        # self.layers.append(self.conv5)
+                    num_nearest_neighbors = config.num_nearest_neighbors,
+                    dropout = config.dropout,
+                    resi_connect=config.resi_connect,
+                    update_feats = config.update_feats,
+                    update_coors = config.update_coors,
+                    norm_coors = config.norm_coors,
+                    norm_feats = config.norm_feats,
+                    m_pool_method=config.m_pool_method,
+                    knn_method = config.knn_method))
 
         # layer 4
+        if self.is_equivalence:
+            self.x_conv = nn.ModuleList([])
+            for i in range(depth): # 4 blocks
+                in_feat_dim  = C_mid
+                mid_feat_dim = C_mid
+                out_feat_dim = C_mid
+                if i == 0:
+                    in_feat_dim = C_mid * 3
+                self.x_conv.append(EGNN(in_dim = in_feat_dim,
+                        x_channel = 1,
+                        mid_dim = mid_feat_dim,
+                        out_dim = out_feat_dim,
+                        num_nearest_neighbors = config.num_nearest_neighbors,
+                        dropout = config.dropout,
+                        resi_connect = config.resi_connect,
+                        update_feats = config.update_feats,
+                        update_coors = config.update_coors,
+                        norm_coors = config.norm_coors,
+                        norm_feats = config.norm_feats,
+                        m_pool_method=config.m_pool_method,
+                        knn_method = config.knn_method))
+
+            self.heads_R = EGNN(in_dim = 64, x_channel = 2 * num_mode,
+                    mid_dim = 3,
+                    out_dim = 3,
+                    num_nearest_neighbors = 16)
+
+            self.heads_T = EGNN(in_dim = 64, x_channel = 1,
+                    mid_dim = 3,
+                    out_dim = 3,
+                    num_nearest_neighbors = 16)
+
         self.conv6 = nn.Sequential(nn.Conv1d(192, emb_dims, kernel_size=1, bias=False),
                                    nn.BatchNorm1d(emb_dims),
                                    nn.LeakyReLU(negative_slope=0.2))
@@ -722,23 +669,20 @@ class EquivariantDGCNN(nn.Module):
         else:
             num_points = f.shape[1]
 
-        # if x.shape[-1] == 3:
-        #     x = x.permute(0, 2, 1).contiguous()
-        #     f = f.permute(0, 2, 1).contiguous()
-
-        # for layer in self.layers:
-        #     f = get_graph_feature(f, xyz=x, k=self.k) # K, edge
-        #     f = layer(f).max(dim=-1, keepdim=False)[0] # pooled
-        #     feats.append(f)
         if x.shape[1] == 3:
             x = x.permute(0, 2, 1).contiguous()
             f = f.permute(0, 2, 1).contiguous()
+        # default input is [B, N, C]
         for i, layer in enumerate(self.layers):
-            # print(f'----{i}th layer')
             f, x = layer(f, x)
             feats.append(f.permute(0, 2, 1).contiguous())
 
         f = torch.cat(feats, dim=1)             # (batch_size, 64*3, num_points)
+        if self.is_equivalence:
+            f_x = f.permute(0, 2, 1).contiguous()
+            for i, layer in enumerate(self.x_conv):
+                f_x, x = layer(f_x, x)
+
         f = self.conv6(f)                       # (batch_size, 64*3, num_points) -> (batch_size, emb_dims, num_points)
         f = f.max(dim=-1, keepdim=True)[0]      # (batch_size, emb_dims, num_points) -> (batch_size, emb_dims, 1)
 
@@ -749,13 +693,14 @@ class EquivariantDGCNN(nn.Module):
         f = self.conv8(f)                       # (batch_size, 512, num_points) -> (batch_size, 256, num_points)
         f = self.dp1(f)
 
-        # _, output_R  = self.heads_R(f, x)
-        # _, output_T  = self.heads_T(f, x)
         pred_dict = {}
         # pred_dict.update({'R': output_R.permute(0, 2, 1).contiguous(), 'T': output_T.permute(0, 2, 1).contiguous()})
         for key, head in self.heads.items():
             pred_dict[key] = head(f)
-
+        if self.is_equivalence:
+            _, output_R  = self.heads_R(f_x, x)
+            _, output_T  = self.heads_T(f_x, x)
+            pred_dict.update({'R': output_R.permute(0, 2, 1).contiguous(), 'T': output_T.permute(0, 2, 1).contiguous()})
         return pred_dict
 
 if __name__ == '__main__':

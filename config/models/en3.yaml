@@ -6,8 +6,21 @@ MODEL:
   num_channels_R: 1 # or 1
   edge_dim: 0
   encoder_only: False
-  n_heads: 4  # in the "pre_modules"
+  n_heads: 4
   vector_attention: False
+  x_channel: 1
+  mid_dim: 64
+  out_dim: 64
+  is_equivalence: False
+  num_nearest_neighbors: 16
+  dropout: 0.0
+  resi_connect: False
+  m_pool_method: 'max'
+  knn_method: 'max'
+  update_feats: False
+  update_coors: True
+  norm_coors: False
+  norm_feats: False
   # down_conv:
   #     module_type: SE3TBlock
   #     edge_dim: 0

@@ -78,6 +78,8 @@ class IO:
             return cls._read_h5(file_path)
         elif file_extension in ['.txt']:
             return cls._read_txt(file_path)
+        elif file_extension in ['.pkl']:
+            return cls._read_pkl(file_path)
         else:
             raise Exception('Unsupported file extension: %s' % file_extension)
 
@@ -124,6 +126,11 @@ class IO:
 
             return nd_array
 
+    def _read_pkl(cls, file_name):
+        with open(file_name, 'rb') as f:
+            data = pickle.load(f)
+
+        return data
     # References: https://github.com/dimatura/pypcd/blob/master/pypcd/pypcd.py#L275
     # Support PCD files without compression ONLY!
     @classmethod
@@ -163,12 +170,22 @@ class IO:
         pc.points = open3d.utility.Vector3dVector(file_content)
         open3d.io.write_point_cloud(file_path, pc)
 
+    def _read_exr(cls, filename):
+        """
+        Z : Depth buffer in float32 format or None if the EXR file has no Z channel.
+        """
+        inbuf=oiio.ImageInput.open(filename)
+        img  = inbuf.read_image()
+        Z = None
+        inbuf.close()
+        return img, Z
+
     @classmethod
     def _write_h5(cls, file_path, file_content):
         with h5py.File(file_path, 'w') as f:
             f.create_dataset('data', data=file_content)
 
-
+#>>>>>>>>>>>>>>>>>>>>>>>>>> data augmentation <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 def get_color_params(brightness=0, contrast=0, saturation=0, hue=0):
     if brightness > 0:
         brightness_factor = random.uniform(
@@ -192,7 +209,6 @@ def get_color_params(brightness=0, contrast=0, saturation=0, hue=0):
     else:
         hue_factor = None
     return brightness_factor, contrast_factor, saturation_factor, hue_factor
-
 
 def color_jitter(img, brightness=0, contrast=0, saturation=0, hue=0):
     brightness, contrast, saturation, hue = get_color_params(
@@ -218,62 +234,6 @@ def color_jitter(img, brightness=0, contrast=0, saturation=0, hue=0):
     for func in img_transforms:
         jittered_img = func(jittered_img)
     return jittered_img
-
-
-def readEXR(filename):
-    """Read color + depth data from EXR image file.
-
-    Parameters
-    ----------
-    filename : str
-        File path.
-
-    Returns
-    -------
-    img : RGB or RGBA image in float32 format. Each color channel
-          lies within the interval [0, 1].
-          Color conversion from linear RGB to standard RGB is performed
-          internally. See https://en.wikipedia.org/wiki/SRGB#The_forward_transformation_(CIE_XYZ_to_sRGB)
-          for more information.
-
-    Z : Depth buffer in float32 format or None if the EXR file has no Z channel.
-    """
-
-    # exrfile = exr.InputFile(filename)
-    # header = exrfile.header()
-    # # breakpoint()
-    # dw = header['dataWindow']
-    # isize = (dw.max.y - dw.min.y + 1, dw.max.x - dw.min.x + 1)
-
-    # channelData = dict()
-
-    # # convert all channels in the image to numpy arrays
-    # for c in header['channels']:
-    #     C = exrfile.channel(c, Imath.PixelType(Imath.PixelType.FLOAT))
-    #     C = Image.frombytes("F", isize, C)
-    #     C = np.reshape(C, isize)
-
-    #     channelData[c] = C
-    # colorChannels = ['R', 'G', 'B', 'A'] if 'A' in header['channels'] else ['R', 'G', 'B']
-    # img = np.concatenate([channelData[c][...,np.newaxis] for c in colorChannels], axis=2)
-    # # print(img[np.where(img<np.min(img)+2)[0], np.where(img<np.min(img)+2)[1], np.where(img<np.min(img)+2)[2]])
-    # # # linear to standard RGB
-    # # img[..., :3] = np.where(img[..., :3] <= 0.0031308,
-    # #                         12.92 * img[..., :3],
-    # #                         1.055 * np.power(img[..., :3], 1 / 2.4) - 0.055)
-
-    # # sanitize image to be in range [0, 1]
-    # # img = np.where(img < 0.0, 0.0, np.where(img > 1.0, 1, img))
-
-    # Z = None if 'Z' not in header['channels'] else channelData['Z']
-
-    inbuf=oiio.ImageInput.open(filename)
-    img  = inbuf.read_image()
-    Z = None
-    inbuf.close()
-
-
-    return img, Z
 
 def get_obj_mesh(basename=None, full_path=None, category='eyeglasses', verbose=False):
     """
@@ -305,189 +265,8 @@ def get_obj_mesh(basename=None, full_path=None, category='eyeglasses', verbose=F
 
     return verts[0], faces[0]
 
-def parse_calibration(filename):
-  """ read calibration file with given filename
-
-      Returns
-      -------
-      dict
-          Calibration matrices as 4x4 numpy arrays.
-  """
-  calib = {}
-
-  calib_file = open(filename)
-  for line in calib_file:
-    key, content = line.strip().split(":")
-    values = [float(v) for v in content.strip().split()]
-
-    pose = np.zeros((4, 4))
-    pose[0, 0:4] = values[0:4]
-    pose[1, 0:4] = values[4:8]
-    pose[2, 0:4] = values[8:12]
-    pose[3, 3] = 1.0
-
-    calib[key] = pose
-
-  calib_file.close()
-
-  return calib
-
-
-def parse_poses(filename, calibration):
-  """ read poses file with per-scan poses from given filename
-
-      Returns
-      -------
-      list
-          list of poses as 4x4 numpy arrays.
-  """
-  file = open(filename)
-
-  poses = []
-
-  Tr = calibration["Tr"]
-  Tr_inv = inv(Tr)
-
-  for line in file:
-    values = [float(v) for v in line.strip().split()]
-
-    pose = np.zeros((4, 4))
-    pose[0, 0:4] = values[0:4]
-    pose[1, 0:4] = values[4:8]
-    pose[2, 0:4] = values[8:12]
-    pose[3, 3] = 1.0
-
-    poses.append(np.matmul(Tr_inv, np.matmul(pose, Tr)))
-
-  return poses
-
-def collect_file(root_dset, ctgy_objs, mode='train', selected_list=None):
-    # list rgb
-    for name_obj in ctgy_objs:
-        if mode == 'train':
-            name_instances = os.listdir(root_dset + '/render/' + name_obj)
-        elif mode == 'demo':
-            name_instances = os.listdir(root_dset + '/demo/' + name_obj)
-        print('We have {} different instances'.format(len( name_instances )))
-
-        for instance in name_instances:
-            if selected_list is not None and instance not in selected_list:
-                continue
-            if mode == 'train':
-                directory = root_dset + '/render/' + name_obj + '/' + instance + '/*'
-            elif mode == 'demo':
-                directory = root_dset + '/demo/' + name_obj + '/' + instance + '/*'
-            else:
-                directory = root_dset + '/render/' + name_obj + '/' + instance + '/*'
-            for dir_arti in glob.glob(directory):
-                for dir_grasp in glob.glob(dir_arti + '/*'):
-                    h5_frames = os.listdir(dir_grasp + '/rgb')
-                    h5_frames.sort()
-                    h5_list   = []
-                    for file in h5_frames:
-                        if file.endswith('.png'):
-                            h5_list.append(file.split('.')[0])
-                    all_csv = dir_grasp + '/all.txt'
-                    with open(all_csv, 'w') as ft:
-                      for item in h5_list:
-                          ft.write('{}\n'.format(item))
-                print('done for {} {}'.format(instance, dir_arti))
-
-# split
-def split_dataset(root_dset, ctgy_objs, args, test_ins, spec_ins=[], train_ins=None):
-    num_expr = args.num_expr
-    if args.mode == 'train' or args.mode=='test':
-        for name_obj in ctgy_objs:
-            train_csv  = root_dset + '/splits/{}/{}/train.txt'.format(name_obj, num_expr)
-            test_csv   = root_dset + '/splits/{}/{}/test.txt'.format(name_obj, num_expr)
-            train_list = []
-            test_list  = []
-            if not os.path.exists(root_dset + '/splits/{}/{}'.format(name_obj, num_expr)):
-                os.makedirs(root_dset + '/splits/{}/{}'.format(name_obj, num_expr))
-            name_instances = ['{:04d}'.format(i) for i in range(100)]
-            print('We have {} different instances'.format(len( name_instances )), name_instances)
-            random.shuffle(name_instances)
-            rm_ins = []
-            ins_to_remove = test_ins + rm_ins
-            print(ins_to_remove)
-            for instance in ins_to_remove:
-                if instance in name_instances:
-                    name_instances.remove(instance)
-            # remove tricycles
-            if train_ins is None:
-                train_ins = name_instances
-            for instance in train_ins:
-                if len(spec_ins)>0 and instance in spec_ins:
-                    continue
-                for dir_arti in glob.glob(root_dset + '/hdf5/' + name_obj + '/' + instance + '_*'):
-                    h5_frames = glob.glob(dir_arti + '/*.h5')
-                    h5_list   = []
-                    for file in h5_frames:
-                        if file.endswith('.h5'):
-                            h5_list.append(file)
-                    print('training h5 has {} for {} {}'.format(len(h5_list) -1, instance, dir_arti))
-                    random.shuffle(h5_list)
-                    try:
-                        train_list= train_list + h5_list[:-1]
-                        test_list = test_list  + [h5_list[-1]]
-                    except:
-                        continue
-
-            for instance in test_ins:
-                for dir_arti in glob.glob(root_dset + '/hdf5/' + name_obj + '/' + instance + '_*'):
-                    h5_frames = glob.glob(dir_arti + '/*.h5')
-                    h5_list   = []
-                    for file in h5_frames:
-                        if file.endswith('.h5'):
-                            h5_list.append(file)
-                    print('testing h5 has {} for {} {}'.format(len(h5_list), instance, dir_arti))
-                    test_list = test_list  + h5_list
-        print('train_list: \n', len(train_list))
-        print('test list: \n', len(test_list))
-        with open(train_csv, 'w') as ft:
-            print('writing to ', train_csv)
-            for item in train_list:
-                ft.write('{}\n'.format(item))
-
-        with open(test_csv, 'w') as ft:
-            print('writing to ', test_csv)
-            for item in test_list:
-                ft.write('{}\n'.format(item))
-    else:
-        for name_obj in ctgy_objs:
-            demo_csv  = root_dset + '/splits/{}/{}/demo.txt'.format(name_obj, num_expr)
-            demo_list  = []
-            if not os.path.exists(root_dset + '/splits/{}/{}'.format(name_obj, num_expr)):
-                os.makedirs(root_dset + '/splits/{}/{}'.format(name_obj, num_expr))
-            name_instances = os.listdir(root_dset + '/hdf5_demo/' + name_obj)
-            print('We have {} different instances'.format(len( name_instances )))
-            random.shuffle(name_instances)
-            # test_ins  = ['0001']
-            # remove tricycles
-            demo_ins = name_instances
-
-            for instance in demo_ins:
-                for dir_arti in glob.glob(root_dset + '/hdf5_demo/' + name_obj + '/' + instance + '/*'):
-                    h5_frames = glob.glob(dir_arti + '/*/*')
-                    h5_list   = []
-                    for file in h5_frames:
-                        if file.endswith('.h5'):
-                            h5_list.append(file)
-                    print('training h5 has {}'.format(len(h5_list) -1 ))
-                    random.shuffle(h5_list)
-                    demo_list= demo_list + h5_list
-
-            with open(demo_csv, 'w') as ft:
-              for item in demo_list:
-                  ft.write('{}\n'.format(item))
-
 def spherical_to_vector(spherical):
     """
-    Copied from trimesh great library !
-    see https://github.com/mikedh/trimesh/blob/4c9ab1e9906acaece421f
-    b189437c8f4947a9c5a/trimesh/util.py
-    Convert a set of (n,2) spherical vectors to (n,3) vectors
-    Parameters
     -----------
     spherical : (n , 2) float
        Angles, in radians
@@ -507,11 +286,6 @@ def spherical_to_vector(spherical):
 
 def sample_surface_sphere(count, center=np.array([0, 0, 0]), radius=1):
     """
-    Copied from trimesh great library !
-    see https://github.com/mikedh/trimesh/blob/4c9ab1e9906acaece421f
-    b189437c8f4947a9c5a/trimesh/util.py
-    Correctly pick random points on the surface of a unit sphere
-    Uses this method:
     http://mathworld.wolfram.com/SpherePointPicking.html
     Parameters
     ----------
@@ -588,25 +362,6 @@ def points_from_mesh(faces, vertices, vertex_nb=600, show_cloud=False):
     points = rand_tris[:, 0] + u * (rand_tris[:, 1] - rand_tris[:, 0]) + v * (
         rand_tris[:, 2] - rand_tris[:, 0])
 
-    # if show_cloud:
-    #     fig = plt.figure()
-    #     ax = fig.add_subplot(111, projection='3d')
-    #     ax.scatter(
-    #         points[:, 0],
-    #         points[:, 1],
-    #         points[:, 2],
-    #         s=2,
-    #         c='b')
-    #     ax.scatter(
-    #         vertices[:, 0],
-    #         vertices[:, 1],
-    #         vertices[:, 2],
-    #         s=2,
-    #         c='r')
-    #     ax._axis3don = False
-    #     plt.show()
-    # return points
-
 def write_pointcloud(filename,xyz_points,rgb_points=None):
     assert xyz_points.shape[1] == 3,'Input XYZ points should be Nx3 float array'
     if rgb_points is None:
@@ -628,51 +383,6 @@ def write_pointcloud(filename,xyz_points,rgb_points=None):
     for i in range(xyz_points.shape[0]):
         fid.write(bytearray(struct.pack("fffccc",xyz_points[i,0],xyz_points[i,1],xyz_points[i,2],rgb_points[i,0].tostring(),rgb_points[i,1].tostring(),rgb_points[i,2].tostring())))
     fid.close()
-
-
-def get_pose(root_dset, obj_category, item, art_index, frame_order, mode='train', num_parts=5):
-    # pose infos
-    parts_world_pos    = [None]*num_parts
-    parts_world_orn    = [None]*num_parts
-    parts_model2world  = [None]*num_parts
-    if mode == 'demo':
-        sub_dir0        = root_dset  + '/demo/' + obj_category + '/' + item + '/' + art_index
-    else:
-        sub_dir0        = root_dset  + '/render/' + obj_category + '/' + item + '/' + art_index
-    meta_file       = open(sub_dir0 + '/gt.yml', 'r')
-    meta_instance   = yaml.load(meta_file)
-    pose_dict = meta_instance['frame_{}'.format(frame_order)]
-    viewMat   = np.array(pose_dict['viewMat']).reshape(4, 4).T
-    projMat   = np.array(pose_dict['projMat']).reshape(4, 4).T
-    #
-    parts_world_pos[0] = np.array([0, 0, 0])
-    parts_world_orn[0] = np.array([0, 0, 0, 1])
-    for link in range(0, num_parts):
-        # parts_urdf_box[link] = np.array(urdf_dict['link']['box'][link])
-        if link >0:
-            parts_world_pos[link] = np.array(pose_dict['obj'][link-1][4]).astype(np.float32)
-            parts_world_orn[link] = np.array(pose_dict['obj'][link-1][5]).astype(np.float32)
-    # manual correction
-    if obj_category == 'bike':
-        parts_world_pos[1], parts_world_pos[2] = parts_world_pos[2], parts_world_pos[1]
-        parts_world_orn[1], parts_world_orn[2]  = parts_world_orn[2], parts_world_orn[1]
-
-    # target rotation, translation, and target points
-    for k in range(num_parts):
-        # matrix computation
-        center_world_orn   = parts_world_orn[k]
-        center_world_orn   = np.array([center_world_orn[3], center_world_orn[0], center_world_orn[1], center_world_orn[2]])
-        my_model2world_r   = quaternion_matrix(center_world_orn)[:4, :4] # [w, x, y, z]
-        my_model2world_t   = parts_world_pos[k]
-        my_model2world_mat = my_model2world_r
-        for m in range(3):
-            my_model2world_mat[m, 3] = my_model2world_t[m]
-        my_world2camera_mat   = viewMat
-        my_camera2clip_mat    = projMat
-        my_model2camera_mat   = np.dot(my_world2camera_mat, my_model2world_mat)
-        parts_model2world[k]  = my_model2world_mat
-
-    return parts_model2world, viewMat, projMat
 
 def get_urdf_mobility(inpath, verbose=True):
     urdf_ins = {}
@@ -796,260 +506,6 @@ def get_urdf_mobility(inpath, verbose=True):
 
     return urdf_ins
 
-# todo
-def get_urdf(inpath, num_real_links=None):
-    urdf_ins = {}
-    # urdf parameters
-    tree_urdf     = ET.parse(inpath + "/syn.urdf") # todo
-    if num_real_links is None:
-        num_real_links = len(os.listdir(inpath)) - 1 # todo
-    root_urdf     = tree_urdf.getroot()
-    rpy_xyz       = {}
-    list_xyz      = [None] * num_real_links
-    list_rpy      = [None] * num_real_links
-    list_box      = [None] * num_real_links
-    list_obj      = [None] * num_real_links
-    # ['obj'] ['link/joint']['xyz/rpy'] [0, 1, 2, 3, 4]
-    num_links     = 0
-    for link in root_urdf.iter('link'):
-        num_links += 1
-        index_link = None
-        if link.attrib['name']=='base_link':
-            index_link = 0
-        else:
-            index_link = int(link.attrib['name'])
-        for visual in link.iter('visual'):
-            for origin in visual.iter('origin'):
-                list_xyz[index_link] = [float(x) for x in origin.attrib['xyz'].split()]
-                list_rpy[index_link] = [float(x) for x in origin.attrib['rpy'].split()]
-            for geometry in visual.iter('geometry'):
-                for mesh in geometry.iter('mesh'):
-                    list_obj[index_link] = mesh.attrib['filename']
-
-    rpy_xyz['xyz']   = list_xyz
-    rpy_xyz['rpy']   = list_rpy
-    urdf_ins['link'] = rpy_xyz
-    urdf_ins['obj_name'] = list_obj
-
-    rpy_xyz       = {}
-    list_xyz      = [None] * num_real_links
-    list_rpy      = [None] * num_real_links
-    list_axis     = [None] * num_real_links
-    list_type     = [None] * num_real_links
-    list_part     = [None] * num_real_links
-    # here we still have to read the URDF file
-    for joint in root_urdf.iter('joint'):
-        index_child = int(joint.attrib['name'].split('_')[-1])
-        index_parent= int(joint.attrib['name'].split('_')[0])
-        list_type[index_child] = joint.attrib['type']
-        list_part[index_child] = index_parent
-        for origin in joint.iter('origin'):
-            list_xyz[index_child] = [float(x) for x in origin.attrib['xyz'].split()]
-            list_rpy[index_child] = [float(x) for x in origin.attrib['rpy'].split()]
-        for axis in joint.iter('axis'):
-            list_axis[index_child]= [float(x) for x in axis.attrib['xyz'].split()]
-    rpy_xyz['xyz']       = list_xyz
-    rpy_xyz['rpy']       = list_rpy
-    rpy_xyz['axis']      = list_axis
-    rpy_xyz['type']      = list_type
-    rpy_xyz['parent']      = list_part
-
-    urdf_ins['joint']    = rpy_xyz
-    urdf_ins['num_links']= num_links
-
-    return urdf_ins
-
-def fetch_gt_bmvc(basepath, basename, num_parts=2):
-    base_infos = basename.split('_')
-    # Laptop_Seq_1_00020.h5
-    pose_dict = {}
-    BB_dict   = {}
-    info_files = []
-    for k in range(num_parts):
-        info_files.append(basepath + '/{0}_{1}_{2}/info/info_{3}_{4:03d}.txt'.format(base_infos[0], base_infos[1], base_infos[2], base_infos[3], k))
-    # print(info_files)
-    for k, info_file in enumerate(info_files):
-        with open(info_file, "r", errors='replace') as fp:
-            line = fp.readline()
-            cnt  = 1
-            viewMat = np.eye(4)# from object coordinate to camera coordinate
-            tight_bb = np.zeros((3))
-            while line:
-                if len(line.strip()) == 9 and line.strip()[:8] == 'rotation':
-                    for i in range(3):
-                        line = fp.readline()
-                        viewMat[i, :3] = [float(x) for x in line.strip().split()]
-                if len(line.strip()) == 7 and line.strip()[:6] == 'center':
-                    line = fp.readline()
-                    viewMat[:3, 3] = [float(x) for x in line.strip().split()]
-                if len(line.strip()) == 7 and line.strip()[:6] == 'extent':
-                    line = fp.readline()
-                    tight_bb[:] = [float(x) for x in line.strip().split()]
-                    break
-                line = fp.readline()
-        pose_dict[k] = viewMat
-        BB_dict[k]   = tight_bb
-    return pose_dict, BB_dict
-
-def get_all_objs(root_dset, obj_category, item, obj_file_list=None, offsets=None, is_debug=False, verbose=False):
-    """
-    offsets is usually 0, but sometimes could be [x, y, z] in array 1*3, it could be made to a K*3 array if necessary
-    """
-    norm_factors = []
-    pts_list     = []
-    name_list    = []
-    target_dir   = root_dset + '/objects/' + obj_category + '/' +  item
-
-    offset = 0
-    if obj_file_list is None:
-        for k, obj_file in enumerate(glob.glob( target_dir + '/part_objs/*.obj')):
-            if offsets is not None:
-                offset = offsets[k:k+1, :]
-            if is_debug:
-                print('obj_file is: ', obj_file)
-            try:
-                tm = trimesh.load(obj_file)
-                vertices_obj = np.array(tm.vertices)
-            except:
-                dict_mesh, _, _, _ = load_model_split(obj_file)
-                vertices_obj = np.concatenate(dict_mesh['v'], axis=0)
-            pts_list.append(vertices_obj + offset)
-            name_obj  = obj_file.split('.')[0].split('/')[-1]
-            name_list.append(name_obj)
-    else:
-        for k, obj_files in enumerate(obj_file_list):
-            if offsets is not None:
-                offset = offsets[k:k+1, :]
-            if obj_files is not None and not isinstance(obj_files, list):
-                try:
-                    tm = trimesh.load(obj_files)
-                    vertices_obj = np.array(tm.vertices)
-                except:
-                    dict_mesh, _, _, _ = load_model_split(obj_files)
-                    vertices_obj = np.concatenate(dict_mesh['v'], axis=0)
-                pts_list.append(vertices_obj + offset)
-                name_obj  = obj_files.split('.')[0].split('/')[-1]
-                name_list.append(name_obj) # which should follow the right order
-            elif isinstance(obj_files, list):
-                if verbose:
-                    print('{} part has {} obj files'.format(k, len(obj_files)))
-                part_pts = []
-                name_objs = []
-                for obj_file in obj_files:
-                    if obj_file is not None and not isinstance(obj_file, list):
-                        try:
-                            tm = trimesh.load(obj_file)
-                            vertices_obj = np.array(tm.vertices)
-                        except:
-                            dict_mesh, _, _, _ = load_model_split(obj_file)
-                            vertices_obj = np.concatenate(dict_mesh['v'], axis=0)
-                        name_obj  = obj_file.split('.')[0].split('/')[-1]
-                        name_objs.append(name_obj)
-                        part_pts.append(vertices_obj)
-                part_pts_whole = np.concatenate(part_pts, axis=0)
-                pts_list.append(part_pts_whole + offset)
-                name_list.append(name_objs) # which should follow the right
-
-    if is_debug:
-        print('name_list is: ', name_list)
-
-    parts_a    = []
-    parts_a    = pts_list
-    parts_b    = [None] * len(obj_file_list)
-    # dof_rootd_Aa001_r.obj  dof_rootd_Aa002_r.obj  none_motion.obj
-    # bike: part2: 'dof_Aa001_Ca001_r', 'dof_rootd_Aa001_r'
-    if obj_category=='bike':
-        part0    = []
-        part1    = []
-        part2    = []
-        part0    = pts_list
-        for i, name_obj in enumerate(name_list):
-            if name_obj in ['dof_Aa001_Ca001_r', 'dof_rootd_Aa001_r']:
-                print('part 2 adding ', name_obj)
-                part2.append(pts_list[i])
-            else:
-                print('part 1 adding ', name_obj)
-                part1.append(pts_list[i])
-        parts      = [part0, part1, part2]
-
-    elif obj_category=='eyeglasses':
-        for i, name_obj in enumerate(name_list):
-            if name_obj in ['none_motion']:
-                parts_b[0] = []
-                parts_b[0].append(pts_list[i])
-            if name_obj in ['dof_rootd_Aa001_r']:
-                parts_b[1] = []
-                parts_b[1].append(pts_list[i])
-            elif name_obj in ['dof_rootd_Aa002_r']:
-                parts_b[2] = []
-                parts_b[2].append(pts_list[i])
-
-        parts      = [parts_a] +  parts_b
-
-    else:
-        parts_a    = []
-        parts_a    = pts_list
-        parts_b    = [None] * len(name_list)
-        for i, name_obj in enumerate(name_list):
-            parts_b[i] = []
-            parts_b[i].append(pts_list[i])
-
-        parts      = [parts_a] +  parts_b
-
-    corner_pts = [None] * len(parts)
-
-    for j in range(len(parts)):
-        if is_debug:
-            print('Now checking ', j)
-        part_gts = np.concatenate(parts[j], axis=0)
-        print('part_gts: ', part_gts.shape)
-        tight_w = max(part_gts[:, 0]) - min(part_gts[:, 0])
-        tight_l = max(part_gts[:, 1]) - min(part_gts[:, 1])
-        tight_h = max(part_gts[:, 2]) - min(part_gts[:, 2])
-        corner_pts[j] = np.amin(part_gts, axis=1)
-        norm_factor = np.sqrt(1) / np.sqrt(tight_w**2 + tight_l**2 + tight_h**2)
-        norm_factors.append(norm_factor)
-        corner_pt_left = np.amin(part_gts, axis=0, keepdims=True)
-        corner_pt_right= np.amax(part_gts, axis=0, keepdims=True)
-        corner_pts[j]  = [corner_pt_left, corner_pt_right] # [index][left/right][x, y, z], numpy array
-        if is_debug:
-            print('Group {} has {} points with shape {}'.format(j, len(corner_pts[j]), corner_pts[j][0].shape))
-        if verbose:
-            plot3d_pts([[part_gts[::2]]], ['model pts'], s=15, title_name=['GT model pts {}'.format(j)], sub_name=str(j))
-        # for k in range(len(parts[j])):
-        #     plot3d_pts([[parts[j][k][::2]]], ['model pts of part {}'.format(k)], s=15, title_name=['GT model pts'], sub_name=str(k))
-
-    return parts[1:], norm_factors, corner_pts
-
-def calculate_factor_nocs(root_dset, obj_category, item, parts_map, obj_file_list=None, offsets=None, is_debug=False, verbose=True):
-    """
-    read all .obj files,
-    group 1:  dof_rootd_Ba001_r.obj  dof_rootd_Ca002_r.obj  none_motion.obj;
-    group 2:  dof_Aa001_Ca001_r.obj  dof_rootd_Aa001_r.obj;
-    [global, part0, part1]
-    """
-    if obj_file_list is not None and obj_file_list[0] == []:
-        obj_file_list = obj_file_list[1:]
-    _, norm_factors, corner_pts = get_all_objs(root_dset, obj_category, item, obj_file_list=obj_file_list, offsets=offsets, is_debug=is_debug, verbose=False)
-    if verbose:
-        print('norm_factors for global NOCS: ', norm_factors[0])
-        print('norm_factors for part NOCS: ', norm_factors[1:])
-    return norm_factors, corner_pts
-
-def get_model_pts(root_dset, obj_category, item='0001', obj_file_list=None, offsets=None, is_debug=False):
-    """
-    read all .obj files,
-    group 1:  dof_rootd_Ba001_r.obj  dof_rootd_Ca002_r.obj  none_motion.obj;
-    group 2:  dof_Aa001_Ca001_r.obj  dof_rootd_Aa001_r.obj;
-    [global, part0, part1]
-    """
-    if obj_file_list is not None and obj_file_list[0] == []:
-        print('removing the 0th name list')
-        obj_file_list = obj_file_list[1:]
-    model_pts, norm_factors, corner_pts = get_all_objs(root_dset, obj_category, item, obj_file_list=obj_file_list, offsets=offsets, is_debug=is_debug)
-    # read
-    return model_pts, norm_factors, corner_pts
-
 def get_boundary(cpts):
     p = 0
     x_min = cpts[p][0][0][0]
@@ -1160,53 +616,6 @@ def load_model_split(inpath):
     fsplit_total   = sum(fsplit)
 
     return dict_mesh, list_group, vsplit, fsplit
-
-def read_obj(filename):
-    """ Reads the Obj file. Function reused from Matthew Loper's OpenDR package"""
-
-    lines = open(filename).read().split('\n')
-
-    d = {'v': [], 'vn': [], 'f': [], 'vt': [], 'ft': [], 'fn': []}
-
-    for line in lines:
-        line = line.split()
-        if len(line) < 2:
-            continue
-
-        key = line[0]
-        values = line[1:]
-
-        if key == 'v':
-            d['v'].append([np.array([float(v) for v in values[:3]])])
-        elif key == 'f':
-            spl = [l.split('/') for l in values]
-            d['f'].append([np.array([int(l[0])-1 for l in spl[:3]], dtype=np.uint32)])
-            if len(spl[0]) > 1 and spl[1] and 'ft' in d:
-                d['ft'].append([np.array([int(l[1])-1 for l in spl[:3]])])
-            if len(spl[0]) > 2 and spl[2] and 'fn' in d:
-                d['fn'].append([np.array([int(l[2])-1 for l in spl[:3]])])
-
-            # TOO: redirect to actual vert normals?
-            #if len(line[0]) > 2 and line[0][2]:
-            #    d['fn'].append([np.concatenate([l[2] for l in spl[:3]])])
-        elif key == 'vn':
-            d['vn'].append([np.array([float(v) for v in values])])
-        elif key == 'vt':
-            d['vt'].append([np.array([float(v) for v in values])])
-
-
-    for k, v in d.items():
-        if k in ['v','vn','f','vt','ft', 'fn']:
-            if v:
-                d[k] = np.vstack(v)
-            else:
-                del d[k]
-        else:
-            d[k] = v
-
-    result = Minimal(**d)
-
-    return result
 
 def fast_load_obj(file_obj, **kwargs):
     """
@@ -1370,9 +779,6 @@ def save_multiobjmesh(name_obj, dict_mesh):
                 fp.write('v {} {} {}\n'.format(xyz[j][0], xyz[j][1], xyz[j][2]))
             for m in range(len(face)):
                 fp.write('f {} {} {}\n'.format(face[m][0], face[m][1], face[m][2]))
-            # fprintf(fid, 'vt %f %f\n',(i-1)/(l-1),(j-1)/(h-1));
-            # if (normals) fprintf(fid, 'vn %f %f %f\n', nx(i,j),ny(i,j),nz(i,j)); end
-            # Iterate vertex data collected in each material
             # for name, material in obj_model.materials.items():
             #     # Contains the vertex format (string) such as "T2F_N3F_V3F"
             #     # T2F, C3F, N3F and V3F may appear in this string
@@ -1385,177 +791,6 @@ def save_multiobjmesh(name_obj, dict_mesh):
             #     material.texture
         fp.write('g mesh\n')
         fp.write('g\n\n')
-# mo:
-#  {'type': 'R', 'movPart': 0.0, 'refPart': 1.0,
-#  'origin': array([[ 0.022484 , -0.0113691,  0.11376  ]]),
-#  'x': array([[-0.983804  , -0.00750761, -0.179091  ]]),
-#  'y': array([[ 7.76757e-03, -9.99970e-01, -7.50390e-04]]),
-#  'z': array([[-0.17908   , -0.00212934,  0.983832  ]]),
-#  'motionDir': 'y', 'movPartExtentOnMotionDir': 0.0244756, 'min': -10.0, 'max': 80.0}
-# mo:
-#  {'type': 'R', 'movPart': 6.0, 'refPart': 0.0,
-#  'origin': array([[-3.05619e-01,  2.57100e-05, -1.13209e-01]]),
-#  'x': array([[-1.,  0.,  0.]]), 'y': array([[ 0., -1.,  0.]]), 'z': array([[0., 0., 1.]]),
-#  'motionDir': 'y', 'movPartExtentOnMotionDir': 0.0222945,
-#  'min': -180.0, 'max': 180.0}
-def get_sampled_model_pts(basepath, urdf_path, args, viz=False):
-    pts_m         = {}
-    bbox3d_all    = {}
-    start         = time.time()
-    m_file        = basepath + '/shape2motion/pickle/{}_pts.pkl'.format(args.item)
-    c_file        = basepath + '/shape2motion/pickle/{}_corners.pkl'.format(args.item)
-    n_file        = basepath + '/shape2motion/pickle/{}.pkl'.format(args.item)
-
-    if args.process:
-        root_dset = basepath + '/shape2motion'
-        for item in os.listdir(urdf_path):
-            print('now fetching for item {}'.format(item))
-            pts, nf, cpts = get_model_pts(root_dset, args.item, item)
-            pt_ii         = []
-            bbox3d_per_part = []
-            for p, pt in enumerate(pts):
-                pt_s = np.concatenate(pt, axis=0)
-                np.random.shuffle(pt_s)
-                # pt_s = pt_s[::20, :]
-                pt_ii.append(pt_s)
-                print('We have {} pts'.format(pt_ii[p].shape[0]))
-            if pt_ii is not []:
-                pts_m[item] = pt_ii
-            else:
-                print('!!!!! {} model loading is wrong'.format(item))
-        end_t          = time.time()
-
-        with open(m_file, 'wb') as f:
-            pickle.dump(pts_m, f)
-    else:
-        with open(m_file, 'rb') as f:
-            pts_m = pickle.load(f)
-
-        with open(c_file, 'rb') as f:
-            pts_c = pickle.load(f)
-
-        with open(n_file, 'rb') as f:
-            pts_n = pickle.load(f)
-
-        for item in list(pts_m.keys()):
-            pts  = pts_m[item]
-            norm_factors = pts_n[item]
-            norm_corners = pts_c[item]
-            pt_ii  = []
-            bbox3d_per_part = []
-            for p, pt in enumerate(pts): # todo: assume we are dealing part-nocs, so model pts are processed
-                norm_factor = norm_factors[p+1]
-                norm_corner = norm_corners[p+1]
-                nocs_corner = np.copy(norm_corner) # copy is very important, as they are
-                print('norm_corner:\n', norm_corner)
-                pt_nocs = (pt- norm_corner[0]) * norm_factor + np.array([0.5, 0.5, 0.5]).reshape(1, 3) - 0.5 * (  norm_corner[1] - norm_corner[0]) * norm_factor
-                nocs_corner[0] = np.array([0.5, 0.5, 0.5]).reshape(1, 3) - 0.5 * (norm_corner[1] - norm_corner[0]) * norm_factor
-                nocs_corner[1] = np.array([0.5, 0.5, 0.5]).reshape(1, 3) + 0.5 * (norm_corner[1] - norm_corner[0]) * norm_factor
-                bbox3d_per_part.append(nocs_corner)
-                np.random.shuffle(pt_nocs)
-                pt_ii.append(pt_nocs[0:2000, :])  # sub-sampling
-                print('We have {} pts'.format(pt_ii[p].shape[0]))
-            if pt_ii is not []:
-                pts_m[item] = pt_ii
-            else:
-                print('!!!!! {} model loading is wrong'.format(item))
-            assert bbox3d_per_part != []
-            bbox3d_all[item] = bbox3d_per_part
-
-        end_t          = time.time()
-    if viz:
-        print('It takes {} seconds to get: \n'.format(end_t - start), list(pts_m.keys()))
-    return bbox3d_all, pts_m
-
-
-def get_part_bounding_box(my_dir, test_ins, args, viz=False):
-    pts_m         = {}
-    bbox3d_all    = {}
-    start         = time.time()
-    m_file        = my_dir + '/shape2motion/pickle/{}_pts.pkl'.format(args.item)
-    c_file        = my_dir + '/shape2motion/pickle/{}_corners.pkl'.format(args.item)
-    n_file        = my_dir + '/shape2motion/pickle/{}.pkl'.format(args.item)
-
-    if args.process:
-        for item in os.listdir(test_ins):
-            print('now fetching for item {}'.format(item))
-            pts, nf, cpts = get_model_pts(root_dset, args.item, item)
-            pt_ii  = []
-            for p, pt in enumerate(pts):
-                pt_s = np.concatenate(pt, axis=0)
-                np.random.shuffle(pt_s)
-                # pt_s = pt_s[::20, :]
-                pt_ii.append(pt_s)
-                print('We have {} pts'.format(pt_ii[p].shape[0]))
-            if pt_ii is not []:
-                pts_m[item] = pt_ii
-            else:
-                print('!!!!! {} model loading is wrong'.format(item))
-        end_t          = time.time()
-
-        with open(m_file, 'wb') as f:
-            pickle.dump(pts_m, f)
-    else:
-        with open(m_file, 'rb') as f:
-            pts_m = pickle.load(f)
-
-        with open(c_file, 'rb') as f:
-            pts_c = pickle.load(f)
-
-        with open(n_file, 'rb') as f:
-            pts_n = pickle.load(f)
-
-        # for item in list(pts_m.keys()):
-        for item in test_ins:
-            pts  = pts_m[item]
-            norm_factors = pts_n[item]
-            norm_corners = pts_c[item]
-            pt_ii  = []
-            bbox3d_per_part = []
-            for p, pt in enumerate(pts): # todo: assume we are dealing part-nocs, so model pts are processed
-                norm_factor = norm_factors[p+1]
-                norm_corner = norm_corners[p+1]
-                nocs_corner = np.copy(norm_corner) # copy is very important, as they are
-                print('norm_corner:\n', norm_corner)
-                pt_nocs = (pt- norm_corner[0]) * norm_factor + np.array([0.5, 0.5, 0.5]).reshape(1, 3) - 0.5 * (  norm_corner[1] - norm_corner[0]) * norm_factor
-                nocs_corner[0] = np.array([0.5, 0.5, 0.5]).reshape(1, 3) - 0.5 * (norm_corner[1] - norm_corner[0]) * norm_factor
-                nocs_corner[1] = np.array([0.5, 0.5, 0.5]).reshape(1, 3) + 0.5 * (norm_corner[1] - norm_corner[0]) * norm_factor
-                bbox3d_per_part.append(nocs_corner)
-                np.random.shuffle(pt_nocs)
-                pt_ii.append(pt_nocs[0:2000, :])  # sub-sampling
-                print('We have {} pts'.format(pt_ii[p].shape[0]))
-            if pt_ii is not []:
-                pts_m[item] = pt_ii
-            else:
-                print('!!!!! {} model loading is wrong'.format(item))
-            assert bbox3d_per_part != []
-            bbox3d_all[item] = bbox3d_per_part
-        end_t          = time.time()
-
-    print('It takes {} seconds to get: \n'.format(end_t - start), list(pts_m.keys()))
-    if viz:
-        plot3d_pts([pts_m['0001']], [['part 0', 'part 1']], s=5, title_name=['sampled model pts'], dpi=200)
-
-    return bbox3d_all, pts_m
-
-def get_test_seq(all_test_h5, unseen_instances, domain='seen', spec_instances=[], category=None):
-    seen_test_h5    = []
-    unseen_test_h5  = []
-    for test_h5 in all_test_h5:
-        if test_h5[0:4] in spec_instances or test_h5[-2:] !='h5':
-            continue
-        name_info      = test_h5.split('.')[0].split('_')
-        item           = name_info[0]
-        if item in unseen_instances:
-            unseen_test_h5.append(test_h5)
-        else:
-            seen_test_h5.append(test_h5)
-    if domain == 'seen':
-        test_group = seen_test_h5
-    else:
-        test_group = unseen_test_h5
-
-    return test_group
 
 def get_test_group(all_test_h5, unseen_instances, domain='seen', spec_instances=[], category=None):
     seen_test_h5    = []
@@ -1617,19 +852,6 @@ def get_demo_h5(all_test_h5, spec_instances=[]):
         demo_full_h5.append(test_h5)
 
     return demo_full_h5
-
-def get_pickle(data, base_path, index):
-    """
-    data: better to be dict-like structure
-    """
-    file_name = base_path + '/pickle/datapoint_{}.pkl'.format(index)
-    directory = base_path + '/pickle'
-    if not os.path.exists( directory ):
-        os.makedirs(directory)
-    with open(file_name, 'wb') as f:
-        pickle.dump(data, f)
-    print('Saving the data into ' + base_path + '/pickle/datapoint_{}.pkl'.format(index))
-
 
 def load_pickle(file_name):
     with open(file_name, 'rb') as f:
