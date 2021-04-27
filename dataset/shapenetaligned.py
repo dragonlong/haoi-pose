@@ -15,44 +15,59 @@ from scipy.spatial.transform import Rotation as sciR
 def bp():
     import pdb;pdb.set_trace()
 
-class Dataloader_ModelNet40(data.Dataset):
-    def __init__(self, opt, mode=None):
-        super(Dataloader_ModelNet40, self).__init__()
+class ShapeNetH5(data.Dataset):
+    def __init__(self, opt, mode=None, npoints=2048, novel_input=True, novel_input_only=False):
+        super(ShapeNetH5, self).__init__()
         self.opt = opt
 
-        # 'train' or 'eval'
         self.mode = opt.mode if mode is None else mode
-
-        # attention method: 'attention | rotation'
-        self.flag = opt.model.flag
-
-        self.anchors = L.get_anchors()
-
-        if self.flag == 'rotation':
-            cats = ['airplane']
-            print(f"[Dataloader]: USING ONLY THE {cats[0]} CATEGORY!!")
-        else:
-            cats = os.listdir(opt.DATASET.dataset_path)
         if 'val' in self.mode:
             self.mode = 'test'
-        self.dataset_path = opt.DATASET.dataset_path
-        self.all_data = []
-        for cat in cats:
-            for fn in glob.glob(os.path.join(opt.DATASET.dataset_path, cat, self.mode, "*.mat")):
-                self.all_data.append(fn)
-        print("[Dataloader] : Training dataset size:", len(self.all_data))
+        self.anchors = L.get_anchors()
 
-        if self.opt.no_augmentation:
-            print("[Dataloader]: USING ALIGNED MODELNET LOADER!")
-        else:
-            print("[Dataloader]: USING ROTATED MODELNET LOADER!")
+        dataset_path    = '/groups/arcadm/xiaolong/mvp'
+        self.input_path = f'{dataset_path}/mvp_{self.mode}_input.h5'
+        self.gt_path = f'{dataset_path}/mvp_{self.mode}_gt_{npoints}pts.h5'
 
+        self.npoints = npoints
+        bp()
+        input_file = h5py.File(self.input_path, 'r')
+        self.input_data = np.array((input_file['incomplete_pcds'][()]))
+        # self.labels = np.array((input_file['labels'][()]))
+        # self.novel_input_data = np.array((input_file['novel_incomplete_pcds'][()]))
+        # self.novel_labels = np.array((input_file['novel_labels'][()]))
+        input_file.close()
+
+        gt_file = h5py.File(self.gt_path, 'r')
+        self.gt_data = np.array((gt_file['complete_pcds'][()]))
+        self.novel_gt_data = np.array((gt_file['novel_complete_pcds'][()]))
+        gt_file.close()
+
+        if novel_input_only:
+            self.input_data = self.novel_input_data
+            self.gt_data = self.novel_gt_data
+            self.labels = self.novel_labels
+        elif novel_input:
+            self.input_data = np.concatenate((self.input_data, self.novel_input_data), axis=0)
+            self.gt_data = np.concatenate((self.gt_data, self.novel_gt_data), axis=0)
+            self.labels = np.concatenate((self.labels, self.novel_labels), axis=0)
+
+        # print(self.input_data.shape)
+        # print(self.gt_data.shape)
+        # print(self.labels.shape)
+        self.len = self.input_data.shape[0]
 
     def __len__(self):
-        return len(self.all_data)
+        return self.len
 
     def __getitem__(self, index):
-        data = sio.loadmat(self.all_data[index])
+        partial = torch.from_numpy((self.input_data[index]))
+        # complete = torch.from_numpy((self.gt_data[index // 26]))
+        # label = (self.labels[index])
+        data = {}
+        data['pc'] = partial
+
+
         _, pc = pctk.uniform_resample_np(data['pc'], self.opt.model.input_num)
         # pc = p3dtk.normalize_np(pc.T)
         # pc = pc.T
@@ -160,7 +175,7 @@ if __name__ == '__main__':
     device = torch.device("cuda:0")
     x = torch.randn(BS, N, 3).to(device)
     opt.model.model = 'inv_so3net'
-    dset = Dataloader_ModelNet40(opt, mode='test')
+    dset = ShapeNetH5(opt, mode='test')
     for i in range(10):
         dp = dset.__getitem__(i)
         print(dp)

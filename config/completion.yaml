@@ -49,19 +49,20 @@ use_hand_occupancy: False
 check_consistency: True
 
 # loss
-num_modes_R: 2
+num_modes_R: 1
 rotation_loss_type: 1
 use_1vN_nocs: False
 use_objective_T: False
 use_objective_R: False
 use_objective_N: False
 use_objective_C: False
-use_objective_M: False # for R mode selection
+use_objective_M: False
 use_confidence_R: False
-use_objective_V: False # variance
+use_objective_V: False #
 confidence_loss_type: 0
 confidence_loss_multiplier: 0.01
 consistency_loss_multiplier: 0.1
+modecls_loss_multiplier: 0.001
 use_adaptive_mode: False
 use_one2many: False
 

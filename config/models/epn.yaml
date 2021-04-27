@@ -23,6 +23,7 @@ model:
   normals: False # action='store_true', help='If set, add normals to the input')
   flag: 'rotation'    # help='pooling method: max | mean | attention | rotation')
   representation: 'quat' #ortho6d
+  pooling_method: 'mean'
 
 MODEL:
   num_in_channels: 1

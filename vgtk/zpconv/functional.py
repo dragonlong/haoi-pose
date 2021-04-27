@@ -35,6 +35,7 @@ def get_anchors(anchor):
         return anchor.detach().cpu()
     else:
         raise ValueError(f'Not recognized anchor type {type(anchor)}')
+    bp()
     ply = pctk.load_ply(ply_path).astype('float32')
     ply = filter_anchor(ply)
     ply = torch.from_numpy(ply)

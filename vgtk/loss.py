@@ -15,11 +15,12 @@ from vgtk.functional import compute_rotation_matrix_from_quaternion, compute_rot
 import vgtk.so3conv as sgtk
 def bp():
     import pdb;pdb.set_trace()
+
 # ------------------------------------- loss ------------------------------------
 class CrossEntropyLoss(torch.nn.Module):
     def __init__(self):
         super(CrossEntropyLoss, self).__init__()
-        self.metric = torch.nn.CrossEntropyLoss()
+        self.metric = torch.nn.CrossEntropyLoss(reduction='none') # TODO
 
     def forward(self, pred, label):
         _, pred_label = pred.max(1)
@@ -33,7 +34,7 @@ class AttentionCrossEntropyLoss(torch.nn.Module):
     def __init__(self, loss_type, loss_margin):
         super(AttentionCrossEntropyLoss, self).__init__()
         self.metric = CrossEntropyLoss()
-        self.loss_type = loss_type
+        self.loss_type   = loss_type
         self.loss_margin = loss_margin
         self.iter_counter = 0
 
@@ -119,13 +120,15 @@ class MultiTaskDetectionLoss(torch.nn.Module):
                 - y (nb, nr, na) features to be mapped to 3x3 rotation matrices
                 - gt_R (nb, na, 3, 3) relative rotation between gtR and each anchor
         '''
-
-        b = wts.shape[0]
         nr = self.nr # 4 or 6
-        na = wts.shape[1]
+        if isinstance(wts, list):
+            b = wts[0].shape[0]
+            na = wts[0].shape[1]
+        else:
+            b = wts.shape[0]
+            na = wts.shape[1]
         rotation_mapping = compute_rotation_matrix_from_quaternion if nr == 4 else compute_rotation_matrix_from_ortho6d
         true_R = gt_R[:,29] if gt_T is None else gt_T
-
         if na == 1:
             # single anchor regression problem
             target_R = true_R
@@ -172,8 +175,24 @@ class MultiTaskDetectionLoss(torch.nn.Module):
 
         else:
             # single shape Canonical Regression setting
-            wts = wts.view(b,-1)
-            cls_loss, r_acc = self.classifier(wts, label.view(-1).contiguous())
+            if isinstance(wts, list):
+                cls_loss_list, r_acc_list = [], []
+                for wts_item in wts:
+                    wts_item = wts_item.view(b,-1)
+                    cls_loss, r_acc = self.classifier(wts_item, label.view(-1).contiguous())
+                    cls_loss_list.append(cls_loss)
+                    r_acc_list.append(r_acc)
+                min_loss, min_indices = torch.min(torch.stack(cls_loss_list, dim=0), dim=1) # M, B
+                cls_loss = min_loss.mean()
+                y_cat    = torch.stack(y, dim=0)
+                wts_cat  = torch.stack(wts, dim=0)
+                wts      = wts_cat[min_indices, torch.arange(b)]
+                y        = y_cat[min_indices, torch.arange(b)]
+            else:
+                wts = wts.view(b,-1)
+                cls_loss, r_acc = self.classifier(wts, label.view(-1).contiguous())
+                cls_loss = cls_loss.mean()
+
             pred_RAnchor = rotation_mapping(y.transpose(1,2).contiguous().view(-1,nr)).view(b,-1,3,3)
 
             # option 1: only learn to regress the closest anchor

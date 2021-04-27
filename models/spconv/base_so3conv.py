@@ -192,6 +192,14 @@ class SeparableSO3ConvBlock(nn.Module):
         '''
         skip_feature = x.feats
         inter_idx, inter_w, sample_idx, x = self.inter_conv(x, inter_idx, inter_w)
+        # (Pdb) inter_idx.shape
+        # torch.Size([4, 512, 64])
+        # (Pdb) inter_w.shape
+        # torch.Size([4, 512, 60, 24, 64])
+        # (Pdb) inter_idx.shape
+        # torch.Size([4, 256, 32])
+        # (Pdb) inter_w.shape
+        # torch.Size([4, 256, 60, 24, 32])
 
         if self.use_intra:
             x = self.intra_conv(x)
@@ -395,7 +403,7 @@ class ClsOutBlockPointnet(nn.Module):
         out_feat = x_out
         x_in = sptk.SphericalPointCloud(x.xyz, out_feat, x.anchors)
 
-        x_out = self.pointnet(x_in)
+        x_out = self.pointnet(x_in) # pooling over all points, [nb, nc, na]
 
         norm = self.norm[norm_cnt]
         norm_cnt += 1
@@ -422,6 +430,78 @@ class ClsOutBlockPointnet(nn.Module):
 
         return x_out, out_feat.squeeze()
 
+class InvOutBlockOurs(nn.Module):
+    def __init__(self, params, norm=None, pooling_method='max'):
+        super(InvOutBlockOurs, self).__init__()
+
+        c_in = params['dim_in']
+        mlp = params['mlp']
+        fc = params['fc']
+        k = params['k']
+        na = params['kanchor']
+
+        self.outDim = k
+
+        self.linear = nn.ModuleList()
+        self.norm = nn.ModuleList()
+
+        # ------------------ uniary conv ----------------
+        for c in mlp:
+            self.linear.append(nn.Conv2d(c_in, c, 1))
+            self.norm.append(nn.BatchNorm2d(c))
+            c_in = c
+        # -----------------------------------------------
+
+        # ----------------- pooling ---------------------
+        self.pooling_method = pooling_method
+        # BxCxA -> Bx1xA or BxCxA attention weights
+        if self.pooling_method == 'attention':
+            self.temperature = params['temperature']
+            self.attention_layer = nn.Conv1d(c_in, 1, 1)
+
+        # ------------------------------------------------
+        self.pointnet = sptk.PointnetSO3Conv(c_in, c_in, na)
+        self.norm.append(nn.BatchNorm1d(c_in))
+        self.fc2 = nn.Linear(c_in, self.outDim)
+
+    def forward(self, x, label=None):
+        x_out = x.feats
+        norm_cnt = 0
+        end = len(self.linear)
+        for lid, linear in enumerate(self.linear):
+            norm = self.norm[norm_cnt]
+            x_out = linear(x_out)
+            x_out = F.relu(norm(x_out))
+            norm_cnt += 1
+
+        out_feat = x_out
+        x_in = sptk.SphericalPointCloud(x.xyz, out_feat, x.anchors)
+
+        x_out = self.pointnet(x_in) # pooling over all points, [nb, nc, na]
+
+        norm = self.norm[norm_cnt]
+        norm_cnt += 1
+        x_out = F.relu(norm(x_out))
+
+        # mean pooling
+        if self.pooling_method == 'mean':
+            x_out = x_out.mean(dim=2)
+        elif self.pooling_method == 'debug':
+            # for debug only
+            x_out = x_out[..., 0].mean(2)
+        elif self.pooling_method == 'max':
+            # max pooling
+            x_out = x_out.max(2)[0]
+        elif self.pooling_method.startswith('attention'):
+            out_feat = self.attention_layer(x_out)  # Bx1XA or BxCxA
+            confidence = F.softmax(out_feat * self.temperature, dim=2)
+            x_out = x_out * confidence
+            x_out = x_out.sum(-1)
+        else:
+            raise NotImplementedError(f"Pooling mode {self.pooling_method} is not implemented!")
+
+        return x_out
+
 class InvOutBlockR(nn.Module):
     def __init__(self, params, norm=None):
         super(InvOutBlockR, self).__init__()
@@ -447,7 +527,6 @@ class InvOutBlockR(nn.Module):
             self.linear.append(nn.Conv2d(c_in, c, 1))
             self.norm.append(nn.InstanceNorm2d(c, affine=False))
             c_in = c
-
 
 
     def forward(self, feats):
@@ -578,16 +657,17 @@ class InvOutBlockMVD(nn.Module):
         # nb, nc
         x_out = self.pointnet(x_in).view(nb, -1)
 
-        return F.normalize(x_out, p=2, dim=1), attn # [na, na], [nb, nc, np, na],
+        return F.normalize(x_out, p=2, dim=1), attn # [nb, na], [nb, nc, np, na],
 
 
-# outblock for rotation regression model
-class SO3OutBlockR(nn.Module):
-    def __init__(self, params, norm=None):
-        super(SO3OutBlockR, self).__init__()
+# outblock for NOCS, [nb, nc, np]
+class DirectSO3OutBlock(nn.Module):
+    def __init__(self, params, norm=None, pooling_method='mean'):
+        super(DirectSO3OutBlock, self).__init__()
 
         c_in = params['dim_in']
         mlp = params['mlp']
+        na = params['kanchor']
 
         self.linear = nn.ModuleList()
         self.temperature = params['temperature']
@@ -597,8 +677,60 @@ class SO3OutBlockR(nn.Module):
             self.norm = nn.ModuleList()
         else:
             self.norm = None
-        # out channel equals 4 for quaternion representation, 6 for ortho representation
-        # self.regressor_layer = nn.Conv2d(mlp[-1],4,(1,1))
+        self.pooling_method = pooling_method
+        if self.pooling_method == 'pointnet':
+            self.pointnet = sptk.PointnetSO3Conv(mlp[-1],mlp[-1], na)
+
+        # ------------------ uniary conv ----------------
+        for c in mlp:
+            self.linear.append(nn.Conv2d(c_in, c, 1))
+            if norm is not None:
+                self.norm.append(nn.BatchNorm2d(c))
+            c_in = c
+
+    def forward(self, x):
+        x_out = x.feats
+
+        # the first one is mapping with linear layer, then pool with mean
+        # the second one is first try concatenating rotated xyz, then mapping and maxpooling;(pointnet)
+        end = len(self.linear)
+        for lid, linear in enumerate(self.linear):
+            x_out = linear(x_out)
+            if self.norm is not None:
+                x_out = self.norm[lid](x_out)
+            x_out = F.relu(x_out)
+
+        # mean pool at xyz ->  BxCxA
+        if self.pooling_method == 'mean':
+            x_out = x_out.mean(-1) # max perform better? or point-based xyz conv
+        elif self.pooling_method == 'max':
+            x_out = x_out.max(-1)[0]
+        elif self.pooling_method == 'pointnet':
+            x_in = sptk.SphericalPointCloud(x.xyz, x_out, None)
+            x_out = self.pointnet(x_in, pool_a=True)
+        #
+        return x_out
+
+# outblock for rotation regression model
+class SO3OutBlockR(nn.Module):
+    def __init__(self, params, norm=None, pooling_method='mean'):
+        super(SO3OutBlockR, self).__init__()
+
+        c_in = params['dim_in']
+        mlp = params['mlp']
+        na = params['kanchor']
+
+        self.linear = nn.ModuleList()
+        self.temperature = params['temperature']
+        self.representation = params['representation']
+        # self.attention_layer = nn.Conv2d(mlp[-1], 1, (1,1))
+        if norm is not None:
+            self.norm = nn.ModuleList()
+        else:
+            self.norm = None
+        self.pooling_method = pooling_method
+        if self.pooling_method == 'pointnet':
+            self.pointnet = sptk.PointnetSO3Conv(mlp[-1],mlp[-1], na)
 
         self.attention_layer = nn.Conv1d(mlp[-1], 1, (1))
         self.regressor_layer = nn.Conv1d(mlp[-1],4,(1))
@@ -610,8 +742,8 @@ class SO3OutBlockR(nn.Module):
                 self.norm.append(nn.BatchNorm2d(c))
             c_in = c
 
-    def forward(self, feats):
-        x_out = feats
+    def forward(self, x):
+        x_out = x.feats
 
         # the first one is mapping with linear layer, then pool with mean
         # the second one is first try concatenating rotated xyz, then mapping and maxpooling;(pointnet)
@@ -624,7 +756,13 @@ class SO3OutBlockR(nn.Module):
             x_out = F.relu(x_out)
 
         # mean pool at xyz ->  BxCxA
-        x_out = x_out.mean(2)
+        if self.pooling_method == 'mean':
+            x_out = x_out.mean(2) # max perform better? or point-based xyz conv
+        elif self.pooling_method == 'max':
+            x_out = x_out.max(2)[0]
+        elif self.pooling_method == 'pointnet':
+            x_in = sptk.SphericalPointCloud(x.xyz, x_out, None)
+            x_out = self.pointnet(x_in)
         attention_wts = self.attention_layer(x_out)  # Bx1XA
         confidence = F.softmax(attention_wts * self.temperature, dim=2).view(x_out.shape[0], x_out.shape[2])
         # regressor

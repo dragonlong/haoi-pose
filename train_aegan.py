@@ -147,7 +147,6 @@ def main(cfg):
         for iteration in range(num_iteration):
             cfg.iteration = iteration
             for num, data in enumerate(test_loader):
-            # for num, data in enumerate(train_loader):
                 if num % 10 == 0:
                     print('checking batch ', num)
                 BS = data['points'].shape[0]
@@ -155,23 +154,25 @@ def main(cfg):
                 torch.cuda.empty_cache()
                 tr_agent.eval_func(data)
                 pose_diff = tr_agent.pose_err
-                for key in ['rdiff', 'tdiff', 'sdiff']:
-                    track_dict[key] += pose_diff[key].float().cpu().numpy().tolist()
-                deg = pose_diff['rdiff'] <= 5.0
-                cm = pose_diff['tdiff'] <= 0.05
-                degcm = deg & cm
-                for key, value in zip(['5deg', '5cm', '5deg5cm'], [deg, cm, degcm]):
-                    track_dict[key] += value.float().cpu().numpy().tolist()
-                for key, value in tr_agent.pose_info.items():
-                    infos_dict[key] += value.float().cpu().numpy().tolist()
-                input_pts  = data['G'].ndata['x'].view(BS, -1, 3).contiguous() # B, N, 3
-                for m in range(BS):
-                    basename   = f'{cfg.iteration}_' + data['id'][m] + f'_' + data['class'][m]
-                    infos_dict['basename'].append(basename)
-                    infos_dict['in'].append(input_pts[m].cpu().numpy())
-                # tr_agent.visualize_batch(data, "test")
-        # print
+                if pose_diff is not None:
+                    for key in ['rdiff', 'tdiff', 'sdiff']:
+                        track_dict[key] += pose_diff[key].float().cpu().numpy().tolist()
+                    deg = pose_diff['rdiff'] <= 5.0
+                    cm = pose_diff['tdiff'] <= 0.05
+                    degcm = deg & cm
+                    for key, value in zip(['5deg', '5cm', '5deg5cm'], [deg, cm, degcm]):
+                        track_dict[key] += value.float().cpu().numpy().tolist()
+                    for key, value in tr_agent.pose_info.items():
+                        infos_dict[key] += value.float().cpu().numpy().tolist()
+                    input_pts  = data['G'].ndata['x'].view(BS, -1, 3).contiguous() # B, N, 3
+                    for m in range(BS):
+                        basename   = f'{cfg.iteration}_' + data['id'][m] + f'_' + data['class'][m]
+                        infos_dict['basename'].append(basename)
+                        infos_dict['in'].append(input_pts[m].cpu().numpy())
+                tr_agent.visualize_batch(data, "test")
         for key, value in track_dict.items():
+            if len(value) < 1:
+                continue
             print(key, ':', np.array(value).mean())
         print(f'experiment {cfg.exp_num} for {cfg.target_category}\n')
         # save
@@ -181,6 +182,8 @@ def main(cfg):
 
         # visualize distribution
         for key, value in track_dict.items():
+            if len(value) < 1:
+                continue
             value = np.array(value)
             plot_distribution(value.reshape(-1), labelx=key, labely='frequency', title_name=f'{key}', sub_name=cfg.exp_num, save_fig=True)
 
@@ -190,6 +193,7 @@ def main(cfg):
     clock = tr_agent.clock #
     val_loader  = cycle(val_loader)
     best_5deg   = 0
+    best_chamferL1 = 100
     for e in range(clock.epoch, cfg.nr_epochs):
         pbar = tqdm(train_loader)
         for b, data in enumerate(pbar):
@@ -215,7 +219,7 @@ def main(cfg):
 
             if clock.step % cfg.eval_frequency == 0:
                 track_dict = {'rdiff': [], 'tdiff': [], 'sdiff': [],
-                              '5deg': [], '5cm': [], '5deg5cm': []}
+                              '5deg': [], '5cm': [], '5deg5cm': [], 'chamferL1': []}
                 if cfg.num_modes_R > 1:
                     track_dict.update({'mode_accuracy': [], 'chosenR': []})
 
@@ -224,23 +228,32 @@ def main(cfg):
                         break
                     tr_agent.eval_func(test_data)
                     pose_diff = tr_agent.pose_err
-                    for key in ['rdiff', 'tdiff', 'sdiff']:
-                        track_dict[key].append(pose_diff[key].cpu().numpy().mean())
-                    deg = pose_diff['rdiff'] <= 5.0
-                    cm = pose_diff['tdiff'] <= 0.05
-                    degcm = deg & cm
-                    for key, value in zip(['5deg', '5cm', '5deg5cm'], [deg, cm, degcm]):
-                        track_dict[key].append(value.float().cpu().numpy().mean())
+                    if pose_diff is not None:
+                        for key in ['rdiff', 'tdiff', 'sdiff']:
+                            track_dict[key].append(pose_diff[key].cpu().numpy().mean())
+                        deg = pose_diff['rdiff'] <= 5.0
+                        cm = pose_diff['tdiff'] <= 0.05
+                        degcm = deg & cm
+                        for key, value in zip(['5deg', '5cm', '5deg5cm'], [deg, cm, degcm]):
+                            track_dict[key].append(value.float().cpu().numpy().mean())
+                    if 'completion' in cfg.task:
+                        track_dict['chamferL1'].append(tr_agent.recon_loss.cpu().numpy().mean())
                 if cfg.use_wandb:
                     for key, value in track_dict.items():
+                        if len(value) < 1:
+                            continue
                         wandb.log({f'test/{key}': np.array(value).mean(), 'step': clock.step})
+                if np.array(track_dict['5deg']).mean() > best_5deg:
+                    tr_agent.save_ckpt('best')
+                    best_5deg = np.array(track_dict['5deg']).mean()
+
+                if np.array(track_dict['chamferL1']).mean() > best_chamferL1:
+                    tr_agent.save_ckpt('best')
+                    best_chamferL1 = np.array(track_dict['chamferL1']).mean()
 
             clock.tick()
             if clock.step % cfg.save_step_frequency == 0:
                 tr_agent.save_ckpt('latest')
-            if np.array(track_dict['5deg']).mean() > best_5deg:
-                tr_agent.save_ckpt('best')
-                best_5deg = np.array(track_dict['5deg']).mean()
 
         tr_agent.update_learning_rate()
         clock.tock()

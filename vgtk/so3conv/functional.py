@@ -16,7 +16,8 @@ import vgtk.pc as pctk
 import epn_grouping as cuda_nn
 
 # import vgtk.zpconv as zpconv
-
+def bp():
+    import pdb;pdb.set_trace()
 
 def acos_safe(x, eps=1e-4):
     sign = torch.sign(x)
@@ -142,10 +143,11 @@ def add_shadow_feature(x):
 
 def get_sphereical_kernel_points_from_ply(radius, kernel_size):
     assert kernel_size <= 3 and kernel_size > 0
-    mapping = {1:24, 2:30, 3:66}
+    mapping = {1:24, 2:30, 3:66} # TODO
     root = vgtk.__path__[0]
     anchors_path = os.path.join(root, 'data', 'anchors')
     ply_path = os.path.join(anchors_path, f'kpsphere{mapping[kernel_size]:d}.ply')
+    # kp24
     ply = pctk.load_ply(ply_path).astype('float32')
     def normalize(pc, radius):
         r = np.sqrt((pc**2).sum(1).max())
@@ -155,7 +157,7 @@ def get_sphereical_kernel_points_from_ply(radius, kernel_size):
 def ball_query(query_points, support_points, radius, n_sample, support_feats=None):
     idx = pctk.ball_query_index(query_points, support_points, radius, n_sample)
     support_points = add_shadow_point(support_points)
-    
+
     if support_feats is None:
         return idx, pctk.group_nd(support_points, idx)
     else:
@@ -193,7 +195,7 @@ def inter_spconv_grouping_naive(inter_idx, inter_w, feats):
 def inter_pooling_naive(inter_idx, sample_idx, feats, alpha=0.5):
     b, p, pnn = inter_idx.shape
     _, c, q, a = feats.shape
-    
+
     new_feats = batched_index_select(feats, 2, sample_idx.long())
     grouped_feats = batched_index_select(add_shadow_feature(feats), 2, inter_idx.long().view(b, -1)).view(b, -1, p, pnn, a)
     return alpha * new_feats + (1 - alpha) * grouped_feats.mean(3)
@@ -323,7 +325,7 @@ def get_intra_kernels(aperature, kernel_size):
     kernels = np.linspace(0, 0.5*aperature, kernel_size, dtype=np.float32)
     kernels = torch.from_numpy(kernels)
     return kernels
-    
+
 def intra_so3conv_grouping(intra_idx, feature):
     '''
         intra_idx: [na,pnn] so3 neighbors

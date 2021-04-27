@@ -30,7 +30,7 @@ class ChamferDistance(torch.nn.Module):
         super(ChamferDistance, self).__init__()
         self.ignore_zeros = ignore_zeros
 
-    def forward(self, xyz1, xyz2):
+    def forward(self, xyz1, xyz2, return_raw=False):
         batch_size = xyz1.size(0)
         if batch_size == 1 and self.ignore_zeros:
             non_zeros1 = torch.sum(xyz1, dim=2).ne(0)
@@ -39,4 +39,7 @@ class ChamferDistance(torch.nn.Module):
             xyz2 = xyz2[non_zeros2].unsqueeze(dim=0)
 
         dist1, dist2 = ChamferFunction.apply(xyz1, xyz2)
-        return torch.mean(dist1) + torch.mean(dist2)
+        if return_raw:
+            return dist1, dist2
+        else:
+            return torch.mean(dist1) + torch.mean(dist2)

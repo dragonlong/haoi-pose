@@ -62,6 +62,7 @@ add_datasets(HandDatasetAEGraph)
 add_datasets(ModelNetDataset)
 add_datasets(OracleDataset)
 add_datasets(NOCSDataset)
+add_datasets(Dataloader_ModelNet40)
 #
 def load_dataset(name):
   '''Creates and returns an instance of the datasets given its name.
@@ -82,21 +83,23 @@ def breakpoint():
     import pdb;pdb.set_trace()
 
 def collate_graph(samples):
-    graphs, gt_points, instance_names, Rx, center_offsets, idx, category_name = map(list, zip(*samples))
+    graphs, gt_points, instance_names, Rx, center_offsets, idx, category_name, S = map(list, zip(*samples))
     batched_graph = dgl.batch(graphs)
     gt_points = torch.stack(gt_points, 0)
     Rx = torch.stack(Rx, 0)
     Tx = torch.stack(center_offsets, 0)
-    return {'G': batched_graph, "points": gt_points, "id": instance_names, 'R': Rx, 'T': Tx, 'idx': idx, 'class': category_name}
+    Sx = torch.stack(S, 0)
+    return {'G': batched_graph, "points": gt_points, "id": instance_names, 'R': Rx, 'T': Tx, 'S': Sx, 'idx': idx, 'class': category_name}
 
 def collate_graph_full(samples):
-    graphs, gt_points, instance_names, Rx, center_offsets, idx, category_name, labels = map(list, zip(*samples))
+    graphs, gt_points, instance_names, Rx, center_offsets, idx, category_name, labels, S = map(list, zip(*samples))
     batched_graph = dgl.batch(graphs)
     gt_points = torch.stack(gt_points, 0)
     Rx = torch.stack(Rx, 0)
     Tx = torch.stack(center_offsets, 0)
     labels = torch.stack(labels, 0)
-    return {'G': batched_graph, "points": gt_points, "id": instance_names, 'R': Rx, 'T': Tx, 'idx': idx, 'class': category_name, 'C': labels}
+    Sx = torch.stack(S, 0)
+    return {'G': batched_graph, "points": gt_points, "id": instance_names, 'R': Rx, 'T': Tx, 'S': Sx, 'idx': idx, 'class': category_name, 'C': labels}
 
 def collate_graph_partial(samples):
     graphs_raw, graphs_real, n_arr, c_arr, m_arr, gt_points, instance_name, instance_name1, RR, center_offsets, idx, category_name = map(list, zip(*samples))

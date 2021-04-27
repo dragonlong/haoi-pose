@@ -1,6 +1,6 @@
 # @package _global_
 module: ae  # ['ae', 'vae', 'gan']
-n_pts: 2048 # network output, hyper_para
+n_pts: 1024 # network output, hyper_para
 # network
 enc_filters: (64, 128, 128, 256)
 latent_dim: 128

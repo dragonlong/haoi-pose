@@ -6,11 +6,15 @@ import __init__
 from models.ae_gan import get_network
 from models.base import BaseAgent
 # from utils.emd import earth_mover_distance
+from utils.extensions.chamfer_dist import ChamferDistance
 from models.losses import loss_geodesic, loss_vectors, compute_vect_loss, compute_1vN_nocs_loss, compute_miou_loss
 from common.d3_utils import compute_rotation_matrix_from_euler, compute_euler_angles_from_rotation_matrices, compute_rotation_matrix_from_ortho6d
 from common.yj_pose import compute_pose_diff, rot_diff_degree
 from os import makedirs, remove
 from os.path import exists, join
+
+import vgtk.so3conv.functional as L
+from vgtk.functional import compute_rotation_matrix_from_quaternion, compute_rotation_matrix_from_ortho6d, so3_mean
 
 def bp():
     import pdb;pdb.set_trace()
@@ -97,8 +101,10 @@ class PointAEPoseAgent(BaseAgent):
         # get pose_err and pose_info
         if self.config.pred_6d:
             self.eval_6d(data)
-        else:
+        elif self.config.pred_nocs:
             self.eval_nocs(data)
+        else:
+            self.pose_err = None
 
     def eval_6d(self, data, thres=0.05):
         """one step of validation"""
@@ -119,8 +125,10 @@ class PointAEPoseAgent(BaseAgent):
         pred_rot    = self.output_R[torch.arange(BS), select_ind]
         gt_rot = data['R'].cuda()  # [B, 3, 3]
         rot_err = rot_diff_degree(gt_rot, pred_rot, chosen_axis=None)  # [B, M]
-
-        input_pts  = data['G'].ndata['x'].view(BS, -1, 3).contiguous().cuda() # B, N, 3
+        if 'xyz' in data:
+            input_pts = data['xyz'].permute(0, 2, 1).contiguous().cuda()
+        else:
+            input_pts  = data['G'].ndata['x'].view(BS, -1, 3).contiguous().cuda() # B, N, 3
         pred_center= input_pts - self.output_T.permute(0, 2, 1).contiguous()
         gt_center  = input_pts - data['T'].cuda() # B, N, 3
         mean_pred_c = torch.sum(pred_center * mask.unsqueeze(-1), dim=1) / (torch.sum(mask.unsqueeze(-1), dim=1) + epsilon)
@@ -133,15 +141,28 @@ class PointAEPoseAgent(BaseAgent):
         return
 
     def eval_nocs(self, data):
+        target_T   = data['T'].cuda().permute(0, 2, 1).contiguous() # B, 3, N
+        BS = data['points'].shape[0]
+        N  = data['points'].shape[1] # B, N, 3
         target_pts = data['points'].cuda()
-        input_pts = data['G'].ndata['x'].view(target_pts.shape[0], -1, 3).contiguous().permute(0, 2,
-                                                                                           1).contiguous().cuda()
+        if 'xyz' in data:
+            input_pts = data['xyz'].permute(0, 2, 1).contiguous().cuda()
+        else:
+            input_pts = data['G'].ndata['x'].view(target_pts.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous().cuda()
+
         if 'C' in data:
             mask = data['C'].cuda() # B, N
         else:
             mask = None
 
         pred_nocs = self.output_N # B, 3, N
+        if self.output_N.shape[-1] < target_pts.shape[1]:
+            input_pts        = data['G'].ndata['x'].view(target_pts.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous().cuda()
+            shift_dis        = input_pts.mean(dim=-1, keepdim=True)
+            reduced_pts      = self.latent_vect['xyz']
+            input_pts        = reduced_pts + shift_dis
+            target_pts       = torch.matmul(data['R'].cuda(), input_pts  - target_T) / data['S'].cuda().unsqueeze(-1) + 0.5
+            target_pts       = target_pts.permute(0, 2, 1).contiguous()
         gt_nocs = target_pts.transpose(-1, -2) # B, 3, N
         if mask is None:
             self.pose_err, self.pose_info = compute_pose_diff(nocs_gt=gt_nocs.transpose(-1, -2),
@@ -179,7 +200,10 @@ class PointAEPoseAgent(BaseAgent):
         M  = self.config.num_modes_R
         CS = self.config.MODEL.num_channels_R
         # B, 3, N
-        input_pts        = data['G'].ndata['x'].view(BS, -1, 3).contiguous().permute(0, 2, 1).contiguous().cuda() #
+        if 'xyz' in data:
+            input_pts = data['xyz'].permute(0, 2, 1).contiguous().cuda()
+        else:
+            input_pts        = data['G'].ndata['x'].view(BS, -1, 3).contiguous().permute(0, 2, 1).contiguous().cuda() #
         input_pts        = input_pts - input_pts.mean(dim=-1, keepdim=True)
         if self.config.use_rgb:
             rgb_feat = data['G'].ndata['f'].view(BS, -1, 3).contiguous().permute(0, 2, 1).contiguous().cuda() #
@@ -263,16 +287,6 @@ class PointAEPoseAgent(BaseAgent):
         degree_err_masked = torch.sum(self.degree_err, dim=1)/(torch.sum(mask, dim=1) + epsilon)
         self.infos.update({'5deg': good_pred_ratio.mean(), 'rdiff': degree_err_masked.mean()})
 
-        # if self.config.pred_mode and M > 1:
-        #     if self.config.use_adaptive_mode:
-        #         self.target_M = min_indices.view(-1).contiguous().detach().clone()
-        #     else:
-        #         self.target_M = min_indices.unsqueeze(1).repeat(1, N).contiguous().view(-1).contiguous().detach().clone()
-        #     self.classifyM_loss = compute_miou_loss(self.output_M, self.target_M, loss_type='xentropy')
-        #     self.output_M_label = torch.argmax(self.output_M, dim=-1)  # [B * N] in [0...M-1]
-        #     self.classifyM_acc  = (self.output_M_label == self.target_M).float().mean()
-        #     self.degree_err_chosen  = self.degree_err_full[torch.arange(BS).reshape(-1, 1), torch.arange(N).reshape(1, -1),  self.output_M_label.reshape(BS, N)].contiguous()
-
     def compute_and_eval_axis(self, data):
         target_R   = data['R'].cuda()
         target_R = target_R.permute(0, 2, 1).contiguous() # B, 3, 1
@@ -338,6 +352,10 @@ class PointAEPoseAgent(BaseAgent):
     def compute_loss(self, data):
         target_pts = data['points'].cuda()
         target_T   = data['T'].cuda().permute(0, 2, 1).contiguous() # B, 3, N
+        if 'xyz' in data:
+            input_pts = data['xyz'].cuda()
+        else:
+            input_pts  = data['G'].ndata['x'].view(BS, -1, 3).contiguous().cuda()
         BS = data['points'].shape[0]
         N  = data['points'].shape[1] # B, N, 3
         if 'C' in data:
@@ -349,6 +367,12 @@ class PointAEPoseAgent(BaseAgent):
             self.seg_loss = compute_miou_loss(self.output_C, mask).mean()
 
         if self.config.pred_nocs:
+            if self.output_N.shape[-1] < N:
+                shift_dis        = input_pts.mean(dim=1, keepdim=True)
+                reduced_pts      = self.latent_vect['xyz']
+                target_pts       = torch.matmul(data['R'].cuda(), reduced_pts + shift_dis - target_T) / data['S'].cuda().unsqueeze(-1) + 0.5
+                target_pts       = target_pts.permute(0, 2, 1).contiguous()
+                mask = torch.ones(BS, self.output_N.shape[-1], device=target_T.device)
             self.nocs_err = torch.norm(self.output_N - target_pts.permute(0, 2, 1).contiguous(), dim=1)
             self.nocs_loss= compute_1vN_nocs_loss(self.output_N, target_pts.permute(0, 2, 1).contiguous(), target_category=self.config.target_category, num_parts=1, confidence=mask)
             self.nocs_loss= self.nocs_loss.mean()
@@ -361,8 +385,51 @@ class PointAEPoseAgent(BaseAgent):
                 self.output_pts = self.net.decoder(self.latent_vect['0'])
             else:
                 self.output_pts = self.net.decoder(self.latent_vect)
-            self.emd_loss = earth_mover_distance(self.output_pts, target_pts)
-            self.emd_loss = torch.mean(self.emd_loss)
+            # in nocs space
+            self.recon_canon_loss = self.chamfer_dist(self.output_pts.permute(0, 2, 1).contiguous(), target_pts)
+            self.infos["recon_canon"] = self.recon_canon_loss
+
+            # get rotated R, Option 1:
+            nb, nr, na = self.latent_vect['R'].shape #
+            np_out = self.output_pts.shape[-1]
+            rotation_mapping = compute_rotation_matrix_from_quaternion if nr == 4 else compute_rotation_matrix_from_ortho6d
+            pred_RAnchor = rotation_mapping(self.latent_vect['R'].transpose(1,2).contiguous().view(-1,nr)).view(nb,-1,3,3)
+
+            anchors = torch.from_numpy(L.get_anchors(self.config.model.kanchor)).to(self.output_pts)
+            select_r= False
+
+            # The actual prediction is the classified anchor rotation @ regressed rotation
+            if select_r:
+                preds  = torch.argmax(self.latent_vect['1'], 1)
+                pred_R = batched_index_select(pred_RAnchor, 1, preds.long().view(b,-1)).view(nb,3,3)
+                pred_R = torch.matmul(anchors[preds], pred_R)
+            else:
+                pred_R = torch.matmul(anchors, pred_RAnchor) # [60, 3, 3], [nb, 60, 3, 3] --> [nb, 60, 3, 3]
+
+            # torch.Size([4, 60, 3, 1024])  [nb, na, 3, np] -->  [nb, na, np, 3]
+            transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5).permute(0, 1, 3, 2).contiguous() #
+            # [nb*na, np]
+            dist1, dist2 = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), input_pts.unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
+
+            # find min,
+            all_dist = (dist1 + dist2).mean(-1).view(nb, -1).contiguous()
+            min_loss, min_indices = torch.min(all_dist, dim=-1) # we only allow one mode to be True
+            self.recon_loss = min_loss.mean()
+            self.gt_rlabel  = min_indices.detach().clone()
+            self.gt_rlabel.requires_grad = False
+            self.transformed_pts = transformed_pts[torch.arange(0, BS), min_indices]
+
+            # here we further add a branch to adaptively predict mode or rotation anchor, once the shape is stable, and best pose kind stable;
+            rlabel_pred = self.latent_vect['1']
+            if 'so3' in self.config.encoder_type:
+                if 'ssl' in self.config.task:
+                    rlabel_gt = self.gt_rlabel
+                else:
+                    rlabel_gt = data['R_label'].cuda()
+
+            cls_loss, r_acc = self.classifier(rlabel_pred, rlabel_gt.view(-1).contiguous())
+            self.classifyM_loss = self.config.modecls_loss_multiplier * cls_loss.mean()
+            self.infos['r_acc'] = r_acc
 
     # seems vector is more stable
     def collect_loss(self):
@@ -383,7 +450,8 @@ class PointAEPoseAgent(BaseAgent):
             if self.config.use_objective_V:
                 loss_dict['consistency'] = self.consistency_loss
         if 'completion' in self.config.task:
-            loss_dict["emd"]=self.emd_loss
+            loss_dict['recon'] = self.recon_loss
+            # loss_dict['recon'] = self.recon_canon_loss
 
         return loss_dict
 
@@ -397,49 +465,48 @@ class PointAEPoseAgent(BaseAgent):
     def visualize_batch(self, data, mode, **kwargs):
         tb = self.train_tb if mode == 'train' else self.val_tb
         num = min(data['points'].shape[0], 2)
-        target_pts = data['points'].transpose(1, 2).detach().cpu().numpy() # canonical space
-        input_pts = data['G'].ndata['x'].view(target_pts.shape[0], -1, 3).contiguous().cpu().numpy()
+        target_pts = data['points'].detach().cpu().numpy() # canonical space
+        if 'xyz' in data:
+            input_pts = data['xyz'].detach().cpu().numpy()
+        else:
+            input_pts = data['G'].ndata['x'].view(target_pts.shape[0], -1, 3).contiguous().cpu().numpy()
         ids  = data['id']
         idxs = data['idx']
-        if self.config.pred_nocs:
-            # nocs error
-            nocs_err   = self.nocs_err.cpu().detach().numpy() # GT mode degree error, [B, N]
-            output_N   = self.output_N.transpose(-1, -2).cpu().detach().numpy() # B, 3, N --> B, N, 3
-            if len(nocs_err.shape) < 3:
-                nocs_err = nocs_err[:, :, np.newaxis]
-            save_path = f'{self.config.log_dir}/generation/{mode}'
-            if not exists(save_path):
-                print('making directories', save_path)
-                makedirs(save_path)
-            # nocs_err
-            for j in range(nocs_err.shape[-1]):
-                save_arr  = np.concatenate([input_pts, nocs_err[:, :, j:j+1], output_N], axis=-1)
-                for k in range(num): # batch
-                    save_name = f'{save_path}/{mode}_{self.clock.step}_{ids[k]}_{idxs[k]}_{j}.txt' #
-                    np.savetxt(save_name, save_arr[k])
-            return
-        #
-        BS    = self.output_R.shape[0]
-        M     = self.config.num_modes_R #
+        BS    = data['points'].shape[0]
+        M     = self.config.num_modes_R
         N     = input_pts.shape[1]
-
-        # save degree error
-        degree_err = self.degree_err.cpu().detach().numpy() # GT mode degree error, [B, N]
-        output_R   = self.output_R.cpu().detach().numpy().reshape(BS, N, -1) #
-        if len(degree_err.shape) < 3:
-            degree_err = degree_err[:, :, np.newaxis]
-
         save_path = f'{self.config.log_dir}/generation'
         if not exists(save_path):
             print('making directories', save_path)
             makedirs(save_path)
 
-        # degree_err
-        for j in range(degree_err.shape[-1]):
-            save_arr  = np.concatenate([input_pts, degree_err[:, :, j:j+1], output_R], axis=-1)
-            for k in range(degree_err.shape[0]): # batch
-                save_name = f'{save_path}/{mode}_{self.clock.step}_{ids[k]}_{idxs[k]}_{j}.txt' #
-                np.savetxt(save_name, save_arr[k])
+        if self.config.pred_nocs:
+            nocs_err   = self.nocs_err.cpu().detach().numpy() # GT mode degree error, [B, N]
+            output_N   = self.output_N.transpose(-1, -2).cpu().detach().numpy() # B, 3, N --> B, N, 3
+            if len(nocs_err.shape) < 3:
+                nocs_err = nocs_err[:, :, np.newaxis]
+
+            for j in range(nocs_err.shape[-1]):
+                if self.output_N.shape[-1] < target_pts.shape[1]:
+                    input_pts  = self.latent_vect['xyz']
+                save_arr  = np.concatenate([input_pts, nocs_err[:, :, j:j+1], output_N], axis=-1)
+                for k in range(num): # batch
+                    save_name = f'{save_path}/{mode}_{self.clock.step}_{ids[k]}_{idxs[k]}_{j}.txt' #
+                    np.savetxt(save_name, save_arr[k])
+
+        if self.config.pred_6d or self.config.pred_nocs:
+            # save degree error
+            degree_err = self.degree_err.cpu().detach().numpy() # GT mode degree error, [B, N]
+            output_R   = self.output_R.cpu().detach().numpy().reshape(BS, N, -1) #
+            if len(degree_err.shape) < 3:
+                degree_err = degree_err[:, :, np.newaxis]
+
+            # degree_err
+            for j in range(degree_err.shape[-1]):
+                save_arr  = np.concatenate([input_pts, degree_err[:, :, j:j+1], output_R], axis=-1)
+                for k in range(degree_err.shape[0]): # batch
+                    save_name = f'{save_path}/{mode}_{self.clock.step}_{ids[k]}_{idxs[k]}_{j}.txt' #
+                    np.savetxt(save_name, save_arr[k])
 
         # mode prediction
         if self.config.pred_mode:
@@ -448,21 +515,33 @@ class PointAEPoseAgent(BaseAgent):
             if not exists(save_path):
                 print('making directories', save_path)
                 makedirs(save_path)
-            for j in range(M): # modals
+            for j in range(M):
                 save_arr  = np.concatenate([input_pts, output_M[:, :, j:j+1]], axis=-1)
-                for k in range(BS): # batch
-                    save_name = f'{save_path}/{mode}_{self.clock.step}_{ids[k]}_{idxs[k]}_{j}.txt' #
+                for k in range(num):
+                    save_name = f'{save_path}/{mode}_{self.clock.step}_{ids[k]}_{idxs[k]}_{j}.txt'
                     np.savetxt(save_name, save_arr[k])
 
         # shape reconstruction
         if 'completion' in self.config.task:
-            outputs_pts = self.output_pts[:num].transpose(1, 2).detach().cpu().numpy()
+            outputs_pts     = self.output_pts[:num].transpose(1, 2).detach().cpu().numpy()
+            transformed_pts = self.transformed_pts[:num].detach().cpu().numpy()
             tb.add_mesh("gt", vertices=target_pts, global_step=self.clock.step)
             tb.add_mesh("output", vertices=outputs_pts, global_step=self.clock.step)
             if self.use_wandb and self.clock.step % 500 == 0:
                 outputs_pts[0] = outputs_pts[0] + np.array([0, 1, 0]).reshape(1, -1)
                 pts = np.concatenate([target_pts[0], outputs_pts[0]], axis=0)
-                wandb.log({"input+AE_GAN_output": [wandb.Object3D(pts)], 'step': self.clock.step})
+                wandb.log({"input+AE_output": [wandb.Object3D(pts)], 'step': self.clock.step})
+
+            # canon shape, camera shape, input shape
+            for k in range(num): # batch
+                save_name = f'{save_path}/{mode}_{self.clock.step}_{ids[k]}_input.txt'
+                np.savetxt(save_name, input_pts[k])
+                save_name = f'{save_path}/{mode}_{self.clock.step}_{ids[k]}_target.txt'
+                np.savetxt(save_name, target_pts[k])
+                save_name = f'{save_path}/{mode}_{self.clock.step}_{ids[k]}_canon.txt'
+                np.savetxt(save_name, outputs_pts[k])
+                save_name = f'{save_path}/{mode}_{self.clock.step}_{ids[k]}_pred.txt'
+                np.savetxt(save_name, transformed_pts[k])
 
 class PointVAEAgent(BaseAgent):
     def __init__(self, config):

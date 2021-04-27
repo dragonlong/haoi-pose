@@ -231,10 +231,11 @@ class NOCSDataset(data.Dataset):
 
         R = torch.from_numpy(r.astype(np.float32)) # predict r
         T = torch.from_numpy(t.astype(np.float32))
+        S = torch.from_numpy(np.array([s]).astype(np.float32))
         center = torch.from_numpy(np.array([[0.5, 0.5, 0.5]])) # 1, 3
         center_offset = pos[0].clone().detach() - T #
 
-        return g, nocs_gt, instance_name, R, center_offset, idx, category_name
+        return g, nocs_gt, instance_name, R, T, idx, category_name, S
 
     def get_sample_full(self, idx, verbose=False):
         fn  = self.datapath[idx]
@@ -304,10 +305,11 @@ class NOCSDataset(data.Dataset):
 
         R = torch.from_numpy(r.astype(np.float32)) # predict r
         T = torch.from_numpy(t.astype(np.float32))
+        S = torch.from_numpy(np.array([s]).astype(np.float32))
         center = torch.from_numpy(np.array([[0.5, 0.5, 0.5]])) # 1, 3
         center_offset = pos[0].clone().detach() - T
 
-        return g, nocs_gt, instance_name, R, center_offset, idx, category_name, labels
+        return g, nocs_gt, instance_name, R, T, idx, category_name, labels, S
 
     def __getitem__(self, idx, verbose=False):
         if self.cfg.use_background:

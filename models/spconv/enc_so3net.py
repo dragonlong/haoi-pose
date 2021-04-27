@@ -21,6 +21,32 @@ from models import spconv as M
 import vgtk.so3conv.functional as L
 
 
+class MLP(nn.Module):
+    def __init__(self, dim, in_channel, mlp, use_bn=True, skip_last=True, last_acti=None):
+        super(MLP, self).__init__()
+        layers = []
+        conv = nn.Conv1d if dim == 1 else nn.Conv2d
+        bn = nn.BatchNorm1d if dim == 1 else nn.BatchNorm2d
+        last_channel = in_channel
+        for i, out_channel in enumerate(mlp):
+            layers.append(conv(last_channel, out_channel, 1))
+            if use_bn and (not skip_last or i != len(mlp) - 1):
+                layers.append(bn(out_channel))
+            if (not skip_last or i != len(mlp) - 1):
+                layers.append(nn.ReLU())
+            last_channel = out_channel
+        if last_acti is not None:
+            if last_acti == 'softmax':
+                layers.append(nn.Softmax(dim=1))
+            elif last_acti == 'sigmoid':
+                layers.append(nn.Sigmoid())
+            else:
+                assert 0, f'Unsupported activation type {last_acti}'
+        self.layers = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.layers(x)
+
 class InvSO3ConvModel(nn.Module):
     def __init__(self, params, config=None):
         super(InvSO3ConvModel, self).__init__()
@@ -29,57 +55,41 @@ class InvSO3ConvModel(nn.Module):
         for block_param in params['backbone']:
             self.backbone.append(M.BasicSO3ConvBlock(block_param))
 
-        # self.outblock = M.SO3OutBlockR(params['outblock']) # for 0.2
-        if config.num_modes_R > 1:
-            self.outblock = nn.ModuleList()
-            for i in range( config.num_modes_R):
-                self.outblock.append(M.SO3OutBlockR(params['outblock'], norm=1)) # for 0.3
-        else:
-            self.outblock = M.SO3OutBlockR(params['outblock'], norm=1, pooling_method=config.model.pooling_method) # for 0.3
         self.na_in = params['na']
         self.invariance = True
         self.config = config
-        self.n_heads= config.num_modes_R
+
+        # anchors, plus local relative R regression
+        self.outblockR = M.SO3OutBlockR(params['outblock'], norm=1, pooling_method=config.model.pooling_method)
+        # invariant feature for shape reconstruction
+        self.outblockN = M.InvOutBlockOurs(params['outblock'], norm=1, pooling_method=config.model.pooling_method)
 
     def forward(self, x):
         # nb, np, 3 -> [nb, 3, np] x [nb, 1, np, na]
+        if x.shape[-1] > 3:
+            x = x.permute(0, 2, 1).contiguous()
         x = M.preprocess_input(x, self.na_in, False)
-        # x = M.preprocess_input(x, 1)
 
         for block_i, block in enumerate(self.backbone):
             x = block(x)
 
-        # x = self.outblock(x)
-        if self.n_heads > 1:
-            confidence_list, quats_list = [], []
-            for head in self.outblock:
-                confidence, quats = head(x)
-                confidence_list.append(confidence)
-                quats_list.append(quats)
-            return confidence_list, quats_list
-        else:
-            confidence, quats = self.outblock(x)
-            return confidence, quats
-        # (Pdb) x.xyz.shape
-        # torch.Size([2, 3, 64]) #
-        # (Pdb) x.feats.shape
-        # torch.Size([2, 128, 64, 60]) [nb, nc, np, na]
-        # (Pdb) x.anchors.shape
-        # torch.Size([60, 3, 3])
-        # (Pdb) n
-        # > /home/lxiaol9/3DGenNet2019/EPN_PointCloud/SPConvNets/models/inv_so3net_pn.py(44)forward()
-        # -> return x
-        # (Pdb) x[0].shape
-        # torch.Size([2, 64]) [nb, np]
-        # (Pdb) x[1].shape
-        # torch.Size([2, 128, 64, 60]) [nb, nc, np, na]
+        output = {}
+        output['xyz'] = x.xyz
+        confidence, quats = self.outblockR(x)
+        manifold_embed    = self.outblockN(x)
+        output['1'] = confidence #
+        output['R'] = quats
+        output['T'] = torch.ones(quats.shape[0], 1, 3, device=quats.device)
+        output['0'] = manifold_embed
+
+        return output
 
     def get_anchor(self):
         return self.backbone[-1].get_anchor()
 
 def build_model(opt,
-                mlps=[[32,32], [64,64], [128,128], [128,128]],
-                out_mlps=[128, 64],
+                mlps=[[32,32], [64,64], [128,128], [256, 256]],
+                out_mlps=[128, 128],
                 strides=[2, 2, 2, 2],
                 initial_radius_ratio = 0.2,
                 sampling_ratio = 0.8, #0.4, 0.36
@@ -161,6 +171,7 @@ def build_model(opt,
 
             # one-inter one-intra policy
             block_type = 'inter_block' if na != 60  else 'separable_block'
+
             inter_param = {
                 'type': block_type,
                 'args': {

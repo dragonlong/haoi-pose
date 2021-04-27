@@ -5,9 +5,12 @@ import torch.nn as nn
 from abc import abstractmethod
 from tensorboardX import SummaryWriter
 from common.train_utils import TrainClock
+from utils.extensions.chamfer_dist import ChamferDistance
+from vgtk.loss import CrossEntropyLoss
 import wandb
 def bp():
     import pdb;pdb.set_trace()
+
 class BaseAgent(object):
     """Base trainer that provides common training behavior.
         All customized trainer should be subclass of this class.
@@ -15,7 +18,7 @@ class BaseAgent(object):
     def __init__(self, config):
         self.log_dir = config.log_dir
         self.model_dir = config.model_dir
-        self.clock = TrainClock()
+        self.clock      = TrainClock()
         self.batch_size = config.batch_size
         self.use_wandb  = config.use_wandb
         # build network
@@ -42,6 +45,10 @@ class BaseAgent(object):
     def set_loss_function(self):
         """set loss function used in training"""
         self.criterion = nn.MSELoss().cuda()
+        if 'completion' in self.config.task:
+            self.chamfer_dist = ChamferDistance()
+        if 'ssl' in self.config.task or 'so3' in self.config.encoder_type:
+            self.classifier = CrossEntropyLoss()
 
     @abstractmethod
     def collect_loss(self):

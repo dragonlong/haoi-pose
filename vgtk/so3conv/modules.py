@@ -12,7 +12,8 @@ from . import functional as L
 
 KERNEL_CONDENSE_RATIO = 0.7
 
-
+def bp():
+    import pdb;pdb.set_trace()
 # Basic SO3Conv
 # [b, c1, k, p, a] -> [b, c2, p, a]
 class BasicSO3Conv(nn.Module):
@@ -168,7 +169,7 @@ class PointnetSO3Conv(nn.Module):
         self.embed = nn.Conv2d(self.dim_in, self.dim_out,1)
         self.register_buffer('anchors', torch.from_numpy(anchors))
 
-    def forward(self, x):
+    def forward(self, x, pool_a=False):
         xyz = x.xyz
         feats = x.feats
         nb, nc, np, na = feats.shape
@@ -183,5 +184,8 @@ class PointnetSO3Conv(nn.Module):
             feats = torch.cat([x.feats, xyzr],1)
 
         feats = self.embed(feats)
-        feats = torch.max(feats,2)[0]
+        if pool_a:
+            feats = torch.max(feats,-1)[0]
+        else:
+            feats = torch.max(feats,2)[0]
         return feats # nb, nc, na

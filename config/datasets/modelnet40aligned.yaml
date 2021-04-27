@@ -1,0 +1,9 @@
+# @package _global_
+DATASET:
+  batch_size: 2
+  num_points: 1024
+  num_of_class: 10
+  dataset_path: '/groups/arcadm/xiaolong/modelnet40/EvenAlignedModelNet40PC/'
+  target_category: ''
+  num_gen_samples: 30
+  workers: 8

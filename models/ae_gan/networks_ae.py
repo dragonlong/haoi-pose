@@ -14,6 +14,7 @@ Tuesday: 3.2
 import torch
 import torch.nn as nn
 import sys
+from importlib import import_module
 
 import numpy as np
 from math import pi ,sin, cos, sqrt
@@ -30,20 +31,15 @@ from models.model_factory import ModelBuilder
 from models.pointnet_lib.networks import PointTransformer
 from models.decoders.pointnet_2 import PointNet2Segmenter
 from models.decoders.egnn_model import EquivariantDGCNN
-# from models.decoders.equivariant_model import EquivariantDGCNN
 from models.decoders.dgcnn import DGCNN_semseg
-
-# from kaolin.models.PointNet2 import furthest_point_sampling
-# from kaolin.models.PointNet2 import fps_gather_by_index
-# from kaolin.models.PointNet2 import ball_query
-# from kaolin.models.PointNet2 import three_nn
-# from kaolin.models.PointNet2 import group_gather_by_index
+#
 from omegaconf import DictConfig, ListConfig
 from models.pointnet_lib.pointnet2_modules import knn_point
 from models.pointnet_lib.pointnet2_modules import farthest_point_sample as furthest_point_sampling
 from models.pointnet_lib.pointnet2_modules import gather_operation as fps_gather_by_index
 from models.pointnet_lib.pointnet2_modules import group_operation as group_gather_by_index
 from models.pointnet_lib.pointnet2_modules import three_nn, three_interpolate
+
 import dgl
 
 def bp():
@@ -88,43 +84,6 @@ class InterDownGraph(nn.Module): #
         self.n_sampler   = Sample(npoint)
         self.e_sampler   = SampleNeighbors(r, self.num_samples, knn=knn)
 
-    # def forward(self, G, BS=2):
-    #     """
-    #     G: input Graph
-    #     BS: batch size
-    #     """
-    #     glist = []
-    #     pos = G.ndata['x'].view(BS, -1, 3).contiguous() # it should be 256, but only got 249, then the input doesn't have enough points
-    #     B, N, _ = pos.shape
-    #     xyz_ind, xyz_query = self.n_sampler(pos)        # downsample, might be that I actually sampled 256 > 249, so that
-    #     neighbors_ind      = self.e_sampler(pos, xyz_query) #
-    #     glist              = []                          # works for all complete shapes
-    #     for i in range(BS):
-    #         src = neighbors_ind[i].contiguous().view(-1)
-    #         dst = xyz_ind[i].view(-1, 1).repeat(1, self.num_samples).view(-1)
-    #         g = dgl.graph((src.long(), dst.long()), num_nodes=len(pos[i])).to(pos.device)
-    #         g.ndata['x'] = pos[i]
-    #         g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
-    #         g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()]
-    #         glist.append(g)
-    #
-    #     Gmid = dgl.batch(glist)
-    #     # updated graph
-    #     glist = []
-    #     pos   = xyz_query
-    #     neighbors_ind = self.e_sampler(pos, pos)
-    #     for i in range(B):
-    #         src = neighbors_ind[i].contiguous().view(-1).cpu()
-    #         dst = torch.arange(pos[i].shape[0]).view(-1, 1).repeat(1, self.num_samples).view(-1)
-    #         g = dgl.graph((src.long(), dst.long()), num_nodes=len(pos[i])).to(pos.device)
-    #         g.ndata['x'] = pos[i]
-    #         g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
-    #         g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()] #[num_atoms,3] but we only supervise the half
-    #         glist.append(g)
-    #     Gout = dgl.batch(glist)
-    #
-    #     return Gmid, Gout, xyz_ind
-
     def forward(self, G, BS=2):
         """
         G: input Graph
@@ -138,14 +97,7 @@ class InterDownGraph(nn.Module): #
         feat    = G.ndata['f'].view(BS, N, -1).contiguous()
         feat_query = fps_gather_by_index(feat.permute(0, 2, 1).contiguous(), xyz_ind).permute(0, 2, 1).contiguous()
         glist      = []                          # works for all complete shapes
-        # for i in range(BS):
-        #     src = neighbors_ind[i].contiguous().view(-1)
-        #     dst = xyz_ind[i].view(-1, 1).repeat(1, self.num_samples).view(-1)
-        #     g = dgl.DGLGraph((src.long(), dst.long()))
-        #     g.ndata['x'] = pos[i]
-        #     g.ndata['f'] = feat[i].unsqueeze(-1)
-        #     g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()] #[num_atoms,3] but we only supervise the half
-        #     glist.append(g)
+
         for i in range(BS):
             src = neighbors_ind[i].contiguous().view(-1)
             dst = xyz_ind[i].view(-1, 1).repeat(1, self.num_samples).view(-1)
@@ -339,7 +291,9 @@ class DecoderFC(nn.Module):
 
         fc_layer = nn.Linear(self.n_features[-1], output_pts*3)
         model.append(fc_layer)
-
+        # add by XL
+        acti_layer = nn.Sigmoid()
+        model.append(acti_layer)
         self.model = nn.Sequential(*model)
 
     def forward(self, x):
@@ -838,6 +792,10 @@ class PointAE(nn.Module):
                                             R_dim=6 if cfg.pred_6d else 3, num_in_channels=cfg.MODEL.num_in_channels)
         elif 'dgcnn' in self.encoder_type:
             self.encoder = DGCNN_semseg(num_mode=cfg.num_modes_R)
+        elif 'so3' in self.encoder_type:
+            module = import_module('models.spconv')
+            param_outfile = None
+            self.encoder =  getattr(module, cfg.model.model).build_model_from(cfg, param_outfile)
         else:
             self.encoder = EncoderPointNet(eval(cfg.enc_filters), cfg.latent_dim, cfg.enc_bn)
 
@@ -851,7 +809,7 @@ class PointAE(nn.Module):
                 self.regressor_confi= RegressorC1D(list(cfg.confi_features), cfg.latent_dim)
             if cfg.pred_mode:
                 self.classifier_mode= RegressorC1D(list(cfg.mode_features), cfg.MODEL.num_channels_R)
-        self.decoder = DecoderFC(eval(cfg.dec_features), cfg.latent_dim, cfg.n_pts, cfg.dec_bn)
+        self.decoder = DecoderFC(eval(cfg.dec_features), cfg.latent_dim, cfg.num_points, cfg.dec_bn)
 
     def encode(self, x):
         return self.encoder(x)

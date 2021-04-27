@@ -176,7 +176,7 @@ class NOCSDataset(data.Dataset):
         center = torch.from_numpy(np.array([[0.5, 0.5, 0.5]])) # 1, 3
         center_offset = pos[0].clone().detach() - T #
 
-        return {'pc': pos[0],
+        return {'pc': pos[0]/s, # normalize
                 'label': torch.from_numpy(np.array([1])).long(),
                 'R': R0,
                 'id': idx,
@@ -239,7 +239,7 @@ class NOCSDataset(data.Dataset):
         center = torch.from_numpy(np.array([[0.5, 0.5, 0.5]])) # 1, 3
         center_offset = pos[0].clone().detach() - T #
 
-        return {'pc': pos[0],
+        return {'pc': pos[0]/s,
                 'label': torch.from_numpy(np.array([1])).long(),
                 'R': R0,
                 'id': idx,
