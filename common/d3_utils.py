@@ -93,6 +93,29 @@ def align_rotation(sRT, axis='y'):
         aligned_sRT[:3, 3] = sRT[:3, 3]
     return aligned_sRT
 
+def acos_safe(x, eps=1e-4):
+    sign = torch.sign(x)
+    slope = np.arccos(1-eps) / eps
+    return torch.where(abs(x) <= 1-eps,
+                    torch.acos(x),
+                    torch.acos(sign * (1 - eps)) - slope*sign*(abs(x) - 1 + eps))
+
+def angle_from_R(R):
+    return acos_safe(0.5 * (torch.einsum('bii->b',R) - 1))
+
+def mean_angular_error(pred_R, gt_R):
+    R_diff = torch.matmul(pred_R, gt_R.transpose(1,2).float())
+    angles = angle_from_R(R_diff)
+    return angles#.mean()
+
+def pairwise_distance_matrix(x, y, eps=1e-6):
+    M, N = x.size(0), y.size(0)
+    x2 = torch.sum(x * x, dim=1, keepdim=True).repeat(1, N)
+    y2 = torch.sum(y * y, dim=1, keepdim=True).repeat(1, M)
+    dist2 = x2 + torch.t(y2) - 2.0 * torch.matmul(x, torch.t(y))
+    dist2 = torch.clamp(dist2, min=eps)
+    return torch.sqrt(dist2)
+
 def compute_iou(occ1, occ2):
     ''' Computes the Intersection over Union (IoU) value for two sets of
     occupancy values.

@@ -12,7 +12,6 @@ from os import makedirs, remove
 from os.path import exists, join
 import glob
 import matplotlib
-# matplotlib.use('Agg')
 from matplotlib.collections import LineCollection
 from matplotlib import cm
 from matplotlib.patches import Circle, Wedge, Polygon
@@ -26,6 +25,7 @@ import matplotlib.pyplot as plt  # matplotlib.use('Agg') # TkAgg
 from mpl_toolkits.mplot3d import Axes3D
 import pyvista as pv
 
+import joblib
 import __init__
 from global_info import global_info
 def breakpoint():
@@ -369,16 +369,45 @@ def get_rts_filename(cfg):
     file_name = f'{second_path}/results/test_pred/obman/{exp_name}_unseen_part_rt_pn_general.npy'
     return file_name
 
-import joblib
 def main():
-        split = 'test'
-        fpath  = '/home/dragon/Documents/external/modelnet40'
-        f_train= f'{fpath}/airplane_{split}_2048.pk'
-        with open(f_train, "rb") as f:
-            full_data = joblib.load(f)
-        for i in [0, 1, 2, 13, 16, 17, 112, 130, 135, 145, 212, 221, 305, 308]:
-            input = full_data[i]
-            plot3d_pts([[input]], [[f'{i}th']], title_name=['input'], s=3**2, dpi=300, axis_off=False, show_fig=True)
+    # split = 'test'
+    # fpath  = '/home/dragon/Documents/external/modelnet40'
+    # f_train= f'{fpath}/airplane_{split}_2048.pk'
+    # with open(f_train, "rb") as f:
+    #     full_data = joblib.load(f)
+    # for i in [0, 1, 2, 13, 16, 17, 112, 130, 135, 145, 212, 221, 305, 308]:
+    #     input = full_data[i]
+    #     plot3d_pts([[input]], [[f'{i}th']], title_name=['input'], s=3**2, dpi=300, axis_off=False, show_fig=True)
+
+    # dataset_path    = '/groups/arcadm/xiaolong/mvp'
+    dataset_path    = '/home/dragon/Downloads'
+    mode = 'test'
+    npoints = 16384
+    input_path = f'{dataset_path}/mvp_{mode}_input.h5'
+    gt_path = f'{dataset_path}/mvp_{mode}_gt_{npoints}pts.h5'
+
+    input_file = h5py.File(input_path, 'r')
+    input_data = np.array((input_file['incomplete_pcds'][()]))
+    labels = np.array((input_file['labels'][()]))
+    novel_input_data = np.array((input_file['novel_incomplete_pcds'][()]))
+    novel_labels = np.array((input_file['novel_labels'][()]))
+    input_file.close()
+
+    gt_file = h5py.File(gt_path, 'r')
+    gt_data = np.array((gt_file['complete_pcds'][()]))
+    novel_gt_data = np.array((gt_file['novel_complete_pcds'][()]))
+    gt_file.close()
+    # 0. airplane, 3: chair
+    i = 0
+    idxs  = np.where(labels==i)[0]
+    for k in idxs:
+        # k = idxs[0]
+        input = input_data[k]
+        gt    = gt_data[0]
+        novel_input = novel_input_data[0]
+        novel_gt    = novel_gt_data[0]
+        print('labels: ', labels[k], 'novel_labels: ', novel_labels[i])
+        plot3d_pts([[input], [gt], [novel_input], [novel_gt]], [[f'{i}th'], [f'{i}th'], [f'{i}th'], [f'{i}th']], title_name=['input', 'gt', 'novel_input', 'novel_gt'], s=3**2, dpi=300, axis_off=False, show_fig=True)
 
 
 if __name__ == '__main__':

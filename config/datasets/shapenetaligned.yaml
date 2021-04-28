@@ -1,0 +1,6 @@
+# @package _global_
+DATASET:
+  num_of_class: 26
+  data_path: '/groups/arcadm/xiaolong/mvp'
+  num_gen_samples: 30
+  workers: 8

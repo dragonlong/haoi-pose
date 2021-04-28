@@ -8,13 +8,14 @@ from models.base import BaseAgent
 # from utils.emd import earth_mover_distance
 from utils.extensions.chamfer_dist import ChamferDistance
 from models.losses import loss_geodesic, loss_vectors, compute_vect_loss, compute_1vN_nocs_loss, compute_miou_loss
-from common.d3_utils import compute_rotation_matrix_from_euler, compute_euler_angles_from_rotation_matrices, compute_rotation_matrix_from_ortho6d
+from common.d3_utils import compute_rotation_matrix_from_euler, compute_euler_angles_from_rotation_matrices, compute_rotation_matrix_from_ortho6d, mean_angular_error
 from common.yj_pose import compute_pose_diff, rot_diff_degree
 from os import makedirs, remove
 from os.path import exists, join
 
 import vgtk.so3conv.functional as L
 from vgtk.functional import compute_rotation_matrix_from_quaternion, compute_rotation_matrix_from_ortho6d, so3_mean
+# from vgtk.zpconv.functional import Gathering, batched_index_select, acos_safe
 
 def bp():
     import pdb;pdb.set_trace()
@@ -386,8 +387,17 @@ class PointAEPoseAgent(BaseAgent):
             else:
                 self.output_pts = self.net.decoder(self.latent_vect)
             # in nocs space
-            self.recon_canon_loss = self.chamfer_dist(self.output_pts.permute(0, 2, 1).contiguous(), target_pts)
+            dist1_canon, dist2_canon = self.chamfer_dist(self.output_pts.permute(0, 2, 1).contiguous(), target_pts, return_raw=True)
+            if 'partial' in self.config.task:
+                self.recon_canon_loss = (dist2_canon).mean()
+            else:
+                self.recon_canon_loss = (dist1_canon + dist2_canon).mean()
             self.infos["recon_canon"] = self.recon_canon_loss
+
+            if self.config.use_symmetry_loss:
+                self.chirality_pts = self.output_pts * torch.tensor([[-1, 1, 1]], device=self.output_pts.device).unsqueeze(-1).contiguous() +  torch.tensor([[1, 0, 0]], device=self.output_pts.device).unsqueeze(-1).contiguous()  # flipped along x=0
+                dist1_chirality, dist2_chirality = self.chamfer_dist(self.output_pts.permute(0, 2, 1).contiguous(), self.chirality_pts.permute(0, 2, 1).contiguous(), return_raw=True)
+                self.recon_chirality_loss = (dist1_chirality + dist2_chirality).mean()
 
             # get rotated R, Option 1:
             nb, nr, na = self.latent_vect['R'].shape #
@@ -399,37 +409,43 @@ class PointAEPoseAgent(BaseAgent):
             select_r= False
 
             # The actual prediction is the classified anchor rotation @ regressed rotation
-            if select_r:
-                preds  = torch.argmax(self.latent_vect['1'], 1)
-                pred_R = batched_index_select(pred_RAnchor, 1, preds.long().view(b,-1)).view(nb,3,3)
-                pred_R = torch.matmul(anchors[preds], pred_R)
-            else:
-                pred_R = torch.matmul(anchors, pred_RAnchor) # [60, 3, 3], [nb, 60, 3, 3] --> [nb, 60, 3, 3]
+            preds  = torch.argmax(self.latent_vect['1'], 1)
+
+            # if select_r:
+            #     pred_R = torch.matmul(anchors[preds], pred_R)
+            # else:
+            pred_R = torch.matmul(anchors, pred_RAnchor) # [60, 3, 3], [nb, 60, 3, 3] --> [nb, 60, 3, 3]
 
             # torch.Size([4, 60, 3, 1024])  [nb, na, 3, np] -->  [nb, na, np, 3]
             transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5).permute(0, 1, 3, 2).contiguous() #
             # [nb*na, np]
             dist1, dist2 = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), input_pts.unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
 
-            # find min,
-            all_dist = (dist1 + dist2).mean(-1).view(nb, -1).contiguous()
+            if 'partial' in self.config.task:
+                all_dist = (dist2).mean(-1).view(nb, -1).contiguous()
+            else:
+                all_dist = (dist1 + dist2).mean(-1).view(nb, -1).contiguous()
             min_loss, min_indices = torch.min(all_dist, dim=-1) # we only allow one mode to be True
             self.recon_loss = min_loss.mean()
-            self.gt_rlabel  = min_indices.detach().clone()
-            self.gt_rlabel.requires_grad = False
+            self.rlabel_gt  = min_indices.detach().clone()
+            self.rlabel_gt.requires_grad = False
             self.transformed_pts = transformed_pts[torch.arange(0, BS), min_indices]
-
-            # here we further add a branch to adaptively predict mode or rotation anchor, once the shape is stable, and best pose kind stable;
+            self.r_gt = pred_R[torch.arange(0, BS), min_indices].detach().clone() # correct R by searching
+            self.r_gt.requires_grad = False
+            # jointly train is fine, no necessary pretraining;
             rlabel_pred = self.latent_vect['1']
             if 'so3' in self.config.encoder_type:
                 if 'ssl' in self.config.task:
-                    rlabel_gt = self.gt_rlabel
+                    rlabel_gt = self.rlabel_gt
+                    r_gt      = self.r_gt
                 else:
                     rlabel_gt = data['R_label'].cuda()
-
-            cls_loss, r_acc = self.classifier(rlabel_pred, rlabel_gt.view(-1).contiguous())
-            self.classifyM_loss = self.config.modecls_loss_multiplier * cls_loss.mean()
-            self.infos['r_acc'] = r_acc
+                    r_gt      = data['R_gt'].cuda()
+                select_R = pred_R[torch.arange(0, BS), preds]
+                cls_loss, r_acc = self.classifier(rlabel_pred, rlabel_gt.view(-1).contiguous())
+                self.classifyM_loss = self.config.modecls_loss_multiplier * cls_loss.mean()
+                self.infos['r_acc'] = r_acc
+                self.infos['rdiff'] = mean_angular_error(select_R, r_gt).mean() * 180 / np.pi
 
     # seems vector is more stable
     def collect_loss(self):
@@ -450,8 +466,12 @@ class PointAEPoseAgent(BaseAgent):
             if self.config.use_objective_V:
                 loss_dict['consistency'] = self.consistency_loss
         if 'completion' in self.config.task:
-            loss_dict['recon'] = self.recon_loss
-            # loss_dict['recon'] = self.recon_canon_loss
+            if self.config.use_objective_canon:
+                loss_dict['recon'] = self.recon_canon_loss
+            else:
+                loss_dict['recon'] = self.recon_loss
+            if self.config.use_symmetry_loss:
+                loss_dict['chirality'] = self.recon_chirality_loss
 
         return loss_dict
 

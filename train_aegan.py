@@ -140,7 +140,7 @@ def main(cfg):
                       'r_gt': [], 't_gt': [], 's_gt': [],
                       'r_pred': [], 't_pred': [], 's_pred': []}
         track_dict = {'rdiff': [], 'tdiff': [], 'sdiff': [],
-                      '5deg': [], '5cm': [], '5deg5cm': []}
+                      '5deg': [], '5cm': [], '5deg5cm': [], 'chamferL1': [], 'r_acc': [], 'chirality': []}
         num_iteration = 1
         if 'partial' not in cfg.task:
             num_iteration = 2
@@ -169,13 +169,23 @@ def main(cfg):
                         basename   = f'{cfg.iteration}_' + data['id'][m] + f'_' + data['class'][m]
                         infos_dict['basename'].append(basename)
                         infos_dict['in'].append(input_pts[m].cpu().numpy())
+                if 'so3' in cfg.encoder_type:
+                    test_infos = tr_agent.infos
+                    if 'r_acc' in test_infos:
+                        track_dict['r_acc'].append(test_infos['r_acc'].float().cpu().numpy().tolist())
+                    if 'rdiff' in test_infos:
+                        track_dict['rdiff'].append(test_infos['rdiff'].float().cpu().numpy().tolist())
+                        deg = test_infos['rdiff'] <= 5.0
+                        track_dict['5deg'].append(deg.float().cpu().numpy().tolist())
+                if 'completion' in cfg.task:
+                    track_dict['chamferL1'].append(tr_agent.recon_loss.cpu().numpy().tolist())
                 tr_agent.visualize_batch(data, "test")
         for key, value in track_dict.items():
             if len(value) < 1:
                 continue
             print(key, ':', np.array(value).mean())
         print(f'experiment {cfg.exp_num} for {cfg.target_category}\n')
-        # save
+
         if cfg.save:
             print('--saving to ', file_name)
             np.save(file_name, arr={'info': infos_dict, 'err': track_dict})
@@ -219,7 +229,7 @@ def main(cfg):
 
             if clock.step % cfg.eval_frequency == 0:
                 track_dict = {'rdiff': [], 'tdiff': [], 'sdiff': [],
-                              '5deg': [], '5cm': [], '5deg5cm': [], 'chamferL1': []}
+                              '5deg': [], '5cm': [], '5deg5cm': [], 'chamferL1': [], 'r_acc': []}
                 if cfg.num_modes_R > 1:
                     track_dict.update({'mode_accuracy': [], 'chosenR': []})
 
@@ -236,6 +246,12 @@ def main(cfg):
                         degcm = deg & cm
                         for key, value in zip(['5deg', '5cm', '5deg5cm'], [deg, cm, degcm]):
                             track_dict[key].append(value.float().cpu().numpy().mean())
+                    elif 'so3' in cfg.encoder_type:
+                        test_infos = tr_agent.infos
+                        if 'r_acc' in test_infos:
+                            track_dict['r_acc'].append(test_infos['r_acc'].float().cpu().numpy().mean())
+                        if 'rdiff' in test_infos:
+                            track_dict['rdiff'].append(test_infos['rdiff'].float().cpu().numpy().mean())
                     if 'completion' in cfg.task:
                         track_dict['chamferL1'].append(tr_agent.recon_loss.cpu().numpy().mean())
                 if cfg.use_wandb:

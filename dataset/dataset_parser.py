@@ -36,6 +36,7 @@ from dataset.modelnet40aligned import Dataloader_ModelNet40, Dataloader_ModelNet
 from dataset.nocs_synthetic import NOCSDataset
 # shapenet
 from dataset.shapenetv2 import ShapeNetDataset
+from dataset.shapenetaligned import ShapeNetH5
 from common.queries import BaseQueries, TransQueries
 from common.debugger import *
 from common import vis_utils
@@ -50,7 +51,6 @@ project_path= infos.project_path
 
 
 DATASETS = []
-
 def add_datasets(module):
   # DATASETS.extend([getattr(module, a) for a in dir(module) if 'Dataset' in a])
   DATASETS.extend([module])
@@ -63,6 +63,7 @@ add_datasets(ModelNetDataset)
 add_datasets(OracleDataset)
 add_datasets(NOCSDataset)
 add_datasets(Dataloader_ModelNet40)
+add_datasets(ShapeNetH5)
 #
 def load_dataset(name):
   '''Creates and returns an instance of the datasets given its name.
@@ -146,6 +147,10 @@ def get_dataset(cfg,
     elif name_dset == 'shapenet':
         print('using toy data ', split)
         return ShapeNetDataset(cfg=cfg, root=cfg.DATASET.data_path, split=split)
+
+    elif name_dset == 'shapenetaligned':
+        print('using ShapeNetH5 data ', split)
+        return ShapeNetH5(opt=cfg, mode=split)
 
     # obman dataset
     meta={
