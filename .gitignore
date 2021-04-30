@@ -11,3 +11,4 @@ wandb
 .so
 .pyc
 /results
+.npy

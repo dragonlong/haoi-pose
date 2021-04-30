@@ -9,6 +9,14 @@ pip install python-fcl descartes pyrender vispy scikit-learn
 conda install -c conda-forge igl
 conda install meshplot
 
+pip install future pytest requests scipy pybind11
+projectq 0.3.6 requires pybind11!=2.2.0,>=1.7, which is not installed.
+projectq 0.3.6 requires pytest>=3.1, which is not installed.
+projectq 0.3.6 requires requests, which is not installed.
+projectq 0.3.6 requires scipy, which is not installed.
+pip install neural_renderer_pytorch
+pip install mmcv
+conda install -c conda-forge scikit-image matplotlib opencv pyyaml tensorboardX
 #
 http://www.codeplastic.com/2019/03/12/how-to-install-python-modules-in-blender/
 python -m ensurepip

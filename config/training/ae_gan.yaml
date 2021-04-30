@@ -5,6 +5,13 @@ n_pts: 1024 # network output, hyper_para
 enc_filters: (64, 128, 128, 256)
 latent_dim: 128
 dec_features: (256, 256)
+# treeGAN
+DEGREE: [1,  2,   2,   2,   2,   2,   64]
+G_FEAT: [96, 256, 256, 256, 128, 128, 128, 3]
+D_FEAT: [3, 64,  128, 256, 256, 512]
+support: 10
+loop_non_linear: False
+#
 nocs_features: [128, 128, 3, 'sigmoid']
 seg_features: [128, 128, 2, 'softmax']
 confi_features: [128, 1, 'sigmoid']

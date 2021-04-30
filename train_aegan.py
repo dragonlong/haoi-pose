@@ -263,7 +263,7 @@ def main(cfg):
                     tr_agent.save_ckpt('best')
                     best_5deg = np.array(track_dict['5deg']).mean()
 
-                if np.array(track_dict['chamferL1']).mean() > best_chamferL1:
+                if np.array(track_dict['chamferL1']).mean() < best_chamferL1:
                     tr_agent.save_ckpt('best')
                     best_chamferL1 = np.array(track_dict['chamferL1']).mean()
 

@@ -32,6 +32,7 @@ from models.pointnet_lib.networks import PointTransformer
 from models.decoders.pointnet_2 import PointNet2Segmenter
 from models.decoders.egnn_model import EquivariantDGCNN
 from models.decoders.dgcnn import DGCNN_semseg
+from models.generator import AtlasNetGenerator, TreeGANGenerator
 #
 from omegaconf import DictConfig, ListConfig
 from models.pointnet_lib.pointnet2_modules import knn_point
@@ -780,6 +781,7 @@ class PointAE(nn.Module):
     def __init__(self, cfg):
         super(PointAE, self).__init__()
         self.encoder_type = cfg.encoder_type
+        self.decoder_type = cfg.decoder_type
         if 'se3' in self.encoder_type:
              self.encoder = SE3Transformer(cfg=cfg, edge_dim=0, pooling='avg', n_heads=cfg.MODEL.n_heads,
                                            vector_attention=cfg.MODEL.vector_attention)
@@ -809,7 +811,21 @@ class PointAE(nn.Module):
                 self.regressor_confi= RegressorC1D(list(cfg.confi_features), cfg.latent_dim)
             if cfg.pred_mode:
                 self.classifier_mode= RegressorC1D(list(cfg.mode_features), cfg.MODEL.num_channels_R)
-        self.decoder = DecoderFC(eval(cfg.dec_features), cfg.latent_dim, cfg.num_points, cfg.dec_bn)
+
+        if 'atlas' in self.decoder_type:
+            points_num = 2048
+            if cfg.template_shape == 'uniform_sphere':
+                points_num = 1202
+            self.decoder = AtlasNetGenerator(shape=cfg.template_shape, device=torch.device('cuda:0'), code_dim=cfg.latent_dim, point_num=points_num)
+        elif 'tree' in self.decoder_type:
+            DEGREE=[1,  2,   2,   2,   2,   2,  64]
+            G_FEAT=[cfg.latent_dim, 256, 256, 256, 128, 128, 128, 3]
+            D_FEAT=[3, 64,  128, 256, 256, 512]
+            support=10
+            loop_non_linear= False
+            self.decoder = TreeGANGenerator(features=G_FEAT, degrees=DEGREE, support=support, loop_non_linear=loop_non_linear)
+        else:
+            self.decoder = DecoderFC(eval(cfg.dec_features), cfg.latent_dim, cfg.num_points, cfg.dec_bn)
 
     def encode(self, x):
         return self.encoder(x)

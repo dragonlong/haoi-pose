@@ -391,7 +391,7 @@ class PointAEPoseAgent(BaseAgent):
             if 'partial' in self.config.task:
                 self.recon_canon_loss = (dist2_canon).mean()
             else:
-                self.recon_canon_loss = (dist1_canon + dist2_canon).mean()
+                self.recon_canon_loss = dist1_canon.mean() + dist2_canon.mean()
             self.infos["recon_canon"] = self.recon_canon_loss
 
             if self.config.use_symmetry_loss:
@@ -424,7 +424,7 @@ class PointAEPoseAgent(BaseAgent):
             if 'partial' in self.config.task:
                 all_dist = (dist2).mean(-1).view(nb, -1).contiguous()
             else:
-                all_dist = (dist1 + dist2).mean(-1).view(nb, -1).contiguous()
+                all_dist = (dist1.mean(-1) + dist2.mean(-1)).view(nb, -1).contiguous()
             min_loss, min_indices = torch.min(all_dist, dim=-1) # we only allow one mode to be True
             self.recon_loss = min_loss.mean()
             self.rlabel_gt  = min_indices.detach().clone()
@@ -555,13 +555,13 @@ class PointAEPoseAgent(BaseAgent):
             # canon shape, camera shape, input shape
             for k in range(num): # batch
                 save_name = f'{save_path}/{mode}_{self.clock.step}_{ids[k]}_input.txt'
-                np.savetxt(save_name, input_pts[k])
+                np.savetxt(save_name, np.concatenate( [input_pts[k], 0.1 * np.ones((input_pts[k].shape[0], 1))], axis=1))
                 save_name = f'{save_path}/{mode}_{self.clock.step}_{ids[k]}_target.txt'
-                np.savetxt(save_name, target_pts[k])
+                np.savetxt(save_name, np.concatenate( [target_pts[k], 0.25 * np.ones((target_pts[k].shape[0], 1))], axis=1))
                 save_name = f'{save_path}/{mode}_{self.clock.step}_{ids[k]}_canon.txt'
-                np.savetxt(save_name, outputs_pts[k])
+                np.savetxt(save_name, np.concatenate( [outputs_pts[k], 0.5 * np.ones((outputs_pts[k].shape[0], 1))], axis=1))
                 save_name = f'{save_path}/{mode}_{self.clock.step}_{ids[k]}_pred.txt'
-                np.savetxt(save_name, transformed_pts[k])
+                np.savetxt(save_name, np.concatenate( [transformed_pts[k], 0.75 * np.ones((transformed_pts[k].shape[0], 1))], axis=1))
 
 class PointVAEAgent(BaseAgent):
     def __init__(self, config):

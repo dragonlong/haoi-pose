@@ -17,6 +17,8 @@ exp_name: 'default'
 task: 'pcloud_completion' # hand_regression, obj_reconstruction, hand_reconstruction, contacts_vote, pcloud_pose, pcloud_completion, partial_pcloud_pose
 name_model: grnet         # Name of the specific model to load
 encoder_type: 'se3_transformer'
+decoder_type: 'fc'
+template_shape: 'sphere'
 use_wgan: False
 is_debug: False
 
