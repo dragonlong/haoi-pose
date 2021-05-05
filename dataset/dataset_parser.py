@@ -33,7 +33,8 @@ from dataset.modelnet40 import ModelNetDataset
 from dataset.airplane3k import OracleDataset
 from dataset.modelnet40aligned import Dataloader_ModelNet40, Dataloader_ModelNet40Alignment
 # nocs
-from dataset.nocs_synthetic import NOCSDataset
+# from dataset.nocs_synthetic import NOCSDataset
+from dataset.nocs_synthetic_simple import NOCSDataset
 # shapenet
 from dataset.shapenetv2 import ShapeNetDataset
 from dataset.shapenetaligned import ShapeNetH5
@@ -139,6 +140,10 @@ def get_dataset(cfg,
     elif name_dset == 'nocs_synthetic':
         print('using nocs_synthetic data ', split)
         return NOCSDataset(cfg=cfg, root=cfg.DATASET.data_path, split=split)
+
+    # elif name_dset == 'nocs_synthetic_simple':
+    #     print('using nocs_synthetic data ', split)
+    #     return NOCSDataset(cfg=cfg, root=cfg.DATASET.data_path, split=split)
 
     elif name_dset == 'oracle':
         print('using toy data ', split)

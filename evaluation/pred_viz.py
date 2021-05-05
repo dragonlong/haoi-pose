@@ -413,11 +413,11 @@ def main(cfg):
         #     gt_vect     = {'p': t_gt[i].reshape(-1, 3), 'v': gt_coords}
         #     fitted_vect = {'p': t_gt[i].reshape(-1, 3), 'v': pred_coords}
         #     plot3d_pts([[inputs[i], inputs[i]]], [['', '']],  title_name=[f'{idx} R err: {rdiff[i]:.2f}'],  arrows=[[gt_vect, fitted_vect]], s=3**2, dpi=300, axis_off=False, save_fig=True, save_name=f'{viz_path}/{idx}_{rdiff[i]:.2f}.png', show_fig=False)
-
         return
     if cfg.pred_6d:
         for fn in glob.glob('/home/dragon/Documents/ICML2021/model/oracle/0.64/generation/validation_3*'):
             plot_arrows(fn)
+
     elif cfg.pred_nocs:
         file_name = '/home/dragon/Documents/ICML2021/model/oracle/0.65/generation/validation_46000_0113_113_0.txt'
         points = get_txt(file_name)

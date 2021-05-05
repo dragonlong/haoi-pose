@@ -713,7 +713,7 @@ class DirectSO3OutBlock(nn.Module):
 
 # outblock for rotation regression model
 class SO3OutBlockR(nn.Module):
-    def __init__(self, params, norm=None, pooling_method='mean'):
+    def __init__(self, params, norm=None, pooling_method='mean', pred_t=False):
         super(SO3OutBlockR, self).__init__()
 
         c_in = params['dim_in']
@@ -734,6 +734,10 @@ class SO3OutBlockR(nn.Module):
 
         self.attention_layer = nn.Conv1d(mlp[-1], 1, (1))
         self.regressor_layer = nn.Conv1d(mlp[-1],4,(1))
+
+        self.pred_t = pred_t
+        if pred_t:
+            self.regressor_t_layer = nn.Conv1d(mlp[-1],3,(1))
 
         # ------------------ uniary conv ----------------
         for c in mlp:
@@ -766,8 +770,16 @@ class SO3OutBlockR(nn.Module):
         attention_wts = self.attention_layer(x_out)  # Bx1XA
         confidence = F.softmax(attention_wts * self.temperature, dim=2).view(x_out.shape[0], x_out.shape[2])
         # regressor
+        output = {}
         y = self.regressor_layer(x_out) # Bx6xA
-        return confidence, y
+        output['1'] = confidence #
+        output['R'] = y
+        if self.pred_t:
+            y_t = self.regressor_t_layer(x_out)
+            output['T'] = y_t
+        else:
+            output['T'] = None
+        return output
 
 
 # RelSO3OutBlockR(

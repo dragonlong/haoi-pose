@@ -16,7 +16,11 @@ from os.path import exists, join
 import vgtk.so3conv.functional as L
 from vgtk.functional import compute_rotation_matrix_from_quaternion, compute_rotation_matrix_from_ortho6d, so3_mean
 # from vgtk.zpconv.functional import Gathering, batched_index_select, acos_safe
+from global_info import global_info
 
+infos           = global_info()
+my_dir          = infos.base_path
+delta_R         = infos.delta_R
 def bp():
     import pdb;pdb.set_trace()
 
@@ -105,7 +109,45 @@ class PointAEPoseAgent(BaseAgent):
         elif self.config.pred_nocs:
             self.eval_nocs(data)
         else:
-            self.pose_err = None
+            if self.config.pre_compute_delta:
+                delta_R = so3_mean(self.r_pred.unsqueeze(0))
+                self.pose_err = None
+                self.pose_info = {'delta_r': self.r_pred}
+            else:
+                self.eval_ssl(data)
+
+    def eval_ssl(self, data):
+        # all you need to get a reasonable evalution during test stage, for unseen and seen data
+        BS = data['points'].shape[0]
+        N  = data['points'].shape[1]
+        M  = self.config.num_modes_R
+        # if 'partial' in self.config.task:
+        #     self.delta_R= torch.eye(3).reshape((1, 3, 3)).repeat(BS, 1, 1).cuda()
+        # else:
+        self.delta_R = torch.from_numpy(delta_R[f'{self.config.name_dset}_{self.config.target_category}']).cuda()
+        pred_rot    = torch.matmul(self.r_pred, self.delta_R.float().permute(0, 2, 1).contiguous())
+        gt_rot      = data['R_gt'].cuda()  # [B, 3, 3]
+        rot_err     = rot_diff_degree(gt_rot, pred_rot, chosen_axis=None)  # [B, M]
+
+        if 'xyz' in data:
+            input_pts  = data['xyz'].permute(0, 2, 1).contiguous().cuda()
+        else:
+            input_pts  = data['G'].ndata['x'].view(BS, -1, 3).contiguous().cuda() # B, N, 3
+
+        if self.output_T is not None:
+            pred_center= torch.matmul(self.r_pred, self.t_pred.unsqueeze(-1)) + input_pts.mean(dim=-1, keepdim=True) # local center, plus offsets
+            gt_center  = data['T'].cuda() # B, 3 # from original to
+            trans_err = torch.norm(pred_center[:, :, 0] - gt_center[:, 0, :], dim=-1)
+        else:
+            trans_err = torch.zeros(BS).cuda()
+            gt_center  = torch.zeros(BS, 1, 3).cuda()
+            pred_center= torch.zeros(BS, 3, 1).cuda()
+
+        scale_err = torch.zeros(BS).cuda()
+        scale = torch.ones(BS)
+        self.pose_err  = {'rdiff': rot_err, 'tdiff': trans_err, 'sdiff': scale_err}
+        self.pose_info = {'r_gt': gt_rot, 't_gt': gt_center.mean(dim=1), 's_gt': scale, 'r_pred': pred_rot, 't_pred': pred_center.mean(dim=-1), 's_pred': scale}
+        return
 
     def eval_6d(self, data, thres=0.05):
         """one step of validation"""
@@ -204,7 +246,7 @@ class PointAEPoseAgent(BaseAgent):
         if 'xyz' in data:
             input_pts = data['xyz'].permute(0, 2, 1).contiguous().cuda()
         else:
-            input_pts        = data['G'].ndata['x'].view(BS, -1, 3).contiguous().permute(0, 2, 1).contiguous().cuda() #
+            input_pts    = data['G'].ndata['x'].view(BS, -1, 3).contiguous().permute(0, 2, 1).contiguous().cuda() #
         input_pts        = input_pts - input_pts.mean(dim=-1, keepdim=True)
         if self.config.use_rgb:
             rgb_feat = data['G'].ndata['f'].view(BS, -1, 3).contiguous().permute(0, 2, 1).contiguous().cuda() #
@@ -303,7 +345,6 @@ class PointAEPoseAgent(BaseAgent):
             self.degree_err = torch.acos( torch.sum(self.output_R*target_R, dim=1)) * 180 / np.pi
 
         self.output_R_pooled = self.output_R.mean(dim=2) #
-        # self.output_R_pooled = self.latent_vect['1'].permute(0, 2, 1).contiguous() # B, 3, 1
         self.output_R_pooled = self.output_R_pooled/(torch.norm(self.output_R_pooled, dim=1, keepdim=True) + epsilon)
 
         confidence = target_C
@@ -394,11 +435,6 @@ class PointAEPoseAgent(BaseAgent):
                 self.recon_canon_loss = dist1_canon.mean() + dist2_canon.mean()
             self.infos["recon_canon"] = self.recon_canon_loss
 
-            if self.config.use_symmetry_loss:
-                self.chirality_pts = self.output_pts * torch.tensor([[-1, 1, 1]], device=self.output_pts.device).unsqueeze(-1).contiguous() +  torch.tensor([[1, 0, 0]], device=self.output_pts.device).unsqueeze(-1).contiguous()  # flipped along x=0
-                dist1_chirality, dist2_chirality = self.chamfer_dist(self.output_pts.permute(0, 2, 1).contiguous(), self.chirality_pts.permute(0, 2, 1).contiguous(), return_raw=True)
-                self.recon_chirality_loss = (dist1_chirality + dist2_chirality).mean()
-
             # get rotated R, Option 1:
             nb, nr, na = self.latent_vect['R'].shape #
             np_out = self.output_pts.shape[-1]
@@ -410,34 +446,40 @@ class PointAEPoseAgent(BaseAgent):
 
             # The actual prediction is the classified anchor rotation @ regressed rotation
             preds  = torch.argmax(self.latent_vect['1'], 1)
-
-            # if select_r:
-            #     pred_R = torch.matmul(anchors[preds], pred_R)
-            # else:
             pred_R = torch.matmul(anchors, pred_RAnchor) # [60, 3, 3], [nb, 60, 3, 3] --> [nb, 60, 3, 3]
 
-            # torch.Size([4, 60, 3, 1024])  [nb, na, 3, np] -->  [nb, na, np, 3]
-            transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5).permute(0, 1, 3, 2).contiguous() #
-            # [nb*na, np]
-            dist1, dist2 = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), input_pts.unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
+            # [4, 60, 3, 1024]  [nb, na, 3, np] -->  [nb, na, np, 3]
+            if self.config.pred_t:
+                pred_T          = self.output_T.permute(0, 2, 1).contiguous().unsqueeze(-1).contiguous()
+                transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5 + pred_T).permute(0, 1, 3, 2).contiguous() #
+                shift_dis        = input_pts.mean(dim=1, keepdim=True)
+                dist1, dist2 = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), (input_pts - shift_dis).unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
+            else:
+                transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5).permute(0, 1, 3, 2).contiguous() #
+                dist1, dist2 = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), input_pts.unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
 
             if 'partial' in self.config.task:
                 all_dist = (dist2).mean(-1).view(nb, -1).contiguous()
             else:
                 all_dist = (dist1.mean(-1) + dist2.mean(-1)).view(nb, -1).contiguous()
+
             min_loss, min_indices = torch.min(all_dist, dim=-1) # we only allow one mode to be True
             self.recon_loss = min_loss.mean()
-            self.rlabel_gt  = min_indices.detach().clone()
-            self.rlabel_gt.requires_grad = False
+            self.rlabel_pred  = min_indices.detach().clone()
+            self.rlabel_pred.requires_grad = False
             self.transformed_pts = transformed_pts[torch.arange(0, BS), min_indices]
-            self.r_gt = pred_R[torch.arange(0, BS), min_indices].detach().clone() # correct R by searching
-            self.r_gt.requires_grad = False
+            self.r_pred = pred_R[torch.arange(0, BS), min_indices].detach().clone() # correct R by searching
+            self.r_pred.requires_grad = False
+            if self.config.pred_t:
+                self.t_pred = self.output_T.permute(0, 2, 1).contiguous()[torch.arange(0, BS), min_indices]
+            else:
+                self.t_pred = None
             # jointly train is fine, no necessary pretraining;
             rlabel_pred = self.latent_vect['1']
             if 'so3' in self.config.encoder_type:
                 if 'ssl' in self.config.task:
-                    rlabel_gt = self.rlabel_gt
-                    r_gt      = self.r_gt
+                    rlabel_gt = self.rlabel_pred
+                    r_gt      = self.r_pred
                 else:
                     rlabel_gt = data['R_label'].cuda()
                     r_gt      = data['R_gt'].cuda()

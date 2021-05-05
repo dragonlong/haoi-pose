@@ -175,14 +175,29 @@ class NOCSDataset(data.Dataset):
         R_gt = torch.from_numpy(r.astype(np.float32)) # predict r
         center = torch.from_numpy(np.array([[0.5, 0.5, 0.5]])) # 1, 3
         center_offset = pos[0].clone().detach() - T #
-
-        return {'pc': pos[0]/s, # normalize
-                'label': torch.from_numpy(np.array([1])).long(),
-                'R': R0,
-                'id': idx,
+        if self.cfg.pred_t:
+            xyz = pos[0] #/s
+        else:
+            xyz = (pos[0] - T)/1.0# /s
+        return {'xyz': xyz,
+                'points': nocs_gt,
+                'label': torch.from_numpy(np.array([1]).astype(np.float32)),
                 'R_gt' : R_gt,
-                'R_label': torch.Tensor([R_label]).long(),
+                'R_label': R_label,
+                'R': R0,
+                'T': T,
+                'fn': fn,
+                'id': instance_name,
+                'idx': idx,
                }
+
+        # return {'pc': pos[0]/s, # normalize
+        #         'label': torch.from_numpy(np.array([1])).long(),
+        #         'R': R0,
+        #         'id': idx,
+        #         'R_gt' : R_gt,
+        #         'R_label': torch.Tensor([R_label]).long(),
+        #        }
 
     def get_sample_full(self, idx, verbose=False):
         fn  = self.datapath[idx]
@@ -239,7 +254,19 @@ class NOCSDataset(data.Dataset):
         center = torch.from_numpy(np.array([[0.5, 0.5, 0.5]])) # 1, 3
         center_offset = pos[0].clone().detach() - T #
 
-        return {'pc': pos[0]/s,
+        # return {'xyz': torch.from_numpy(pc.astype(np.float32)),
+        #         'points': torch.from_numpy(pc_canon.astype(np.float32)),
+        #         'label': torch.from_numpy(data['label'].flatten()).long(),
+        #         'R_gt' : torch.from_numpy(R_gt.astype(np.float32)),
+        #         'R_label': torch.Tensor([R_label]).long(),
+        #         'R': R0,
+        #         'T': torch.from_numpy(t.astype(np.float32)),
+        #         'fn': data['name'][0],
+        #         'id': index,
+        #         'idx': index,
+        #        }
+
+        return {'pc': (pos[0] - T),
                 'label': torch.from_numpy(np.array([1])).long(),
                 'R': R0,
                 'id': idx,

@@ -28,8 +28,8 @@ class Dataloader_ModelNet40(data.Dataset):
 
         self.anchors = L.get_anchors()
 
-        if self.flag == 'rotation':
-            cats = ['airplane']
+        if opt.target_category:
+            cats = [opt.target_category]
             print(f"[Dataloader]: USING ONLY THE {cats[0]} CATEGORY!!")
         else:
             cats = os.listdir(opt.DATASET.dataset_path)
@@ -54,22 +54,20 @@ class Dataloader_ModelNet40(data.Dataset):
     def __getitem__(self, index):
         data = sio.loadmat(self.all_data[index])
         _, pc = pctk.uniform_resample_np(data['pc'], self.opt.model.input_num)
-        # pc = p3dtk.normalize_np(pc.T)
-        # pc = pc.T
-        # pc_canon = np.copy(pc)/2 + 0.5
         boundary_pts = [np.min(pc, axis=0), np.max(pc, axis=0)]
         center_pt = (boundary_pts[0] + boundary_pts[1])/2
         length_bb = np.linalg.norm(boundary_pts[0] - boundary_pts[1])
 
         # all normalize into 0
         pc_canon = (pc - center_pt.reshape(1, 3))/length_bb
-        pc = np.copy(pc_canon)    # centered at 0
+        pc = np.copy(pc_canon)   # centered at 0
         pc_canon = pc_canon + 0.5 # NOCS space
 
         R = np.eye(3)
         R_label = 29
         t = np.random.rand(1, 3)
-        if self.opt.augment:
+        T = torch.from_numpy(t.astype(np.float32))
+        if self.opt.augment and not self.opt.pre_compute_delta:
             if 'R' in data.keys() and self.mode != 'train':
                 pc, R = pctk.rotate_point_cloud(pc, data['R'])
             else:
@@ -78,17 +76,21 @@ class Dataloader_ModelNet40(data.Dataset):
         else:
             R_gt = np.copy(R)
         _, R_label, R0 = rotation_distance_np(R, self.anchors)
-
+        if self.opt.pred_t:
+            pc = pc + t
+        else:
+            T = T * 0
         return {'xyz': torch.from_numpy(pc.astype(np.float32)),
                 'points': torch.from_numpy(pc_canon.astype(np.float32)),
                 'label': torch.from_numpy(data['label'].flatten()).long(),
                 'R_gt' : torch.from_numpy(R_gt.astype(np.float32)),
                 'R_label': torch.Tensor([R_label]).long(),
                 'R': R0,
-                'T': torch.from_numpy(t.astype(np.float32)),
+                'T': T,
                 'fn': data['name'][0],
-                'id': index,
-                'idx': index,
+                'id': str(index),
+                'idx': str(index),
+                'class': self.all_data[index].split('/')[-3]
                }
 
 # for relative rotation alignment

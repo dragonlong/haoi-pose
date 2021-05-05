@@ -40,6 +40,7 @@ pred_mano: False
 pred_joint_ind: False
 pred_nocs: False
 pred_6d: False
+pred_t: False
 pred_bb: False
 pred_seg: False
 pred_conf: False
@@ -94,6 +95,7 @@ log_dir: '/model/${item}/${exp_num}'
 use_pretrain: False
 eval: False
 eval_mini: False
+pre_compute_delta: False
 split: 'val'
 pretrained_path: ''
 is_testing: False

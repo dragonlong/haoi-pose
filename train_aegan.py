@@ -22,6 +22,7 @@ from evaluation.pred_check import post_summary, prepare_pose_eval
 from common.algorithms import compute_pose_ransac
 from common.d3_utils import axis_diff_degree, rot_diff_rad
 from common.vis_utils import plot_distribution
+from vgtk.functional import so3_mean
 from global_info import global_info
 
 infos           = global_info()
@@ -134,8 +135,20 @@ def main(cfg):
     valid_dataset= parser.valid_dataset
     dp = valid_dataset.__getitem__(0)
     if cfg.eval_mini or cfg.eval:
+        if cfg.pre_compute_delta:
+            all_deltas = []
+            for num, data in enumerate(test_loader):
+                torch.cuda.empty_cache()
+                tr_agent.eval_func(data)
+                all_deltas.append(tr_agent.pose_info['delta_r'])
+            valid_deltas = torch.cat(all_deltas, dim=0)
+            valid_deltas = valid_deltas[valid_deltas[:, 0, 1]>0]
+            delta_R = so3_mean(valid_deltas.unsqueeze(0))
+            print(cfg.target_category, ': ', delta_R.cpu())
+            return
+
+        # main evaluation scripts
         all_rts, file_name, mean_err, r_raw_err, t_raw_err, s_raw_err = prepare_pose_eval(cfg.exp_num, cfg)
-        # file_name = file_name.replace('unseen', 'seen360') #'/groups/CESCA-CV/ICML2021/results/test_pred/oracle/0.64_unseen_part_rt_pn_general.npy'
         infos_dict = {'basename': [], 'in': [], 'r_raw': [],
                       'r_gt': [], 't_gt': [], 's_gt': [],
                       'r_pred': [], 't_pred': [], 's_pred': []}
@@ -149,41 +162,44 @@ def main(cfg):
             for num, data in enumerate(test_loader):
                 if num % 10 == 0:
                     print('checking batch ', num)
+
                 BS = data['points'].shape[0]
                 idx = data['idx']
                 torch.cuda.empty_cache()
                 tr_agent.eval_func(data)
+
                 pose_diff = tr_agent.pose_err
                 if pose_diff is not None:
                     for key in ['rdiff', 'tdiff', 'sdiff']:
                         track_dict[key] += pose_diff[key].float().cpu().numpy().tolist()
+                    print(pose_diff['rdiff'])
                     deg = pose_diff['rdiff'] <= 5.0
                     cm = pose_diff['tdiff'] <= 0.05
                     degcm = deg & cm
                     for key, value in zip(['5deg', '5cm', '5deg5cm'], [deg, cm, degcm]):
                         track_dict[key] += value.float().cpu().numpy().tolist()
+
+                if tr_agent.pose_info is not None:
                     for key, value in tr_agent.pose_info.items():
                         infos_dict[key] += value.float().cpu().numpy().tolist()
-                    input_pts  = data['G'].ndata['x'].view(BS, -1, 3).contiguous() # B, N, 3
+                    if 'xyz' in data:
+                        input_pts  = data['xyz']
+                    else:
+                        input_pts  = data['G'].ndata['x'].view(BS, -1, 3).contiguous() # B, N, 3
                     for m in range(BS):
                         basename   = f'{cfg.iteration}_' + data['id'][m] + f'_' + data['class'][m]
                         infos_dict['basename'].append(basename)
                         infos_dict['in'].append(input_pts[m].cpu().numpy())
-                if 'so3' in cfg.encoder_type:
-                    test_infos = tr_agent.infos
-                    if 'r_acc' in test_infos:
-                        track_dict['r_acc'].append(test_infos['r_acc'].float().cpu().numpy().tolist())
-                    if 'rdiff' in test_infos:
-                        track_dict['rdiff'].append(test_infos['rdiff'].float().cpu().numpy().tolist())
-                        deg = test_infos['rdiff'] <= 5.0
-                        track_dict['5deg'].append(deg.float().cpu().numpy().tolist())
+
                 if 'completion' in cfg.task:
-                    track_dict['chamferL1'].append(tr_agent.recon_loss.cpu().numpy().tolist())
+                    track_dict['chamferL1'].append(torch.sqrt(tr_agent.recon_loss).cpu().numpy().tolist())
                 tr_agent.visualize_batch(data, "test")
         for key, value in track_dict.items():
             if len(value) < 1:
                 continue
             print(key, ':', np.array(value).mean())
+            if key == 'rdiff':
+                print(key, '_mid:', np.median(np.array(value)))
         print(f'experiment {cfg.exp_num} for {cfg.target_category}\n')
 
         if cfg.save:
@@ -241,6 +257,7 @@ def main(cfg):
                     if pose_diff is not None:
                         for key in ['rdiff', 'tdiff', 'sdiff']:
                             track_dict[key].append(pose_diff[key].cpu().numpy().mean())
+                        pose_diff['rdiff'][pose_diff['rdiff']>170] = 180 - pose_diff['rdiff'][pose_diff['rdiff']>170]
                         deg = pose_diff['rdiff'] <= 5.0
                         cm = pose_diff['tdiff'] <= 0.05
                         degcm = deg & cm

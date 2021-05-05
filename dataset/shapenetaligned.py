@@ -41,6 +41,7 @@ class ShapeNetH5(data.Dataset):
 
         gt_file = h5py.File(self.gt_path, 'r')
         self.gt_data = np.array((gt_file['complete_pcds'][()]))
+        self.gt_labels = np.array((gt_file['labels'][()]))
         self.novel_gt_data = np.array((gt_file['novel_complete_pcds'][()]))
         gt_file.close()
 
@@ -50,18 +51,15 @@ class ShapeNetH5(data.Dataset):
             select_id = 3
         else:
             select_id= -1
-        if select_id > -1:
-            self.idxs = np.where(self.labels==select_id)[0]
+
+        if opt.pre_compute_delta:
+            labels_to_use = self.gt_labels
         else:
-            self.idxs = np.arange(self.labels.shape[0])
-        # if novel_input_only:
-        #     self.input_data = self.novel_input_data
-        #     self.gt_data = self.novel_gt_data
-        #     self.labels = self.novel_labels
-        # elif novel_input:
-        #     self.input_data = np.concatenate((self.input_data, self.novel_input_data), axis=0)
-        #     self.gt_data = np.concatenate((self.gt_data, self.novel_gt_data), axis=0)
-        #     self.labels = np.concatenate((self.labels, self.novel_labels), axis=0)
+            labels_to_use = self.labels
+        if select_id > -1:
+            self.idxs = np.where(labels_to_use==select_id)[0]
+        else:
+            self.idxs = np.arange(labels_to_use.shape[0])
 
         print(self.input_data.shape)
         print(self.gt_data.shape)
@@ -72,10 +70,14 @@ class ShapeNetH5(data.Dataset):
 
     def __getitem__(self, idx):
         index   = self.idxs[idx]
-        # complete = torch.from_numpy((self.gt_data[index // 26]))
         data = {}
-        data['pc'] = self.input_data[index]
-        data['label'] = self.labels[index]
+        if self.opt.pre_compute_delta:
+            data['pc'] = self.gt_data[index]
+            data['label'] = self.gt_labels[index]
+        else:
+            data['pc'] = self.input_data[index]
+            data['label'] = self.labels[index]
+
         data['name']  = ['0']
         _, pc = pctk.uniform_resample_np(data['pc'], self.opt.model.input_num)
         boundary_pts = [np.min(pc, axis=0), np.max(pc, axis=0)]
@@ -90,7 +92,8 @@ class ShapeNetH5(data.Dataset):
         R = np.eye(3)
         R_label = 29
         t = np.random.rand(1, 3)
-        if self.opt.augment:
+        T = torch.from_numpy(t.astype(np.float32))
+        if self.opt.augment and not self.opt.pre_compute_delta:
             if 'R' in data.keys() and self.mode != 'train':
                 pc, R = pctk.rotate_point_cloud(pc, data['R'])
             else:
@@ -99,7 +102,12 @@ class ShapeNetH5(data.Dataset):
         else:
             R_gt = np.copy(R)
         _, R_label, R0 = rotation_distance_np(R, self.anchors)
-
+        # s = np.random.rand(1) * 0.4 + 0.8
+        # pc = pc * s
+        if self.opt.pred_t:
+            pc = pc + t
+        else:
+            T = T * 0
         return {'xyz': torch.from_numpy(pc.astype(np.float32)),
                 'points': torch.from_numpy(pc_canon.astype(np.float32)),
                 'label': torch.from_numpy(data['label'].flatten()).long(),
@@ -108,8 +116,9 @@ class ShapeNetH5(data.Dataset):
                 'R': R0,
                 'T': torch.from_numpy(t.astype(np.float32)),
                 'fn': data['name'][0],
-                'id': index,
+                'id': str(index),
                 'idx': index,
+                'class': str(data['label'])
                }
 
 if __name__ == '__main__':

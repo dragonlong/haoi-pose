@@ -60,9 +60,10 @@ class InvSO3ConvModel(nn.Module):
         self.config = config
 
         # anchors, plus local relative R regression
-        self.outblockR = M.SO3OutBlockR(params['outblock'], norm=1, pooling_method=config.model.pooling_method)
+        self.outblockR = M.SO3OutBlockR(params['outblock'], norm=1, pooling_method=config.model.pooling_method, pred_t=config.pred_t)
         # invariant feature for shape reconstruction
-        self.outblockN = M.InvOutBlockOurs(params['outblock'], norm=1, pooling_method=config.model.pooling_method)
+        self.outblockN = M.InvOutBlockOurs(params['outblock'], norm=1, pooling_method='max')
+
 
     def forward(self, x):
         # nb, np, 3 -> [nb, 3, np] x [nb, 1, np, na]
@@ -73,13 +74,9 @@ class InvSO3ConvModel(nn.Module):
         for block_i, block in enumerate(self.backbone):
             x = block(x)
 
-        output = {}
-        output['xyz'] = x.xyz
-        confidence, quats = self.outblockR(x)
+        output = self.outblockR(x) # 1, delta_R, deltaT
         manifold_embed    = self.outblockN(x)
-        output['1'] = confidence #
-        output['R'] = quats
-        output['T'] = torch.ones(quats.shape[0], 1, 3, device=quats.device)
+        output['xyz'] = x.xyz
         output['0'] = manifold_embed
 
         return output

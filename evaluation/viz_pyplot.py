@@ -381,7 +381,7 @@ def main():
 
     # dataset_path    = '/groups/arcadm/xiaolong/mvp'
     dataset_path    = '/home/dragon/Downloads'
-    mode = 'test'
+    mode    = 'test'
     npoints = 16384
     input_path = f'{dataset_path}/mvp_{mode}_input.h5'
     gt_path = f'{dataset_path}/mvp_{mode}_gt_{npoints}pts.h5'
@@ -389,25 +389,29 @@ def main():
     input_file = h5py.File(input_path, 'r')
     input_data = np.array((input_file['incomplete_pcds'][()]))
     labels = np.array((input_file['labels'][()]))
+    print(input_file.keys())
+    # bp()
     novel_input_data = np.array((input_file['novel_incomplete_pcds'][()]))
     novel_labels = np.array((input_file['novel_labels'][()]))
     input_file.close()
 
     gt_file = h5py.File(gt_path, 'r')
     gt_data = np.array((gt_file['complete_pcds'][()]))
+    gt_labels = np.array((gt_file['labels'][()]))
     novel_gt_data = np.array((gt_file['novel_complete_pcds'][()]))
     gt_file.close()
     # 0. airplane, 3: chair
     i = 0
     idxs  = np.where(labels==i)[0]
-    for k in idxs:
-        # k = idxs[0]
+    idxs_gt = np.where(gt_labels==i)[0]
+    for k in idxs_gt:
         input = input_data[k]
-        gt    = gt_data[0]
+        gt    = gt_data[k]
         novel_input = novel_input_data[0]
         novel_gt    = novel_gt_data[0]
         print('labels: ', labels[k], 'novel_labels: ', novel_labels[i])
-        plot3d_pts([[input], [gt], [novel_input], [novel_gt]], [[f'{i}th'], [f'{i}th'], [f'{i}th'], [f'{i}th']], title_name=['input', 'gt', 'novel_input', 'novel_gt'], s=3**2, dpi=300, axis_off=False, show_fig=True)
+        plot3d_pts([[gt]], [[f'{k}th']], title_name=['gt'], s=3**2, dpi=300, axis_off=False, show_fig=True)
+        # plot3d_pts([[input], [gt], [novel_input], [novel_gt]], [[f'{i}th'], [f'{i}th'], [f'{i}th'], [f'{i}th']], title_name=['input', 'gt', 'novel_input', 'novel_gt'], s=3**2, dpi=300, axis_off=False, show_fig=True)
 
 
 if __name__ == '__main__':
