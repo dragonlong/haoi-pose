@@ -1506,7 +1506,7 @@ models=epn exp_num='0.845' model.model='enc_so3net' model.pooling_method='max' \
 datasets=shapenetaligned item=shapenetaligned name_dset=shapenetaligned target_category='airplane' dataset_class=AE \
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 augment=True MODEL.num_in_channels=1 pred_t=True \
-eval=True save=True
+eval=True save=True pre_compute_delta=True
 use_wandb=True
 
 0.8451: # supervision in camera space, random R, airplane, but add T estimation
@@ -1515,16 +1515,17 @@ models=epn exp_num='0.8451' model.model='enc_so3net' model.pooling_method='point
 datasets=shapenetaligned item=shapenetaligned name_dset=shapenetaligned target_category='airplane' dataset_class=AE \
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 augment=True MODEL.num_in_channels=1 pred_t=True \
-eval=True save=True
+eval=True save=True pre_compute_delta=True
 use_wandb=True
 
-0.846: # supervision in camera space, random R, airplane, but add T estimation
+0.846: # supervision in camera space, random R, airplane, but add T estimation, no sigmoid with random size
 python train_aegan.py task='ssl_partial_pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
 models=epn exp_num='0.846' model.model='enc_so3net' model.pooling_method='max' \
 datasets=shapenetaligned item=shapenetaligned name_dset=shapenetaligned target_category='airplane' dataset_class=AE \
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 augment=True MODEL.num_in_channels=1 pred_t=True \
 use_wandb=True
+
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>> 0.85, for modelnet40
 airplane  bench      bowl   cone     desk     flower_pot  keyboard  mantel       person  radio       sofa    table   tv_stand  xbox
 bathtub   bookshelf  car    cup      door     glass_box   lamp      monitor      piano   range_hood  stairs  tent    vase
@@ -1560,7 +1561,7 @@ eval=True save=True pre_compute_delta=True
 use_pretrain=True \
 use_wandb=True
 
-0.853: # table,  ca204
+0.853(wrong!!!): # table,  ca204,
 python train_aegan.py task='pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True nr_epochs=1000 save_frequency=20 \
 models=epn exp_num='0.853' model.model='enc_so3net' model.pooling_method='max' \
 datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='table' dataset_class=AE \
@@ -1570,7 +1571,7 @@ eval=True save=True pre_compute_delta=True
 use_pretrain=True \
 use_wandb=True
 
-0.854: # laptop, ca234
+0.854:(wrong!!!) # laptop, ca234
 python train_aegan.py task='pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True nr_epochs=1000 save_frequency=20 \
 models=epn exp_num='0.854' model.model='enc_so3net' model.pooling_method='max' \
 datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='laptop' dataset_class=AE \
@@ -1580,7 +1581,7 @@ eval=True save=True pre_compute_delta=True
 use_pretrain=True \
 use_wandb=True
 
-0.855: # bowl, ca230
+0.855:(check!!) # bowl, ca230
 python train_aegan.py task='pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True nr_epochs=1000 save_frequency=20 \
 models=epn exp_num='0.855' model.model='enc_so3net' model.pooling_method='max' \
 datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='bowl' dataset_class=AE \
@@ -1590,7 +1591,7 @@ eval=True save=True pre_compute_delta=True
 use_pretrain=True \
 use_wandb=True
 
-0.856: # bottle, ca221
+0.856: (wrong!!!) # bottle, ca221
 python train_aegan.py task='pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True nr_epochs=1000 save_frequency=20 \
 models=epn exp_num='0.856' model.model='enc_so3net' model.pooling_method='max' \
 datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='bottle' dataset_class=AE \
@@ -1600,7 +1601,7 @@ eval=True save=True pre_compute_delta=True
 use_pretrain=True \
 use_wandb=True
 
-0.857:  # cup, ca223
+0.857: (check!!)  # cup, ca223
 python train_aegan.py task='pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True nr_epochs=1000 save_frequency=20 \
 models=epn exp_num='0.857' model.model='enc_so3net' model.pooling_method='max' \
 datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='cup' dataset_class=AE \
@@ -1618,7 +1619,15 @@ models=epn exp_num='0.86' model.model='enc_so3net' model.pooling_method='max' \
 datasets=nocs_synthetic item=nocs_synthetic name_dset=nocs_synthetic target_category='laptop' dataset_class=AE \
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 augment=True MODEL.num_in_channels=1 \
-eval=True
+eval=True save=True pre_compute_delta=True
+use_wandb=True
+
+0.8601: # supervision in camera space, random R,laptop
+python train_aegan.py task='ssl_partial_pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
+models=epn exp_num='0.8601' model.model='enc_so3net' model.pooling_method='max' \
+datasets=nocs_synthetic item=nocs_synthetic name_dset=nocs_synthetic target_category='laptop' dataset_class=AE \
+TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
+augment=True MODEL.num_in_channels=1 pred_t=True \
 use_wandb=True
 
 0.861: # supervision in camera space, random R, bowl
@@ -1627,7 +1636,15 @@ models=epn exp_num='0.861' model.model='enc_so3net' model.pooling_method='max' \
 datasets=nocs_synthetic item=nocs_synthetic name_dset=nocs_synthetic target_category='bowl' dataset_class=AE \
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 augment=True MODEL.num_in_channels=1 \
-eval=True
+eval=True save=True pre_compute_delta=True
+use_wandb=True
+
+0.8611: # supervision in camera space, random R, bowl, add T, s
+python train_aegan.py task='ssl_partial_pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
+models=epn exp_num='0.8611' model.model='enc_so3net' model.pooling_method='max' \
+datasets=nocs_synthetic item=nocs_synthetic name_dset=nocs_synthetic target_category='bowl' dataset_class=AE \
+TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
+augment=True MODEL.num_in_channels=1 pred_t=True \
 use_wandb=True
 
 0.862: # supervision in camera space, random R, mug
@@ -1636,24 +1653,34 @@ models=epn exp_num='0.862' model.model='enc_so3net' model.pooling_method='max' \
 datasets=nocs_synthetic item=nocs_synthetic name_dset=nocs_synthetic target_category='mug' dataset_class=AE \
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 augment=True MODEL.num_in_channels=1 \
-eval=True \
+eval=True save=True pre_compute_delta=True \
 use_wandb=True
 
-0.863: # supervision in camera space, random R,laptop, add t
+0.8621: # supervision in camera space, random R, mug, add T, s
+python train_aegan.py task='ssl_partial_pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
+models=epn exp_num='0.8621' model.model='enc_so3net' model.pooling_method='max' \
+datasets=nocs_synthetic item=nocs_synthetic name_dset=nocs_synthetic target_category='mug' dataset_class=AE \
+TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
+augment=True MODEL.num_in_channels=1 pred_t=True \
+use_wandb=True
+
+0.863: # supervision in camera space, random R,laptop, add t, seems better
 python train_aegan.py task='ssl_partial_pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
 models=epn exp_num='0.863' model.model='enc_so3net' model.pooling_method='max' \
 datasets=nocs_synthetic item=nocs_synthetic name_dset=nocs_synthetic target_category='laptop' dataset_class=AE \
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 augment=True MODEL.num_in_channels=1 pred_t=True \
+eval=True save=True pre_compute_delta=True
 use_wandb=True
 
-0.864: # supervision in camera space, random R,laptop, add t
-python train_aegan.py task='ssl_partial_pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
-models=epn exp_num='0.864' model.model='enc_so3net' model.pooling_method='pointnet' \
-datasets=nocs_synthetic item=nocs_synthetic name_dset=nocs_synthetic target_category='laptop' dataset_class=AE \
-TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
-augment=True MODEL.num_in_channels=1 pred_t=True \
-use_wandb=True
+
+# 0.864: # supervision in camera space, random R,laptop, add t
+# python train_aegan.py task='ssl_partial_pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
+# models=epn exp_num='0.864' model.model='enc_so3net' model.pooling_method='pointnet' \
+# datasets=nocs_synthetic item=nocs_synthetic name_dset=nocs_synthetic target_category='laptop' dataset_class=AE \
+# TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
+# augment=True MODEL.num_in_channels=1 pred_t=True \
+# use_wandb=True
 
 0.865: # using linear layer
 python train_aegan.py task='ssl_partial_pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \

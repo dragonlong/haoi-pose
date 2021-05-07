@@ -121,10 +121,18 @@ class PointAEPoseAgent(BaseAgent):
         BS = data['points'].shape[0]
         N  = data['points'].shape[1]
         M  = self.config.num_modes_R
-        # if 'partial' in self.config.task:
-        #     self.delta_R= torch.eye(3).reshape((1, 3, 3)).repeat(BS, 1, 1).cuda()
-        # else:
-        self.delta_R = torch.from_numpy(delta_R[f'{self.config.name_dset}_{self.config.target_category}']).cuda()
+
+        if 'ssl' in self.config.task:
+            if f'{self.config.exp_num}_{self.config.name_dset}_{self.config.target_category}' in delta_R:
+                self.delta_R = torch.from_numpy(delta_R[f'{self.config.exp_num}_{self.config.name_dset}_{self.config.target_category}']).cuda()
+            elif f'{self.config.name_dset}_{self.config.target_category}' in delta_R:
+                self.delta_R = torch.from_numpy(delta_R[f'{self.config.name_dset}_{self.config.target_category}']).cuda()
+            else:
+                self.delta_R= torch.eye(3).reshape((1, 3, 3)).repeat(BS, 1, 1).cuda()
+        else:
+            self.delta_R= torch.eye(3).reshape((1, 3, 3)).cuda()
+
+        # self.delta_R
         pred_rot    = torch.matmul(self.r_pred, self.delta_R.float().permute(0, 2, 1).contiguous())
         gt_rot      = data['R_gt'].cuda()  # [B, 3, 3]
         rot_err     = rot_diff_degree(gt_rot, pred_rot, chosen_axis=None)  # [B, M]
@@ -593,7 +601,9 @@ class PointAEPoseAgent(BaseAgent):
                 outputs_pts[0] = outputs_pts[0] + np.array([0, 1, 0]).reshape(1, -1)
                 pts = np.concatenate([target_pts[0], outputs_pts[0]], axis=0)
                 wandb.log({"input+AE_output": [wandb.Object3D(pts)], 'step': self.clock.step})
-
+                # camera space
+                pts = np.concatenate([input_pts[0], transformed_pts[0]], axis=0)
+                wandb.log({"camera_space": [wandb.Object3D(pts)], 'step': self.clock.step})
             # canon shape, camera shape, input shape
             for k in range(num): # batch
                 save_name = f'{save_path}/{mode}_{self.clock.step}_{ids[k]}_input.txt'

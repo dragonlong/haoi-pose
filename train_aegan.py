@@ -134,15 +134,36 @@ def main(cfg):
     test_loader  = parser.validloader
     valid_dataset= parser.valid_dataset
     dp = valid_dataset.__getitem__(0)
+
     if cfg.eval_mini or cfg.eval:
         if cfg.pre_compute_delta:
             all_deltas = []
-            for num, data in enumerate(test_loader):
+            for num, data in enumerate(train_loader):
+                if num > 4000:
+                    break
                 torch.cuda.empty_cache()
                 tr_agent.eval_func(data)
                 all_deltas.append(tr_agent.pose_info['delta_r'])
             valid_deltas = torch.cat(all_deltas, dim=0)
-            valid_deltas = valid_deltas[valid_deltas[:, 0, 1]>0]
+            # valid_deltas = valid_deltas[valid_deltas[:, 0, 1]>0] # partial airplane
+            if cfg.exp_num == '0.86':
+                valid_deltas = valid_deltas[valid_deltas[:, 0, 0]>0.65]
+                valid_deltas = valid_deltas[valid_deltas[:, 1, 0]<0]
+            elif cfg.exp_num == '0.861' or cfg.exp_num == '0.862':
+                valid_deltas = valid_deltas[valid_deltas[:, 0, 0]>0]
+                valid_deltas = valid_deltas[valid_deltas[:, 1, 0]<0]
+                valid_deltas = valid_deltas[valid_deltas[:, 0, 1]<0]
+            elif cfg.exp_num == '0.863':
+                valid_deltas = valid_deltas[valid_deltas[:, 0, 1]>0]
+                valid_deltas = valid_deltas[valid_deltas[:, 1, 0]<0]
+            elif cfg.exp_num == '0.845':
+                valid_deltas = valid_deltas[valid_deltas[:, 0, 0]<0]
+                valid_deltas = valid_deltas[valid_deltas[:, 0, 1]<0]
+                valid_deltas = valid_deltas[valid_deltas[:, 1, 0]>0]
+            elif cfg.exp_num == '0.8451':
+                valid_deltas = valid_deltas[valid_deltas[:, 0, 0]>0]
+                valid_deltas = valid_deltas[valid_deltas[:, 0, 1]>0]
+                valid_deltas = valid_deltas[valid_deltas[:, 1, 0]>0]
             delta_R = so3_mean(valid_deltas.unsqueeze(0))
             print(cfg.target_category, ': ', delta_R.cpu())
             return

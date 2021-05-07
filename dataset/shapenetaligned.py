@@ -108,6 +108,7 @@ class ShapeNetH5(data.Dataset):
             pc = pc + t
         else:
             T = T * 0
+            
         return {'xyz': torch.from_numpy(pc.astype(np.float32)),
                 'points': torch.from_numpy(pc_canon.astype(np.float32)),
                 'label': torch.from_numpy(data['label'].flatten()).long(),

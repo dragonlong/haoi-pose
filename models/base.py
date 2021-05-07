@@ -171,18 +171,6 @@ class BaseAgent(object):
         self.record_losses(losses, 'validation', infos_dict=infos)
         return losses, infos
 
-    # def eval_func(self, data):
-    #     """one step of validation"""
-    #     self.net.eval()
-    #     #
-    #     with torch.no_grad():
-    #         self.forward(data)
-    #
-    #     losses = self.collect_loss()
-    #     infos  = self.collect_info()
-    #
-    #     return losses, infos
-
     def visualize_batch(self, data, tb, **kwargs):
         """write visualization results to tensorboard writer"""
         raise NotImplementedError

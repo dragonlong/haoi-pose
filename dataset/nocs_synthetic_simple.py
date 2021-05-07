@@ -128,8 +128,8 @@ class NOCSDataset(data.Dataset):
         fn  = self.datapath[idx]
         if verbose:
             print(fn)
-        category_name = fn.split('.')[0].split('/')[-4]
-        instance_name = fn.split('.')[0].split('/')[-5]
+        category_name = fn.split('.')[0].split('/')[-5]
+        instance_name = fn.split('.')[0].split('/')[-4] + '_' + fn.split('.')[0].split('/')[-3] + '_' + fn.split('.')[0].split('/')[-1]
 
         if self.fetch_cache and idx in self.g_dict:
             pos, src, dst, feat = self.g_dict[idx]
@@ -175,10 +175,25 @@ class NOCSDataset(data.Dataset):
         R_gt = torch.from_numpy(r.astype(np.float32)) # predict r
         center = torch.from_numpy(np.array([[0.5, 0.5, 0.5]])) # 1, 3
         center_offset = pos[0].clone().detach() - T #
-        if self.cfg.pred_t:
-            xyz = pos[0] #/s
+        # print('compared to 1, the scale is ', s)
+        scale_normalize = 1
+        if self.target_category == 'laptop':
+            scale_normalize = 0.5
+        elif self.target_category == 'bowl':
+            scale_normalize = 0.25
+        elif self.target_category == 'mug':
+            scale_normalize = 0.25
         else:
-            xyz = (pos[0] - T)/1.0# /s
+            scale_normalize = 0.5
+        # print('using scale normalization factor ', scale_normalize)
+
+        if self.cfg.pre_compute_delta:
+            xyz = nocs_gt - 0.5
+        else:
+            if self.cfg.pred_t:
+                xyz = pos[0]/scale_normalize
+            else:
+                xyz = (pos[0] - T)/s
         return {'xyz': xyz,
                 'points': nocs_gt,
                 'label': torch.from_numpy(np.array([1]).astype(np.float32)),
@@ -189,21 +204,13 @@ class NOCSDataset(data.Dataset):
                 'fn': fn,
                 'id': instance_name,
                 'idx': idx,
+                'class': category_name
                }
-
-        # return {'pc': pos[0]/s, # normalize
-        #         'label': torch.from_numpy(np.array([1])).long(),
-        #         'R': R0,
-        #         'id': idx,
-        #         'R_gt' : R_gt,
-        #         'R_label': torch.Tensor([R_label]).long(),
-        #        }
 
     def get_sample_full(self, idx, verbose=False):
         fn  = self.datapath[idx]
-        category_name = fn.split('.')[0].split('/')[-4]
-        instance_name = fn.split('.')[0].split('/')[-5]
-
+        category_name = fn.split('.')[0].split('/')[-5]
+        instance_name = fn.split('.')[0].split('/')[-4] + '_' + fn.split('.')[0].split('/')[-3] + '_' + fn.split('.')[0].split('/')[-1]
         if self.fetch_cache and idx in self.g_dict:
             pos, src, dst, feat = self.g_dict[idx]
         else:
@@ -254,18 +261,6 @@ class NOCSDataset(data.Dataset):
         center = torch.from_numpy(np.array([[0.5, 0.5, 0.5]])) # 1, 3
         center_offset = pos[0].clone().detach() - T #
 
-        # return {'xyz': torch.from_numpy(pc.astype(np.float32)),
-        #         'points': torch.from_numpy(pc_canon.astype(np.float32)),
-        #         'label': torch.from_numpy(data['label'].flatten()).long(),
-        #         'R_gt' : torch.from_numpy(R_gt.astype(np.float32)),
-        #         'R_label': torch.Tensor([R_label]).long(),
-        #         'R': R0,
-        #         'T': torch.from_numpy(t.astype(np.float32)),
-        #         'fn': data['name'][0],
-        #         'id': index,
-        #         'idx': index,
-        #        }
-
         return {'pc': (pos[0] - T),
                 'label': torch.from_numpy(np.array([1])).long(),
                 'R': R0,
@@ -297,7 +292,7 @@ def main(cfg):
     cfg.log_dir  = infos.second_path + cfg.log_dir
     dset = NOCSDataset(cfg=cfg, split='train')
     #
-    for i in range(200): #
+    for i in range(2000): #
         dp   = dset.__getitem__(i, verbose=True)
         # print(dp)
 

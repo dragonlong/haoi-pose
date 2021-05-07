@@ -90,7 +90,7 @@ if __name__ == '__main__':
     pv.set_plot_theme("document")
     off_screen = False
     color      = 'gold' #'deepskyblue'
-    exp_num    = 0.855 # 0.851 # 0.845 # 0.81 # 0.84
+    exp_num    = 0.862 #0.855 # 0.851 # 0.845 # 0.81 # 0.84
     window_shape = (1,3)
     k = 1.3
     k1 = 1.05
