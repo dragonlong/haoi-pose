@@ -1,11 +1,18 @@
 # @package _global_
 module: ae  # ['ae', 'vae', 'gan']
-n_pts: 2048 # network output, hyper_para
+n_pts: 1024 # network output, hyper_para
 # network
 enc_filters: (64, 128, 128, 256)
 latent_dim: 128
 dec_features: (256, 256)
-nocs_features: [128, 128, 3]
+# treeGAN
+DEGREE: [1,  2,   2,   2,   2,   2,   64]
+G_FEAT: [96, 256, 256, 256, 128, 128, 128, 3]
+D_FEAT: [3, 64,  128, 256, 256, 512]
+support: 10
+loop_non_linear: False
+#
+nocs_features: [128, 128, 3, 'sigmoid']
 seg_features: [128, 128, 2, 'softmax']
 confi_features: [128, 1, 'sigmoid']
 mode_features: ['softmax']
@@ -39,3 +46,8 @@ weight_partial_rec: 6 # weight factor for partial reconstruction loss
 # testing
 num_sample: 10
 num_z: 5
+
+TRAIN:
+  train_batch: 2
+  test_batch: 2
+  workers: 8

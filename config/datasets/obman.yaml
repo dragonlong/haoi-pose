@@ -28,6 +28,3 @@ DATASET:
   center_idx: 0
   mano_lambda_joints2d: False
   atlas_points_nb: 1024
-  workers: 8
-  train_batch: 32
-  test_batch: 16

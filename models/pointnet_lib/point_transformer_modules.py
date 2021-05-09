@@ -8,7 +8,6 @@ sys.path.insert(0, BASEPATH)
 from pointnet2_modules import knn_point, farthest_point_sample, gather_operation, group_operation, \
     three_nn, three_interpolate
 
-
 class MLP(nn.Module):
     def __init__(self, dim, in_channel, mlp, use_bn=True, skip_last=True, last_acti=None):
         super(MLP, self).__init__()

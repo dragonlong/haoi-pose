@@ -540,12 +540,12 @@ def plot3d_pts(pts, pts_name, s=1, dpi=350, title_name=None, sub_name='default',
                     fig.colorbar(p)
             if arrows is not None:
                 points, offset_sub = arrows[m][n]['p'], arrows[m][n]['v']
-                offset_sub = offset_sub * 0.2
+                offset_sub = offset_sub
                 if len(points.shape) < 2:
                     points = points.reshape(-1, 3)
                 if len(offset_sub.shape) < 2:
                     offset_sub = offset_sub.reshape(-1, 3)
-                ax.quiver(points[:, 0], points[:, 1], points[:, 2], offset_sub[:, 0], offset_sub[:, 1], offset_sub[:, 2], color=c_set[n], linewidth=4)
+                ax.quiver(points[:, 0], points[:, 1], points[:, 2], offset_sub[:, 0], offset_sub[:, 1], offset_sub[:, 2], color=c_set[n], linewidth=0.2)
         ax.set_xlabel('X Label')
         ax.set_ylabel('Y Label')
         ax.set_zlabel('Z Label')

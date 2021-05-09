@@ -12,7 +12,7 @@ import os
 import sys
 import torch
 import logging
-import open3d
+# import open3d
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
 

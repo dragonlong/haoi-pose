@@ -255,7 +255,7 @@ python train.py verbose=True gpu=1 name_model='votenet' exp_num='0.95' MODEL.arc
 
 2.401 # bottle, AE-Graph, synthetic complete pcloud
   TRAIN_OBJ='python train_aegan.py training=ae_gan use_wandb=True vis=True n_pts=512 name_model=ae dataset_class=HandDatasetAEGraph'
-  $TRAIN_OBJ target_category='bottle' exp_num='2.401' DATASET.train_batch=2 DATASET.test_batch=2 \
+  $TRAIN_OBJ target_category='bottle' exp_num='2.401' TRAIN.train_batch=2 TRAIN.test_batch=2 \
   eval=True ckpt='latest' augment=True
 
 2.41 # jar, AE, synthetic complete pcloud
@@ -264,13 +264,13 @@ python train.py verbose=True gpu=1 name_model='votenet' exp_num='0.95' MODEL.arc
 
 2.411 # jar, AE-Graph, synthetic complete pcloud
   TRAIN_OBJ='python train_aegan.py training=ae_gan use_wandb=True vis=True n_pts=256 name_model=ae dataset_class=HandDatasetAEGraph'
-  $TRAIN_OBJ target_category='jar' exp_num='2.411'  DATASET.train_batch=2 DATASET.test_batch=2
+  $TRAIN_OBJ target_category='jar' exp_num='2.411'  TRAIN.train_batch=2 TRAIN.test_batch=2
 
 2.42 # all categories, AE, synthetic complete pcloud
   python train_aegan.py training=ae_gan name_model=ae dataset_class='HandDatasetAEGan' exp_num='2.42'
 
 2.421 #
-  python train_aegan.py training=ae_gan use_wandb=True vis=True n_pts=512 name_model=ae dataset_class='HandDatasetAEGraph' target_category='bottle' exp_num='2.421'  DATASET.train_batch=2 DATASET.test_batch=2
+  python train_aegan.py training=ae_gan use_wandb=True vis=True n_pts=512 name_model=ae dataset_class='HandDatasetAEGraph' target_category='bottle' exp_num='2.421'  TRAIN.train_batch=2 TRAIN.test_batch=2
 
 2.5 # all categories, VAE
   python train_aegan.py training=ae_gan module=vae dataset_class='HandDatasetAEGan' exp_num='2.5' lr=5e-4 nr_epochs=2000

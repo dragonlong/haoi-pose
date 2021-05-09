@@ -9,7 +9,10 @@ from mpl_toolkits.mplot3d import Axes3D
 
 import __init__
 from utils.external.libkdtree import KDTree
-
+from global_info import global_info
+infos           = global_info()
+sym_type        = infos.sym_type # sym_type
+categories_id   = infos.categories_id
 """
 align_rotation: find the theta component along y axis; reduce the rotation around one axis;
 compute_iou(occ1, occ2): occupancy values for 3D IoU
@@ -49,6 +52,7 @@ rot_diff_rad
 mat_from_rvec
 mat_from_euler
 mat_from_quat
+spherical_to_vector
 
 # discretization
 voxelize()
@@ -60,7 +64,7 @@ coordinate2index(x, reso, coord_type='2d'):
 coord2index(p, vol_range, reso=None, plane='xz'):
 """
 
-def breakpoint():
+def bp():
     import pdb;pdb.set_trace()
 
 # to align the transformation,
@@ -88,6 +92,29 @@ def align_rotation(sRT, axis='y'):
     if sRT.shape[0] == 4:
         aligned_sRT[:3, 3] = sRT[:3, 3]
     return aligned_sRT
+
+def acos_safe(x, eps=1e-4):
+    sign = torch.sign(x)
+    slope = np.arccos(1-eps) / eps
+    return torch.where(abs(x) <= 1-eps,
+                    torch.acos(x),
+                    torch.acos(sign * (1 - eps)) - slope*sign*(abs(x) - 1 + eps))
+
+def angle_from_R(R):
+    return acos_safe(0.5 * (torch.einsum('bii->b',R) - 1))
+
+def mean_angular_error(pred_R, gt_R):
+    R_diff = torch.matmul(pred_R, gt_R.transpose(1,2).float())
+    angles = angle_from_R(R_diff)
+    return angles#.mean()
+
+def pairwise_distance_matrix(x, y, eps=1e-6):
+    M, N = x.size(0), y.size(0)
+    x2 = torch.sum(x * x, dim=1, keepdim=True).repeat(1, N)
+    y2 = torch.sum(y * y, dim=1, keepdim=True).repeat(1, M)
+    dist2 = x2 + torch.t(y2) - 2.0 * torch.matmul(x, torch.t(y))
+    dist2 = torch.clamp(dist2, min=eps)
+    return torch.sqrt(dist2)
 
 def compute_iou(occ1, occ2):
     ''' Computes the Intersection over Union (IoU) value for two sets of
@@ -345,6 +372,29 @@ def fix_Rt_camera(Rt, loc, scale):
 
     assert(Rt_new.size() == (batch_size, 3, 4))
     return Rt_new
+
+def spherical_to_vector(spherical):
+    """
+    Copied from trimesh great library !
+    see https://github.com/mikedh/trimesh/blob/4c9ab1e9906acaece421f
+    b189437c8f4947a9c5a/trimesh/util.py
+    Convert a set of (n,2) spherical vectors to (n,3) vectors
+    Parameters
+    -----------
+    spherical : (n , 2) float
+       Angles, in radians
+    Returns
+    -----------
+    vectors : (n, 3) float
+      Unit vectors
+    """
+    spherical = np.asanyarray(spherical, dtype=np.float64)
+
+    theta, phi = spherical.T
+    st, ct = np.sin(theta), np.cos(theta)
+    sp, cp = np.sin(phi), np.cos(phi)
+    vectors = np.column_stack((ct * sp, st * sp, cp))
+    return vectors
 
 def normalize_coordinate(p, padding=0.1, plane='xz'):
     ''' Normalize coordinate to [0, 1] for unit cube experiments
@@ -670,31 +720,80 @@ def compute_euler_angles_from_rotation_matrices(rotation_matrices):
 
     return out_euler
 
-# from zhou et. al
+# poses batch*6
+# poses
 def compute_rotation_matrix_from_ortho6d(poses):
-    x_raw = poses[:,0:3]#batch*3
-    y_raw = poses[:,3:6]#batch*3
+    x_raw = poses[:, 0:3]  # batch*3
+    y_raw = poses[:, 3:6]  # batch*3
+    x = normalize_vector(x_raw)  # batch*3
+    z = cross_product(x, y_raw)  # batch*3
+    z = normalize_vector(z)  # batch*3
+    y = cross_product(z, x)  # batch*3
 
-    x = normalize_vector(x_raw) #batch*3
-    z = cross_product(x,y_raw) #batch*3
-    z = normalize_vector(z)#batch*3
-    y = cross_product(z,x)#batch*3
-
-    x = x.view(-1,3,1)
-    y = y.view(-1,3,1)
-    z = z.view(-1,3,1)
-    matrix = torch.cat((x,y,z), 2) #batch*3*3
-
+    x = x.view(-1, 3, 1)
+    y = y.view(-1, 3, 1)
+    z = z.view(-1, 3, 1)
+    matrix = torch.cat((x, y, z), 2)  # batch*3*3
     return matrix
 
+# # from zhou et. al
+# def compute_rotation_matrix_from_ortho6d(poses):
+#     x_raw = poses[:,0:3]#batch*3
+#     y_raw = poses[:,3:6]#batch*3
+#
+#     x = normalize_vector(x_raw) #batch*3
+#     z = cross_product(x,y_raw) #batch*3
+#     z = normalize_vector(z)#batch*3
+#     y = cross_product(z,x)#batch*3
+#
+#     x = x.view(-1,3,1)
+#     y = y.view(-1,3,1)
+#     z = z.view(-1,3,1)
+#     matrix = torch.cat((x,y,z), 2) #batch*3*3
+#
+#     return matrix
+
+# # batch*n
+# def normalize_vector( v):
+#     batch=v.shape[0]
+#     v_mag = torch.sqrt(v.pow(2).sum(1))# batch
+#     v_mag = torch.max(v_mag, torch.autograd.Variable(torch.FloatTensor([1e-8]).cuda()))
+#     v_mag = v_mag.view(batch,1).expand(batch,v.shape[1])
+#     v = v/v_mag
+#     return v
+
 # batch*n
-def normalize_vector( v):
-    batch=v.shape[0]
-    v_mag = torch.sqrt(v.pow(2).sum(1))# batch
-    v_mag = torch.max(v_mag, torch.autograd.Variable(torch.FloatTensor([1e-8]).cuda()))
-    v_mag = v_mag.view(batch,1).expand(batch,v.shape[1])
-    v = v/v_mag
-    return v
+def normalize_vector(v):  # v: [B, 3]
+    batch = v.shape[0]
+    v_mag = torch.norm(v, p=2, dim=1)  # batch
+    """
+    if torch.any(torch.isnan(v_mag)):
+        print('nan in v_mag!')
+        idx = torch.where(torch.isnan(v_mag))[0]
+        print('v_mag', v_mag[idx], 'v', v[idx])
+    if torch.any(torch.isinf(v_mag)):
+        print('inf in v_mag!')
+        idx = torch.where(torch.isinf(v_mag))[0]
+        print('v_mag', v_mag[idx], 'v', v[idx])
+    """
+    eps = torch.autograd.Variable(torch.FloatTensor([1e-8]).to(v_mag.device))
+    valid_mask = (v_mag > eps).float().view(batch, 1)
+    backup = torch.tensor([1.0, 0.0, 0.0]).float().to(v.device).view(1, 3).expand(batch, 3)
+    v_mag = torch.max(v_mag, eps)
+    v_mag = v_mag.view(batch, 1).expand(batch, v.shape[1])
+    v = v / v_mag
+    ret = v * valid_mask + backup * (1 - valid_mask)
+    """
+    if torch.any(torch.isnan(v)):
+        print('nan in v!')
+        idx = torch.where(torch.isnan(v))[0]
+        print('v_mag', v_mag[idx], 'v', v[idx], 'valid', valid_mask[idx])
+    if torch.any(torch.isnan(ret)):
+        print('nan in ret!')
+        idx = torch.where(torch.isnan(ret))[0]
+        print('v_mag', v_mag[idx], 'v', v[idx], 'valid', valid_mask[idx])
+    """
+    return ret
 
 # u, v batch*n
 def cross_product( u, v):
@@ -897,13 +996,15 @@ def compute_RT_distances(RT_1, RT_2):
     else:
         return -1
 
-def axis_diff_degree(v1, v2):
+def axis_diff_degree(v1, v2, category=''):
     v1 = v1.reshape(-1)
     v2 = v2.reshape(-1)
     r_diff = np.arccos(np.sum(v1*v2)/(np.linalg.norm(v1) * np.linalg.norm(v2))) * 180 / np.pi
-    # print(r_diff)
-    return np.abs(r_diff)
-    # return min(r_diff, 180-r_diff)
+    if category in sym_type and len(sym_type[category].keys()) > 1: # when we have x or z sym besides y
+        print(f'for {category}, tolerate upside down')
+        return min(r_diff, 180-r_diff)
+    else:
+        return np.abs(r_diff)
 
 def rot_diff_degree(rot1, rot2, up=False):
     if up:
@@ -917,8 +1018,22 @@ def rot_diff_degree(rot1, rot2, up=False):
         tv2 = transform_pcloud(y_axis, rot2)
         return tv1, tv2, rot_diff_rad(rot1, rot2) / np.pi * 180
 
-def rot_diff_rad(rot1, rot2):
-    return np.arccos( ( np.trace(np.matmul(rot1, rot2.T)) - 1 ) / 2 ) % (2*np.pi)
+def rot_diff_rad(rot1, rot2, category=''):
+    # default rot2 is gt
+    if category in sym_type and len(sym_type[category].keys()) > 0:
+        all_rmats = [np.eye(3)]
+        for key, M in sym_type[category].items():
+            next_rmats = []
+            for k in range(M):
+                rmat = rotate_about_axis(2 * np.pi * k / M, axis=key)
+                for old_rmat in all_rmats:
+                    next_rmats.append(np.matmul(rmat, old_rmat))
+            all_rmats = next_rmats
+        all_rmats = np.stack(all_rmats, axis=0) # N, 3, 3
+        rot2_group= np.matmul(all_rmats.transpose(0, 2, 1), rot2) # we need P R^T * r^T
+        return min(np.arccos( ( np.trace(np.matmul(rot2_group, rot1.T), axis1=1, axis2=2) - 1 ) / 2 ) % (2*np.pi))
+    else:
+        return np.arccos( ( np.trace(np.matmul(rot1, rot2.T)) - 1 ) / 2 ) % (2*np.pi)
 
 def rotate_points_with_rotvec(points, rot_vecs):
     """Rotate points by given rotation vectors.
@@ -1074,6 +1189,14 @@ def point_rotate_about_axis(pts, anchor, unitvec, theta):
     rotated_pts[:, 2] = z_rotated
 
     return rotated_pts
+
+def rotate_eular(theta_x, theta_y, theta_z):
+    Rx = rotate_about_axis(theta_x / 180 * np.pi, axis='x')
+    Ry = rotate_about_axis(theta_x / 180 * np.pi, axis='y')
+    Rz = rotate_about_axis(theta_z / 180 * np.pi, axis='z')
+    r = Rz @ Ry @ Rx
+
+    return r
 
 def rotate_about_axis(theta, axis='x'):
     if axis == 'x':

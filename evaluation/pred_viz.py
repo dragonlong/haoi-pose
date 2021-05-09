@@ -10,6 +10,7 @@ from hydra import utils
 from omegaconf import DictConfig, ListConfig, OmegaConf
 from os import makedirs, remove
 from os.path import exists, join
+import glob
 import matplotlib
 # matplotlib.use('Agg')
 from matplotlib.collections import LineCollection
@@ -17,14 +18,13 @@ from matplotlib import cm
 from matplotlib.patches import Circle, Wedge, Polygon
 from matplotlib.colors import ListedColormap, LinearSegmentedColormap
 from matplotlib.collections import PatchCollection
-
 import matplotlib.patches as patches
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection, Line3DCollection
+from mpl_toolkits.mplot3d.art3d import Line3D, Text3D, Poly3DCollection, Line3DCollection
 from descartes import PolygonPatch
 
 import matplotlib.pyplot as plt  # matplotlib.use('Agg') # TkAgg
 from mpl_toolkits.mplot3d import Axes3D
-from pylab import *
+import pyvista as pv
 
 import __init__
 from global_info import global_info
@@ -49,6 +49,59 @@ part_obj  = infos.part_obj
 obj_urdf  = infos.obj_urdf
 categories_id = infos.categories_id
 project_path = infos.project_path
+
+Dmap = {'c': 0, 'o': 1} # ''
+Mmap = {'p++': 0, 'se3': 1}
+Tmap = {'N': 0, 'R': 1, 'T': 2 , 'S': 3}
+exp_dict = {}
+exp_dict[(0, 0, 0)] = 2.4074
+exp_dict[(0, 1, 0)] = 2.40941
+exp_dict[(0, 1, 1)] = 2.4058
+exp_dict[(0, 1, 2)] = 2.406971
+
+def get_txt(fn):
+    point_normal_set = np.loadtxt(fn, delimiter=' ').astype(np.float32)
+    return point_normal_set
+
+def plot_arrows(fn=None):
+    ###############################################################################
+    # fn = '/home/dragon/Documents/ICML2021/results/preds/train_0_0002_0_0.txt'
+    # fn = '/home/dragon/Documents/ICML2021/results/preds/0.59/train_2850_0002_850_0.txt'
+    # fn = '/home/dragon/Documents/ICML2021/results/preds/0.63/train_990_0002_0_0.txt'
+    if fn is None:
+        fn = '/home/dragon/Documents/ICML2021/results/preds/0.61/train_1000_0002_0_0.txt'
+    point_normal_set = np.loadtxt(fn, delimiter=' ').astype(np.float32)
+    points = point_normal_set[:, :3]
+    r_mat  = point_normal_set[:, 4:].reshape(-1, 3, 3)
+    x_axis = np.matmul(np.array([[1.0, 0.0, 0.0]])[np.newaxis, :, :], r_mat.transpose(0, 2, 1))
+    y_axis = np.matmul(np.array([[0.0, 1.0, 0.0]])[np.newaxis, :, :], r_mat.transpose(0, 2, 1))
+    z_axis = np.matmul(np.array([[0.0, 0.0, 1.0]])[np.newaxis, :, :], r_mat.transpose(0, 2, 1))
+    point_cloud = pv.PolyData(points)
+
+    # cloud['point_color'] = cloud.points[:, 2]  # just use z coordinate
+    # pv.plot(cloud, scalars='point_color', cmap='jet', show_bounds=True, cpos='yz')
+    ###############################################################################
+    point_cloud['vectors'] = x_axis[:, 0, :]
+    ###############################################################################.
+    # cent = np.random.random((100, 3))
+    # direction = np.random.random((100, 3))
+    # pyvista.plot_arrows(cent, direction)
+    arrows = point_cloud.glyph(orient='vectors', scale=False, factor=0.15,)
+
+    # Display the arrows
+    p = pv.Plotter()
+    p.add_mesh(point_cloud, color='maroon', point_size=10.,
+                     render_points_as_spheres=True)
+    p.add_mesh(arrows, color='blue')
+    point_cloud['vectors'] = y_axis[:, 0, :]
+    arrows1 = point_cloud.glyph(orient='vectors', scale=False, factor=0.15,)
+    p.add_mesh(arrows1, color='red')
+    p.add_point_labels([point_cloud.center,], ['Center',],
+                             point_color='yellow', point_size=20)
+    # sphere = pv.Sphere(radius=3.14)
+    # sphere.vectors = vectors * 0.3
+    p.show_grid()
+    p.show()
 
 
 def get_tableau_palette():
@@ -123,7 +176,7 @@ def plot_distribution(d, labelx='Value', labely='Frequency', title_name='Mine', 
 def plot3d_pts(pts, pts_name, s=1, dpi=350, title_name=None, sub_name='default', arrows=None, \
                     color_channel=None, colorbar=False, limits=None,\
                     bcm=None, puttext=None, view_angle=None,\
-                    save_fig=False, save_path=None, flip=True,\
+                    save_fig=False, save_path=None, save_name=None, flip=True,\
                     axis_off=False, show_fig=True, mode='pending'):
     """
     fig using,
@@ -143,11 +196,12 @@ def plot3d_pts(pts, pts_name, s=1, dpi=350, title_name=None, sub_name='default',
     # '.', '.', '.',
     all_poss=['o', 'o', 'o', 'o','o', '*', '.','o', 'v','^','>','<','s','p','*','h','H','D','d','1','','']
     c_set   = ['r', 'b', 'g', 'k', 'm']
+    arrow_len = [0.25, 0.45]
     num     = len(pts)
     for m in range(num):
         ax = plt.subplot(1, num, m+1, projection='3d')
         if view_angle==None:
-            ax.view_init(elev=36, azim=-49)
+            ax.view_init(elev=11, azim=-132)
         else:
             ax.view_init(elev=view_angle[0], azim=view_angle[1])
         # if len(pts[m]) > 1:
@@ -169,12 +223,17 @@ def plot3d_pts(pts, pts_name, s=1, dpi=350, title_name=None, sub_name='default',
                     fig.colorbar(p)
             if arrows is not None:
                 points, offset_sub = arrows[m][n]['p'], arrows[m][n]['v']
-                offset_sub = offset_sub * 0.2
+                offset_sub = offset_sub * arrow_len[n]
                 if len(points.shape) < 2:
                     points = points.reshape(-1, 3)
                 if len(offset_sub.shape) < 2:
                     offset_sub = offset_sub.reshape(-1, 3)
-                ax.quiver(points[:, 0], points[:, 1], points[:, 2], offset_sub[:, 0], offset_sub[:, 1], offset_sub[:, 2], color=c_set[n], linewidth=4)
+                if offset_sub.shape[0] == 3:
+                    ax.quiver(points[0:1, 0], points[0:1, 1], points[0:1, 2], offset_sub[0:1, 0], offset_sub[0:1, 1], offset_sub[0:1, 2], color='r', linewidth=2)
+                    ax.quiver(points[:, 0], points[:, 1], points[:, 2], offset_sub[1:2, 0], offset_sub[1:2, 1], offset_sub[1:2, 2], color='g', linewidth=2)
+                    ax.quiver(points[:, 0], points[:, 1], points[:, 2], offset_sub[2:3, 0], offset_sub[2:3, 1], offset_sub[2:3, 2], color='b', linewidth=2)
+                else:
+                    ax.quiver(points[:, 0], points[:, 1], points[:, 2], offset_sub[:, 0], offset_sub[:, 1], offset_sub[:, 2], color=c_set[n], linewidth=4)
         ax.set_xlabel('X Label')
         ax.set_ylabel('Y Label')
         ax.set_zlabel('Z Label')
@@ -215,37 +274,21 @@ def plot3d_pts(pts, pts_name, s=1, dpi=350, title_name=None, sub_name='default',
             plt.show()
 
     if save_fig:
-        if save_path is None:
+        if (save_path is None) and (save_name is None):
             if not os.path.exists('./results/test/'):
                 os.makedirs('./results/test/')
             fig.savefig('./results/test/{}_{}.png'.format(sub_name, title_name[0]), pad_inches=0)
         else:
-            if not os.path.exists(save_path):
-                os.makedirs(save_path)
-            fig.savefig('{}/{}_{}.png'.format(save_path, sub_name, title_name[0]), pad_inches=0)
+            if save_name is not None:
+                fig.savefig(save_name, pad_inches=0)
+            else:
+                if not os.path.exists(save_path):
+                    os.makedirs(save_path)
+                fig.savefig('{}/{}_{}.png'.format(save_path, sub_name, title_name[0]), pad_inches=0)
     if mode != 'continuous':
         plt.close()
 
-
-Dmap = {'c': 0, 'o': 1} # ''
-Mmap = {'p++': 0, 'se3': 1}
-Tmap = {'N': 0, 'R': 1, 'T': 2 , 'S': 3}
-exp_dict = {}
-exp_dict[(0, 0, 0)] = 2.4074
-exp_dict[(0, 1, 0)] = 2.40941
-exp_dict[(0, 1, 1)] = 2.4058
-exp_dict[(0, 1, 2)] = 2.406971
-
-@hydra.main(config_path="../config/completion.yaml")
-def main(cfg):
-    OmegaConf.set_struct(cfg, False)  # This allows getattr and hasattr methods to function correctly
-    #>>>>>>>>>>>>>>>>> setting <<<<<<<<<<<<<<<<<<< #
-    os.chdir(hydra.utils.get_original_cwd())
-    #
-    key1, key2, key3 = cfg.words.split(',')
-    exp_name  = exp_dict[(Dmap[key1], Mmap[key2], Tmap[key3])]
-    print('using ', cfg.key_words, exp_name)
-    file_name = f'{second_path}/results/test_pred/obman/{exp_name}_unseen_part_rt_pn_general.npy'
+def check_rts(file_name):
     all_rts   = np.load(file_name, allow_pickle=True).item()
     # evaluate per category as well
     xyz_err_dict = {}
@@ -316,8 +359,73 @@ def main(cfg):
     print('\n')
     plot_distribution(rpy_err_dict[category_name], labelx='r_err', labely='frequency', title_name='rotation_error', sub_name=cfg.exp_num, save_fig=True)
     plot_distribution(xyz_err_dict[category_name], labelx='t_err', labely='frequency', title_name='translation_error', sub_name=cfg.exp_num, save_fig=True)
-    # values, bins = np.histogram(rpy_err_dict[category_name], bins=np.arange(0, 180, 10), density=True)
-    # hist_show([values], bins[:-1], tick_label='default', axes_label=['rotation error', 'ratio'], title_name='R', total_width=0.5, dpi=200, save_fig=True, sub_name=cfg.exp_num)
+
+# 1. viz rts
+def get_rts_filename(cfg):
+    #
+    key1, key2, key3 = cfg.words.split(',')
+    exp_name  = exp_dict[(Dmap[key1], Mmap[key2], Tmap[key3])]
+    print('using ', cfg.key_words, exp_name)
+    file_name = f'{second_path}/results/test_pred/obman/{exp_name}_unseen_part_rt_pn_general.npy'
+    return file_name
+
+@hydra.main(config_path="../config/completion.yaml")
+def main(cfg):
+    OmegaConf.set_struct(cfg, False)  # This allows getattr and hasattr methods to function correctly
+    #>>>>>>>>>>>>>>>>> setting <<<<<<<<<<<<<<<<<<< #
+    os.chdir(hydra.utils.get_original_cwd())
+    print('Are u ready!!!')
+    cfg.log_dir     = infos.second_path + cfg.log_dir
+    gen_dir = cfg.log_dir + '/generation'
+    res_path = f'{my_dir}/results/test_pred/oracle/{cfg.exp_num}_unseen_part_rt_pn_general.npy'
+    viz_path = f'{my_dir}/results/viz/oracle/{cfg.exp_num}'
+    if not exists(viz_path):
+        makedirs(viz_path)
+    # NOCS visualization
+    # file_name = f'{gen_dir}/validation_35500_0307_307_0.txt'
+    if cfg.eval:
+        results = np.load(res_path, allow_pickle=True).item()
+        infos_dict, track_dict = results['info'], results['err']
+        basenames = infos_dict['basename']
+        inputs   = np.array(infos_dict['in'])
+        r_gt     = np.array(infos_dict['r_gt'])
+        t_gt     = np.array(infos_dict['t_gt'])
+        r_pred   = np.array(infos_dict['r_pred'])
+        rdiff    = np.array(track_dict['rdiff'])
+        num = len(basenames)
+        good_ind = np.where(rdiff<5)[0]
+        bad_ind  = np.where(rdiff>5)[0].astype(np.int16)
+        bad_names= [basenames[j] for j in bad_ind]
+        for i in bad_ind:
+            print(basenames[i], rdiff[i])
+            iteration, idx, class_name = basenames[i].split('_')
+            gt_coords   = np.matmul(np.eye(3), r_gt[i].T)
+            pred_coords = np.matmul(np.eye(3), r_pred[i].T)
+            gt_vect     = {'p': t_gt[i].reshape(-1, 3), 'v': gt_coords}
+            fitted_vect = {'p': t_gt[i].reshape(-1, 3), 'v': pred_coords}
+            plot3d_pts([[inputs[i], inputs[i]]], [['', '']],  title_name=[f'{idx} R err: {rdiff[i]:.2f}'],  arrows=[[gt_vect, fitted_vect]], s=3**2, dpi=300, axis_off=False, save_fig=True, save_name=f'{viz_path}/{idx}_{rdiff[i]:.2f}.png', show_fig=False)
+
+        # for i in good_ind:
+        #     print(basenames[i], rdiff[i])
+        #     iteration, idx, class_name = basenames[i].split('_')
+        #     gt_coords   = np.matmul(np.eye(3), r_gt[i].T)
+        #     pred_coords = np.matmul(np.eye(3), r_pred[i].T)
+        #     gt_vect     = {'p': t_gt[i].reshape(-1, 3), 'v': gt_coords}
+        #     fitted_vect = {'p': t_gt[i].reshape(-1, 3), 'v': pred_coords}
+        #     plot3d_pts([[inputs[i], inputs[i]]], [['', '']],  title_name=[f'{idx} R err: {rdiff[i]:.2f}'],  arrows=[[gt_vect, fitted_vect]], s=3**2, dpi=300, axis_off=False, save_fig=True, save_name=f'{viz_path}/{idx}_{rdiff[i]:.2f}.png', show_fig=False)
+        return
+    if cfg.pred_6d:
+        for fn in glob.glob('/home/dragon/Documents/ICML2021/model/oracle/0.64/generation/validation_3*'):
+            plot_arrows(fn)
+
+    elif cfg.pred_nocs:
+        file_name = '/home/dragon/Documents/ICML2021/model/oracle/0.65/generation/validation_46000_0113_113_0.txt'
+        points = get_txt(file_name)
+        input = points[:, :3]
+        pred  = points[:, 4:7]
+        gt    = points[:, 4:7]
+        plot3d_pts([[input], [pred], [gt]], [['input'], ['pred nocs'], ['gt nocs']],  title_name=['0', '1', '2'], s=4**2, dpi=300, axis_off=False, color_channel=[[gt], [gt], [gt]])
+
 
 if __name__ == '__main__':
     main()

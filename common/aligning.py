@@ -10,7 +10,7 @@ import cv2
 import itertools
 import _init_paths
 from common.vis_utils import plot3d_pts, plot_arrows
-from common.data_utils import get_pickle, load_pickle
+from common.data_utils import load_pickle
 from common.transformations import quaternion_matrix, quaternion_from_matrix
 import matplotlib.pyplot as plt
 

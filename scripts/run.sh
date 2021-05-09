@@ -111,6 +111,8 @@ end=`date +%s`
 runtime=$((end-start))
 echo ${runtime}
 
+python nocs_samplepoints.py --start_idx=0 --group_by=800 2>&1 | tee shapenet_n.log
+
 hao
 cd tools
 for i in 0 1 2 3 4
@@ -187,7 +189,6 @@ domain='unseen'
 mkdir -p /home/dragon/Documents/ICML2021/model/${item}/${EXP}/
 scp -r lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/${item}/${EXP}/generation/ /home/dragon/Documents/ICML2021/model/${item}/${EXP}/
 
-
 #
 scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/eyeglasses/1/viz/* /home/dragon/Documents/ICML2021/model/eyeglasses/1/viz/
 mkdir -p /home/dragon/Documents/ICML2021/model/eyeglasses/1.0/preds/seen/
@@ -254,3 +255,9 @@ EXP=2.409196 # 2.40584 validation_9000*
 mkdir ${EXP}
 scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/obman/${EXP}/generation/test* ./${EXP}
 #
+
+# video/gif
+gifski --fps 24 -o output.gif *.png
+ffmpeg -i img%02d.png -vf palettegen palette.png
+ffmpeg -i img%02d.png -i palette.png -lavfi paletteuse video.gif
+ffmpeg -i input.mp4 -an -vf “fps=15,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse” -f gif - | gifsicle -o output.gif

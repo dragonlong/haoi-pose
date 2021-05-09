@@ -98,7 +98,87 @@ _DATASETS = dict(
         joint_baseline='8.12',
         style='new'
        ),
-   humanhand=DatasetInfo(
+    modelnet40aligned=DatasetInfo(
+        dataset_name='modelnet40aligned',
+        num_object=10000,
+        parts_map=[[0], [1]],
+        num_parts=2,
+        train_size=None,
+        test_size=None,
+        train_list=None,
+        test_list=None,
+        spec_list=None,
+        spec_map=None,
+        exp='8.1',
+        baseline='8.11',
+        joint_baseline='8.12',
+        style='new'
+       ),
+    shapenetaligned=DatasetInfo(
+        dataset_name='shapenetaligned',
+        num_object=10000,
+        parts_map=[[0], [1]],
+        num_parts=2,
+        train_size=None,
+        test_size=None,
+        train_list=None,
+        test_list=None,
+        spec_list=None,
+        spec_map=None,
+        exp='8.1',
+        baseline='8.11',
+        joint_baseline='8.12',
+        style='new'
+       ),
+    oracle=DatasetInfo(
+        dataset_name='oracle',
+        num_object=10000,
+        parts_map=[[0], [1]],
+        num_parts=2,
+        train_size=None,
+        test_size=None,
+        train_list=None,
+        test_list=None,
+        spec_list=None,
+        spec_map=None,
+        exp='8.1',
+        baseline='8.11',
+        joint_baseline='8.12',
+        style='new'
+       ),
+    shapenet=DatasetInfo(
+        dataset_name='shapenet',
+        num_object=10000,
+        parts_map=[[0], [1]],
+        num_parts=2,
+        train_size=None,
+        test_size=None,
+        train_list=None,
+        test_list=None,
+        spec_list=None,
+        spec_map=None,
+        exp='8.1',
+        baseline='8.11',
+        joint_baseline='8.12',
+        style='new'
+       ),
+    nocs_synthetic=DatasetInfo(
+        dataset_name='nocs_synthetic',
+        num_object=10000,
+        parts_map=[[0]],
+        num_parts=1,
+        train_size=None,
+        test_size=None,
+        train_list=None,
+        test_list=None,
+        spec_list=None,
+        spec_map=None,
+        exp='8.1',
+        baseline='8.11',
+        joint_baseline='8.12',
+        style='new'
+       ),
+    humanhand=DatasetInfo(
         dataset_name='shape2motion',
         num_object=1,
         parts_map=[[0]],
@@ -347,6 +427,9 @@ class global_info(object):
                             'cellphone': '02992529',# 831
                             'camera': '02942699',   # 113,
                             'remote': '04074963',   # 66
+                            'airplane': 'airplane',
+                            'chair': 'chair',
+                            'car': 'car'
                             }
         self.categories_id = { '02876657': 'bottle', # 498
                             '03797390': 'mug',  # 214, pointNet++
@@ -357,19 +440,80 @@ class global_info(object):
                             '02992529': 'cellphone' ,# 831
                             '02942699': 'camera', # 113,
                             '04074963': 'remote', # 66
+                            'airplane': 'airplane',
+                            'chair': 'chair',
+                            'car': 'car'
                             } # need further classification
         self.symmetry_dict = np.load(f'{self.project_path}/haoi-pose/dataset/data/symmetry.npy', allow_pickle=True).item()
         sym_type = {}
         sym_type['bottle'] = {'y': 36} # use up axis
         sym_type['bowl']   = {'y': 36} # up axis!!!
         sym_type['can']    = {'y': 36, 'x': 2, 'z': 2} # up axis could be also 180 upside down
-        sym_type['jar']    = {'y': 36} # up axis only, + another axis? or 2 * 6D representations
+        sym_type['jar']    = {'y': 36, 'x': 2} # up axis only, + another axis? or 2 * 6D representations
         sym_type['mug']    = {'y': 1}  # up axis + ;
-        sym_type['knife']  = {'y': 2}  # up axis + ;
+        sym_type['knife']  = {'y': 2, 'x': 2}  # up axis + ;
         sym_type['camera'] = {'y': 1}  # no symmetry; 6D predictions? or addtional axis!!!
         sym_type['remote'] = {'y': 2, 'x': 2}  # symmetric setting, 180 apply to R,
         sym_type['cellphone'] = {'y': 2, 'x': 2} # up axis has 2 groups, x axis has
+        sym_type['airplane']= {'y': 1}
+        sym_type['chair']= {'y': 1}
+        sym_type['car']= {'y': 1}
+        sym_type['laptop']= {'y': 1}
         self.sym_type = sym_type
+
+        delta_R = {}
+        delta_R['modelnet40aligned_airplane'] =  np.array([[[ 0.2543,  0.4519,  0.8551], \
+                 [ 0.8555, -0.5174,  0.0190], \
+                 [ 0.4510,  0.7267, -0.5182]]])
+        # train set
+        delta_R['modelnet40aligned_chair'] =  np.array([[[ 0.0589, -0.9726, -0.2248],
+                     [-0.3055,  0.1969, -0.9316],
+                     [ 0.9504,  0.1235, -0.2855]]])
+        delta_R['modelnet40aligned_car'] =  np.array([[[ 0.8886, -0.3725,  0.2675],
+                     [-0.0436, -0.6493, -0.7592],
+                     [ 0.4565,  0.6630, -0.5933]]])
+        delta_R['modelnet40aligned_sofa'] =  np.array([[[ 0.5100,  0.8591, -0.0439],
+                     [-0.4315,  0.2113, -0.8770],
+                     [-0.7441,  0.4662,  0.4784]]])
+        delta_R['modelnet40aligned_bowl'] =  np.array([[[ 0.7004, -0.6336,  0.3287],
+                     [-0.0676,  0.3995,  0.9142],
+                     [-0.7106, -0.6625,  0.2370]]])
+        delta_R['modelnet40aligned_laptop'] =  np.array([[[ 0.1526,  0.2332,  0.9604],
+                     [-0.4046, -0.8719,  0.2760],
+                     [ 0.9017, -0.4307, -0.0387]]])
+        delta_R['modelnet40aligned_cup'] =  np.array([[[ 0.2633,  0.9625,  0.0660],
+                     [ 0.9440, -0.2711,  0.1880],
+                     [ 0.1988,  0.0128, -0.9800]]])
+        delta_R['modelnet40aligned_bottle'] =  np.array([[[ 0.4411, -0.8931, -0.0879],
+                     [-0.2806, -0.2303,  0.9318],
+                     [-0.8525, -0.3864, -0.3522]]])
+        delta_R['modelnet40aligned_table'] =  np.array([[[ 0.4539, -0.3162, -0.8331],
+                     [-0.8494,  0.1290, -0.5117],
+                     [ 0.2693,  0.9399, -0.2101]]])
+
+        delta_R['shapenetaligned_airplane']   = np.array([[[-0.0329,  0.8528, -0.5212],
+                 [-0.7577,  0.3187,  0.5695],
+                 [ 0.6518,  0.4136,  0.6357]]])
+        delta_R['0.845_shapenetaligned_airplane']  = np.array([[[-0.2837, -0.9514, -0.1195],
+                 [ 0.6972, -0.2902,  0.6555],
+                 [-0.6584,  0.1027,  0.7456]]])
+        delta_R['0.8451_shapenetaligned_airplane']  = np.array([[[ 0.4569,  0.8890,  0.0311],
+                 [ 0.3217, -0.1325, -0.9375],
+                 [-0.8293,  0.4384, -0.3465]]])
+
+        delta_R['0.86_nocs_synthetic_laptop'] =  np.array([[[ 0.7726,  0.4386, -0.4590],
+                 [-0.6077,  0.7203, -0.3345],
+                 [ 0.1839,  0.5374,  0.8230]]])
+        delta_R['0.861_nocs_synthetic_bowl'] =  np.array([[[ 0.4852, -0.6475, -0.5876],
+                 [-0.7801, -0.6241,  0.0436],
+                 [-0.3950,  0.4372, -0.8079]]])
+        delta_R['0.862_nocs_synthetic_mug'] =  np.array([[[ 0.1988, -0.8803,  0.4308],
+                 [-0.9784, -0.1533,  0.1385],
+                 [-0.0559, -0.4490, -0.8918]]])
+        delta_R['0.863_nocs_synthetic_laptop'] =  np.array([[[-0.0354,  0.3212, -0.9464],
+                 [-0.5487,  0.7852,  0.2871],
+                 [ 0.8353,  0.5294,  0.1484]]])
+        self.delta_R = delta_R
 
         # bottle 33278
         # mug 0

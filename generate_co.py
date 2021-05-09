@@ -13,7 +13,7 @@ from omegaconf import DictConfig, ListConfig, OmegaConf
 # custom
 from global_info import global_info
 from utils import config
-from dataset.obman_parser import ObmanParser
+from dataset.dataset_parser import DatasetParser
 from common.train_utils import CheckpointIO
 from utils.external.io import export_pointcloud
 from utils.external.visualize import visualize_data
@@ -69,7 +69,7 @@ def main(cfg):
     if vis_n_outputs is None:
         vis_n_outputs = -1
 
-    parser = ObmanParser(cfg)
+    parser = DatasetParser(cfg)
     val_dataset   = parser.valid_dataset
 
     # Model

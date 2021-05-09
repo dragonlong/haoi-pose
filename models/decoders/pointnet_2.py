@@ -43,10 +43,15 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import kaolin.cuda as ext
-import kaolin.cuda.ball_query
-import kaolin.cuda.furthest_point_sampling
-import kaolin.cuda.three_nn
+# import kaolin.cuda as ext
+# import kaolin.cuda.ball_query
+# import kaolin.cuda.furthest_point_sampling
+# import kaolin.cuda.three_nn
+from models.pointnet_lib.pointnet2_modules import knn_point
+from models.pointnet_lib.pointnet2_modules import farthest_point_sample as furthest_point_sampling
+from models.pointnet_lib.pointnet2_modules import gather_operation as fps_gather_by_index
+from models.pointnet_lib.pointnet2_modules import group_operation as group_gather_by_index
+from models.pointnet_lib.pointnet2_modules import three_nn, three_interpolate
 
 def bp():
     import pdb;pdb.set_trace()
@@ -415,322 +420,322 @@ class PointNetFeatureExtractor(nn.Module):
         return torch.cat((x, local_features), dim=1)
 
 
-class FurthestPointSampling(torch.autograd.Function):
-    r"""
-    .. note::
-
-        If you use this code, please cite the original paper in addition to Kaolin.
-
-        .. code-block::
-
-            @article{qi2017pointnet2,
-                title = {PointNet++: Deep Hierarchical Feature Learning on Point Sets in a Metric Space},
-                author = {Qi, Charles R. and Yi, Li and Su, Hao and Guibas, Leonidas J.},
-                year = {2017},
-                journal={arXiv preprint arXiv:1706.02413},
-            }
-    """
-
-    @staticmethod
-    def forward(ctx, xyz, num_points_out):
-        """Uses iterative furthest point sampling to select a set of num_points_out features that have the largest minimum distance.
-
-        Args:
-            xyz (torch.Tensor): (B, N, 3) tensor where N > num_points_out
-            num_points_out (int32): number of features in the sampled set
-
-        Returns:
-            (torch.Tensor): (B, num_points_out) tensor containing the set
-        """
-        return ext.furthest_point_sampling.furthest_point_sampling(xyz, num_points_out)
-
-    @staticmethod
-    def backward(xyz, a=None):
-        return None, None
-
-
-furthest_point_sampling = FurthestPointSampling.apply
-
-
-class FPSGatherByIndex(torch.autograd.Function):
-    r"""
-    .. note::
-
-        If you use this code, please cite the original paper in addition to Kaolin.
-
-        .. code-block::
-
-            @article{qi2017pointnet2,
-                title = {PointNet++: Deep Hierarchical Feature Learning on Point Sets in a Metric Space},
-                author = {Qi, Charles R. and Yi, Li and Su, Hao and Guibas, Leonidas J.},
-                year = {2017},
-                journal={arXiv preprint arXiv:1706.02413},
-            }
-    """
-    @staticmethod
-    def forward(ctx, features, idx):
-        """TODO: documentation (and the ones below)
-        Args:
-            features (torch.Tensor): (B, C, N) tensor
-
-            idx (torch.Tensor): (B, npoint) tensor of the features to gather
-
-        Returns:
-            (torch.Tensor): (B, C, npoint) tensor
-        """
-
-        _, C, N = features.size()
-
-        ctx.for_backwards = (idx, C, N)
-
-        return ext.furthest_point_sampling.gather_by_index(features, idx)
-
-    @staticmethod
-    def backward(ctx, grad_out):
-        idx, C, N = ctx.for_backwards
-
-        grad_features = ext.furthest_point_sampling.gather_by_index_grad(
-            grad_out.contiguous(), idx, N)
-        return grad_features, None
-
-
-fps_gather_by_index = FPSGatherByIndex.apply
-
-
-class ThreeNN(torch.autograd.Function):
-    r"""
-    .. note::
-
-        If you use this code, please cite the original paper in addition to Kaolin.
-
-        .. code-block::
-
-            @article{qi2017pointnet2,
-                title = {PointNet++: Deep Hierarchical Feature Learning on Point Sets in a Metric Space},
-                author = {Qi, Charles R. and Yi, Li and Su, Hao and Guibas, Leonidas J.},
-                year = {2017},
-                journal={arXiv preprint arXiv:1706.02413},
-            }
-    """
-    @staticmethod
-    def forward(ctx, unknown, known):
-        # type: (Any, torch.Tensor, torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]
-        r"""
-            Find the three nearest neighbors of unknown in known
-        Parameters
-        ----------
-        unknown : torch.Tensor
-            (B, n, 3) tensor of known features
-        known : torch.Tensor
-            (B, m, 3) tensor of unknown features
-
-        Returns
-        -------
-        dist : torch.Tensor
-            (B, n, 3) l2 distance to the three nearest neighbors
-        idx : torch.Tensor
-            (B, n, 3) index of 3 nearest neighbors
-        """
-        dist2, idx = ext.three_nn.three_nn(unknown, known)
-
-        return torch.sqrt(dist2), idx
-
-    @staticmethod
-    def backward(ctx, a=None, b=None):
-        return None, None
-
-
-three_nn = ThreeNN.apply
-
-
-class ThreeInterpolate(torch.autograd.Function):
-    r"""
-    .. note::
-
-        If you use this code, please cite the original paper in addition to Kaolin.
-
-        .. code-block::
-
-            @article{qi2017pointnet2,
-                title = {PointNet++: Deep Hierarchical Feature Learning on Point Sets in a Metric Space},
-                author = {Qi, Charles R. and Yi, Li and Su, Hao and Guibas, Leonidas J.},
-                year = {2017},
-                journal={arXiv preprint arXiv:1706.02413},
-            }
-    """
-    @staticmethod
-    def forward(ctx, features, idx, weight):
-        # type(Any, torch.Tensor, torch.Tensor, torch.Tensor) -> Torch.Tensor
-        r"""
-            Performs weight linear interpolation on 3 features
-        Parameters
-        ----------
-        features : torch.Tensor
-            (B, c, m) Features descriptors to be interpolated from
-        idx : torch.Tensor
-            (B, n, 3) three nearest neighbors of the target features in features
-        weight : torch.Tensor
-            (B, n, 3) weights
-
-        Returns
-        -------
-        torch.Tensor
-            (B, c, n) tensor of the interpolated features
-        """
-        B, c, m = features.size()
-        n = idx.size(1)
-
-        ctx.three_interpolate_for_backward = (idx, weight, m)
-
-        return ext.three_nn.three_interpolate(features, idx, weight)
-
-    @staticmethod
-    def backward(ctx, grad_out):
-        # type: (Any, torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
-        r"""
-        Parameters
-        ----------
-        grad_out : torch.Tensor
-            (B, c, n) tensor with gradients of ouputs
-
-        Returns
-        -------
-        grad_features : torch.Tensor
-            (B, c, m) tensor with gradients of features
-
-        None
-
-        None
-        """
-        idx, weight, m = ctx.three_interpolate_for_backward
-
-        grad_features = ext.three_nn.three_interpolate_grad(
-            grad_out.contiguous(), idx, weight, m
-        )
-
-        return grad_features, None, None
-
-
-three_interpolate = ThreeInterpolate.apply
-
-
-class GroupGatherByIndex(torch.autograd.Function):
-    r"""
-    .. note::
-
-        If you use this code, please cite the original paper in addition to Kaolin.
-
-        .. code-block::
-
-            @article{qi2017pointnet2,
-                title = {PointNet++: Deep Hierarchical Feature Learning on Point Sets in a Metric Space},
-                author = {Qi, Charles R. and Yi, Li and Su, Hao and Guibas, Leonidas J.},
-                year = {2017},
-                journal={arXiv preprint arXiv:1706.02413},
-            }
-    """
-    @staticmethod
-    def forward(ctx, features, idx):
-        # type: (Any, torch.Tensor, torch.Tensor) -> torch.Tensor
-        r"""
-
-        Parameters
-        ----------
-        features : torch.Tensor
-            (B, C, N) tensor of features to group
-        idx : torch.Tensor
-            (B, npoint, nsample) tensor containing the indicies of features to group with
-
-        Returns
-        -------
-        torch.Tensor
-            (B, C, npoint, nsample) tensor
-        """
-        B, nfeatures, nsample = idx.size()
-        _, C, N = features.size()
-
-        ctx.for_backwards = (idx, N)
-
-        return ext.ball_query.gather_by_index(features, idx)
-
-    @staticmethod
-    def backward(ctx, grad_out):
-        # type: (Any, torch.tensor) -> Tuple[torch.Tensor, torch.Tensor]
-        r"""
-
-        Parameters
-        ----------
-        grad_out : torch.Tensor
-            (B, C, npoint, nsample) tensor of the gradients of the output from forward
-
-        Returns
-        -------
-        torch.Tensor
-            (B, C, N) gradient of the features
-        None
-        """
-        idx, N = ctx.for_backwards
-
-        grad_features = ext.ball_query.gather_by_index_grad(
-            grad_out.contiguous(), idx, N)
-
-        return grad_features, None
-
-
-group_gather_by_index = GroupGatherByIndex.apply
-
-
-class BallQuery(torch.autograd.Function):
-    r"""
-    .. note::
-
-        If you use this code, please cite the original paper in addition to Kaolin.
-
-        .. code-block::
-
-            @article{qi2017pointnet2,
-                title = {PointNet++: Deep Hierarchical Feature Learning on Point Sets in a Metric Space},
-                author = {Qi, Charles R. and Yi, Li and Su, Hao and Guibas, Leonidas J.},
-                year = {2017},
-                journal={arXiv preprint arXiv:1706.02413},
-            }
-    """
-
-    @staticmethod
-    def forward(ctx, radius, nsample, xyz, new_xyz, use_random=False):
-        # type: (Any, float, int, torch.Tensor, torch.Tensor) -> torch.Tensor
-        r"""
-        TODO: documentation
-
-        Parameters
-        ----------
-        radius : float
-            radius of the balls
-        nsample : int
-            maximum number of features in the balls
-        xyz : torch.Tensor
-            (B, N, 3) xyz coordinates of the features
-        new_xyz : torch.Tensor
-            (B, npoint, 3) centers of the ball query
-
-        Returns
-        -------
-        torch.Tensor
-            (B, npoint, nsample) tensor with the indicies of the features that form the query balls
-        """
-        if use_random:
-            return ext.ball_query.ball_random_query(
-                torch.randint(int(1e9), ()).item(), new_xyz, xyz, radius,
-                nsample)
-
-        return ext.ball_query.ball_query(new_xyz, xyz, radius, nsample)
-
-    @staticmethod
-    def backward(ctx, a=None):
-        return None, None, None, None
-
-
-ball_query = BallQuery.apply
+# class FurthestPointSampling(torch.autograd.Function):
+#     r"""
+#     .. note::
+#
+#         If you use this code, please cite the original paper in addition to Kaolin.
+#
+#         .. code-block::
+#
+#             @article{qi2017pointnet2,
+#                 title = {PointNet++: Deep Hierarchical Feature Learning on Point Sets in a Metric Space},
+#                 author = {Qi, Charles R. and Yi, Li and Su, Hao and Guibas, Leonidas J.},
+#                 year = {2017},
+#                 journal={arXiv preprint arXiv:1706.02413},
+#             }
+#     """
+#
+#     @staticmethod
+#     def forward(ctx, xyz, num_points_out):
+#         """Uses iterative furthest point sampling to select a set of num_points_out features that have the largest minimum distance.
+#
+#         Args:
+#             xyz (torch.Tensor): (B, N, 3) tensor where N > num_points_out
+#             num_points_out (int32): number of features in the sampled set
+#
+#         Returns:
+#             (torch.Tensor): (B, num_points_out) tensor containing the set
+#         """
+#         return ext.furthest_point_sampling.furthest_point_sampling(xyz, num_points_out)
+#
+#     @staticmethod
+#     def backward(xyz, a=None):
+#         return None, None
+#
+#
+# furthest_point_sampling = FurthestPointSampling.apply
+#
+
+# class FPSGatherByIndex(torch.autograd.Function):
+#     r"""
+#     .. note::
+#
+#         If you use this code, please cite the original paper in addition to Kaolin.
+#
+#         .. code-block::
+#
+#             @article{qi2017pointnet2,
+#                 title = {PointNet++: Deep Hierarchical Feature Learning on Point Sets in a Metric Space},
+#                 author = {Qi, Charles R. and Yi, Li and Su, Hao and Guibas, Leonidas J.},
+#                 year = {2017},
+#                 journal={arXiv preprint arXiv:1706.02413},
+#             }
+#     """
+#     @staticmethod
+#     def forward(ctx, features, idx):
+#         """TODO: documentation (and the ones below)
+#         Args:
+#             features (torch.Tensor): (B, C, N) tensor
+#
+#             idx (torch.Tensor): (B, npoint) tensor of the features to gather
+#
+#         Returns:
+#             (torch.Tensor): (B, C, npoint) tensor
+#         """
+#
+#         _, C, N = features.size()
+#
+#         ctx.for_backwards = (idx, C, N)
+#
+#         return ext.furthest_point_sampling.gather_by_index(features, idx)
+#
+#     @staticmethod
+#     def backward(ctx, grad_out):
+#         idx, C, N = ctx.for_backwards
+#
+#         grad_features = ext.furthest_point_sampling.gather_by_index_grad(
+#             grad_out.contiguous(), idx, N)
+#         return grad_features, None
+#
+#
+# fps_gather_by_index = FPSGatherByIndex.apply
+
+
+# class ThreeNN(torch.autograd.Function):
+#     r"""
+#     .. note::
+#
+#         If you use this code, please cite the original paper in addition to Kaolin.
+#
+#         .. code-block::
+#
+#             @article{qi2017pointnet2,
+#                 title = {PointNet++: Deep Hierarchical Feature Learning on Point Sets in a Metric Space},
+#                 author = {Qi, Charles R. and Yi, Li and Su, Hao and Guibas, Leonidas J.},
+#                 year = {2017},
+#                 journal={arXiv preprint arXiv:1706.02413},
+#             }
+#     """
+#     @staticmethod
+#     def forward(ctx, unknown, known):
+#         # type: (Any, torch.Tensor, torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]
+#         r"""
+#             Find the three nearest neighbors of unknown in known
+#         Parameters
+#         ----------
+#         unknown : torch.Tensor
+#             (B, n, 3) tensor of known features
+#         known : torch.Tensor
+#             (B, m, 3) tensor of unknown features
+#
+#         Returns
+#         -------
+#         dist : torch.Tensor
+#             (B, n, 3) l2 distance to the three nearest neighbors
+#         idx : torch.Tensor
+#             (B, n, 3) index of 3 nearest neighbors
+#         """
+#         dist2, idx = ext.three_nn.three_nn(unknown, known)
+#
+#         return torch.sqrt(dist2), idx
+#
+#     @staticmethod
+#     def backward(ctx, a=None, b=None):
+#         return None, None
+#
+#
+# three_nn = ThreeNN.apply
+
+
+# class ThreeInterpolate(torch.autograd.Function):
+#     r"""
+#     .. note::
+#
+#         If you use this code, please cite the original paper in addition to Kaolin.
+#
+#         .. code-block::
+#
+#             @article{qi2017pointnet2,
+#                 title = {PointNet++: Deep Hierarchical Feature Learning on Point Sets in a Metric Space},
+#                 author = {Qi, Charles R. and Yi, Li and Su, Hao and Guibas, Leonidas J.},
+#                 year = {2017},
+#                 journal={arXiv preprint arXiv:1706.02413},
+#             }
+#     """
+#     @staticmethod
+#     def forward(ctx, features, idx, weight):
+#         # type(Any, torch.Tensor, torch.Tensor, torch.Tensor) -> Torch.Tensor
+#         r"""
+#             Performs weight linear interpolation on 3 features
+#         Parameters
+#         ----------
+#         features : torch.Tensor
+#             (B, c, m) Features descriptors to be interpolated from
+#         idx : torch.Tensor
+#             (B, n, 3) three nearest neighbors of the target features in features
+#         weight : torch.Tensor
+#             (B, n, 3) weights
+#
+#         Returns
+#         -------
+#         torch.Tensor
+#             (B, c, n) tensor of the interpolated features
+#         """
+#         B, c, m = features.size()
+#         n = idx.size(1)
+#
+#         ctx.three_interpolate_for_backward = (idx, weight, m)
+#
+#         return ext.three_nn.three_interpolate(features, idx, weight)
+#
+#     @staticmethod
+#     def backward(ctx, grad_out):
+#         # type: (Any, torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+#         r"""
+#         Parameters
+#         ----------
+#         grad_out : torch.Tensor
+#             (B, c, n) tensor with gradients of ouputs
+#
+#         Returns
+#         -------
+#         grad_features : torch.Tensor
+#             (B, c, m) tensor with gradients of features
+#
+#         None
+#
+#         None
+#         """
+#         idx, weight, m = ctx.three_interpolate_for_backward
+#
+#         grad_features = ext.three_nn.three_interpolate_grad(
+#             grad_out.contiguous(), idx, weight, m
+#         )
+#
+#         return grad_features, None, None
+#
+#
+# three_interpolate = ThreeInterpolate.apply
+
+#
+# class GroupGatherByIndex(torch.autograd.Function):
+#     r"""
+#     .. note::
+#
+#         If you use this code, please cite the original paper in addition to Kaolin.
+#
+#         .. code-block::
+#
+#             @article{qi2017pointnet2,
+#                 title = {PointNet++: Deep Hierarchical Feature Learning on Point Sets in a Metric Space},
+#                 author = {Qi, Charles R. and Yi, Li and Su, Hao and Guibas, Leonidas J.},
+#                 year = {2017},
+#                 journal={arXiv preprint arXiv:1706.02413},
+#             }
+#     """
+#     @staticmethod
+#     def forward(ctx, features, idx):
+#         # type: (Any, torch.Tensor, torch.Tensor) -> torch.Tensor
+#         r"""
+#
+#         Parameters
+#         ----------
+#         features : torch.Tensor
+#             (B, C, N) tensor of features to group
+#         idx : torch.Tensor
+#             (B, npoint, nsample) tensor containing the indicies of features to group with
+#
+#         Returns
+#         -------
+#         torch.Tensor
+#             (B, C, npoint, nsample) tensor
+#         """
+#         B, nfeatures, nsample = idx.size()
+#         _, C, N = features.size()
+#
+#         ctx.for_backwards = (idx, N)
+#
+#         return ext.ball_query.gather_by_index(features, idx)
+#
+#     @staticmethod
+#     def backward(ctx, grad_out):
+#         # type: (Any, torch.tensor) -> Tuple[torch.Tensor, torch.Tensor]
+#         r"""
+#
+#         Parameters
+#         ----------
+#         grad_out : torch.Tensor
+#             (B, C, npoint, nsample) tensor of the gradients of the output from forward
+#
+#         Returns
+#         -------
+#         torch.Tensor
+#             (B, C, N) gradient of the features
+#         None
+#         """
+#         idx, N = ctx.for_backwards
+#
+#         grad_features = ext.ball_query.gather_by_index_grad(
+#             grad_out.contiguous(), idx, N)
+#
+#         return grad_features, None
+#
+#
+# group_gather_by_index = GroupGatherByIndex.apply
+#
+#
+# class BallQuery(torch.autograd.Function):
+#     r"""
+#     .. note::
+#
+#         If you use this code, please cite the original paper in addition to Kaolin.
+#
+#         .. code-block::
+#
+#             @article{qi2017pointnet2,
+#                 title = {PointNet++: Deep Hierarchical Feature Learning on Point Sets in a Metric Space},
+#                 author = {Qi, Charles R. and Yi, Li and Su, Hao and Guibas, Leonidas J.},
+#                 year = {2017},
+#                 journal={arXiv preprint arXiv:1706.02413},
+#             }
+#     """
+#
+#     @staticmethod
+#     def forward(ctx, radius, nsample, xyz, new_xyz, use_random=False):
+#         # type: (Any, float, int, torch.Tensor, torch.Tensor) -> torch.Tensor
+#         r"""
+#         TODO: documentation
+#
+#         Parameters
+#         ----------
+#         radius : float
+#             radius of the balls
+#         nsample : int
+#             maximum number of features in the balls
+#         xyz : torch.Tensor
+#             (B, N, 3) xyz coordinates of the features
+#         new_xyz : torch.Tensor
+#             (B, npoint, 3) centers of the ball query
+#
+#         Returns
+#         -------
+#         torch.Tensor
+#             (B, npoint, nsample) tensor with the indicies of the features that form the query balls
+#         """
+#         if use_random:
+#             return ext.ball_query.ball_random_query(
+#                 torch.randint(int(1e9), ()).item(), new_xyz, xyz, radius,
+#                 nsample)
+#
+#         return ext.ball_query.ball_query(new_xyz, xyz, radius, nsample)
+#
+#     @staticmethod
+#     def backward(ctx, a=None):
+#         return None, None, None, None
+#
+#
+# ball_query = BallQuery.apply
 
 # TODO: improvement: experiment with random sampling instead of current approach.
 
@@ -831,11 +836,11 @@ class PointNet2GroupingLayer(nn.Module):
             return new_features
 
         else:
-            idx = ball_query(self.radius, self.num_samples, xyz,
-                             new_xyz, self.use_random_ball_query)
+            _, idx = knn_point(self.num_samples, new_xyz, xyz)
+            # idx = ball_query(self.radius, self.num_samples, xyz,
+            #                  new_xyz, self.use_random_ball_query)
             xyz_trans = xyz.transpose(1, 2).contiguous()
-            grouped_xyz = group_gather_by_index(
-                xyz_trans, idx)  # (B, 3, npoint, nsample)
+            grouped_xyz = group_gather_by_index(xyz_trans, idx)  # (B, 3, npoint, nsample)
             grouped_xyz -= new_xyz.transpose(1, 2).unsqueeze(-1)
 
             if features is not None:
@@ -985,7 +990,7 @@ class PointNet2SetAbstraction(nn.Module):
         new_xyz = None
         if self.num_points_out is not None:
             # TODO: implement: this is flipped here for some reason
-            new_xyz_idx = furthest_point_sampling(xyz, self.num_points_out)
+            new_xyz_idx = furthest_point_sampling(xyz, self.num_points_out).int()
             new_xyz = fps_gather_by_index(
                 xyz.transpose(1, 2).contiguous(), new_xyz_idx)
             new_xyz = new_xyz.transpose(1, 2).contiguous()

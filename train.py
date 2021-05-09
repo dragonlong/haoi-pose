@@ -19,7 +19,7 @@ import torch.nn as nn
 # Our libs
 import __init__ as booger
 import dataset.parser as parserModule
-from dataset.obman_parser import ObmanParser
+from dataset.dataset_parser import DatasetParser
 from dataset.hand_mano_regression import ManoRegressionDataset
 from dataset.hand_shape2motion import ContactsVoteDataset
 # network
@@ -32,7 +32,7 @@ from common.debugger import *
 def get_dataset(cfg):
     # >>>>>>>>>>>>>>>>> 1. create data loader;
     if cfg.name_dset == 'obman':
-        parser = ObmanParser(cfg)
+        parser = DatasetParser(cfg)
     elif cfg.name_dset == 'shape2motion':
         if cfg.task == 'mano_regression':
             parser = parserModule.Parser(cfg, ManoRegressionDataset)

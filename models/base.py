@@ -5,7 +5,11 @@ import torch.nn as nn
 from abc import abstractmethod
 from tensorboardX import SummaryWriter
 from common.train_utils import TrainClock
+from utils.extensions.chamfer_dist import ChamferDistance
+from vgtk.loss import CrossEntropyLoss
 import wandb
+def bp():
+    import pdb;pdb.set_trace()
 
 class BaseAgent(object):
     """Base trainer that provides common training behavior.
@@ -14,7 +18,7 @@ class BaseAgent(object):
     def __init__(self, config):
         self.log_dir = config.log_dir
         self.model_dir = config.model_dir
-        self.clock = TrainClock()
+        self.clock      = TrainClock()
         self.batch_size = config.batch_size
         self.use_wandb  = config.use_wandb
         # build network
@@ -41,6 +45,10 @@ class BaseAgent(object):
     def set_loss_function(self):
         """set loss function used in training"""
         self.criterion = nn.MSELoss().cuda()
+        if 'completion' in self.config.task:
+            self.chamfer_dist = ChamferDistance()
+        if 'ssl' in self.config.task or 'so3' in self.config.encoder_type:
+            self.classifier = CrossEntropyLoss()
 
     @abstractmethod
     def collect_loss(self):
@@ -50,7 +58,14 @@ class BaseAgent(object):
     def set_optimizer(self, config):
         """set optimizer used in training"""
         self.base_lr = config.lr
-        self.optimizer = optim.Adam(self.net.parameters(), config.lr)
+        if config.TRAIN.train_batch == 1:
+            self.optimizer = optim.SGD(
+                self.net.parameters(),
+                lr=config.lr,
+                momentum=0.9,
+                weight_decay=1e-4)
+        else:
+            self.optimizer = optim.Adam(self.net.parameters(), config.lr)
 
     def set_scheduler(self, config):
         """set lr scheduler used in training"""
@@ -81,7 +96,13 @@ class BaseAgent(object):
 
     def load_ckpt(self, name=None):
         """load checkpoint from saved checkpoint"""
-        name = name if name == 'latest' else "ckpt_epoch{}".format(name)
+        """load checkpoint from saved checkpoint"""
+        if name == 'latest':
+            pass
+        elif name == 'best':
+            pass
+        else:
+            name = "ckpt_epoch{}".format(name)
         load_path = os.path.join(self.model_dir, "{}.pth".format(name))
         if not os.path.exists(load_path):
             raise ValueError("Checkpoint {} not exists.".format(load_path))
@@ -138,28 +159,16 @@ class BaseAgent(object):
         infos  = self.collect_info()
         self.update_network(losses)
         self.record_losses(losses, 'train', infos_dict=infos)
+        return losses, infos
 
     def val_func(self, data):
         """one step of validation"""
         self.net.eval()
-
         with torch.no_grad():
             self.forward(data)
-
         losses = self.collect_loss()
         infos  = self.collect_info()
         self.record_losses(losses, 'validation', infos_dict=infos)
-
-    def eval_func(self, data):
-        """one step of validation"""
-        self.net.eval()
-        #
-        with torch.no_grad():
-            self.forward(data)
-
-        losses = self.collect_loss()
-        infos  = self.collect_info()
-
         return losses, infos
 
     def visualize_batch(self, data, tb, **kwargs):
@@ -283,7 +292,12 @@ class GANzEAgent(object):
 
     def load_ckpt(self, name=None):
         """load checkpoint from saved checkpoint"""
-        name = name if name == 'latest' else "ckpt_epoch{}".format(name)
+        if name == 'latest':
+            pass
+        elif name == 'best':
+            pass
+        else:
+            name = "ckpt_epoch{}".format(name)
         load_path = os.path.join(self.model_dir, "{}.pth".format(name))
         if not os.path.exists(load_path):
             raise ValueError("Checkpoint {} not exists.".format(load_path))
@@ -301,7 +315,6 @@ class GANzEAgent(object):
     def record_losses(self, loss_dict, mode='train', infos_dict=None):
         """record loss to tensorboard"""
         losses_values = {k: v.item() for k, v in loss_dict.items()}
-
         tb = self.train_tb if mode == 'train' else self.val_tb
         for k, v in losses_values.items():
             tb.add_scalar(k, v, self.clock.step)

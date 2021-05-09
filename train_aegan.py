@@ -12,16 +12,17 @@ import dgl
 
 from collections import OrderedDict
 from tqdm import tqdm
-from dataset.obman_parser import ObmanParser
-from dataset.modelnet40_parser import ModelParser
+from dataset.dataset_parser import DatasetParser
 from common.train_utils import cycle
 from models import get_agent
+from se3net import equivariance_test
 
 from common.debugger import *
 from evaluation.pred_check import post_summary, prepare_pose_eval
 from common.algorithms import compute_pose_ransac
-from common.d3_utils import axis_diff_degree
+from common.d3_utils import axis_diff_degree, rot_diff_rad
 from common.vis_utils import plot_distribution
+from vgtk.functional import so3_mean
 from global_info import global_info
 
 infos           = global_info()
@@ -35,156 +36,39 @@ part_obj  = infos.part_obj
 obj_urdf  = infos.obj_urdf
 categories_id = infos.categories_id
 project_path  = infos.project_path
-# training: ae_gan
 
-def vote_rotation_ransac(out_R, out_M, gt_R=None, gt_M=None, use_base=False, thres=5, verbose=True):
-    """
-    out_R is : [3, N, M];
-    out_M    : [N, M] with scores;
-    gt_R     : [3, 1]
-    but we only need to output 3;
-    voting!!!
-    a baseline would be voting for mode + averaging for R;
-    """
-    # with confidence estimation
-    _, N, M = out_R.shape
-    print(N, M)
-    pairwise_dis = np.arccos(np.sum(out_R[:, np.newaxis, :, :] * out_R[:, :, np.newaxis, :], axis=0))* 180 / np.pi
-    pairwise_dis[np.isnan(pairwise_dis)] = 0.0
-    inliers_mask = np.zeros_like(pairwise_dis)
-    inliers_mask[pairwise_dis<thres] = 1.0 # [N, N, M]
-    #
-    score = np.mean(inliers_mask, axis=1) # N, M
-    score_weighted = score * out_M # assume we have good predictions, and good predictions are close to each other, while bad predictions just randomly scatter around
-    R_best1 = out_R.reshape(3, -1)[:, np.argmax(score_weighted)]
-    pred_M  = np.argmax(out_M, axis=-1) # N
-    select_M  = np.bincount(pred_M).argmax()
-    print('---averaged mode is ', select_M)
-    R_best2 = out_R[:, :, select_M][:, np.argmax(score[:, select_M])]
-    if gt_R is not None:
-        # we could evalaute the voted R error, best_R ratio,
-        degree_err  = np.arccos(np.sum(out_R * (gt_R.T)[:, :, np.newaxis], axis=0))* 180 / np.pi
-        degree_err[np.isnan(degree_err)] = 0.0
-        degree_err[degree_err<thres] = 1.0
-        degree_err[degree_err>thres] = 0.0 # N, M
-        good_ratio = np.mean(degree_err, axis=0) # M
-        # mode_good  = out_M[degree_err>0.1] #
-        print('---per mode good_ratio: ', good_ratio)
-        # print('---mode score of good predictions: \n', mode_good)
-    # 1. mode accuracy, best_pred's mode score
-    if gt_M is not None:
-        mode_acc =  len(np.where(pred_M==gt_M)[0])/N
-        print('---mode accuracy is ', mode_acc)
+def set_feat(G, R, num_features=1):
+    G.edata['d'] = G.edata['d'] @ R
+    if 'w' in G.edata:
+        G.edata['w'] = torch.rand((G.edata['w'].size(0), 0))
 
-    if verbose:
-        print('---r_diff is ', axis_diff_degree(R_best1, gt_R), axis_diff_degree(R_best2, gt_R))
+    G.ndata['x'] = G.ndata['x'] @ R
+    G.ndata['f'] = torch.ones((G.ndata['f'].size(0), num_features, 1))
 
-    if use_base:
-        pred_M = (out_M.mean(axis=-1) + 0.5).astype(np.int8) # if most people think certain channel is more confident, try that;
-        pred_R = output_R[np.arange(BS), :, :, pred_M[:]]
-        pred_R = pred_R.mean(axis=-1)
+    features = {'0': G.ndata['f']}
+    return G, features
 
-    return R_best1, R_best2, mode_acc, good_ratio
-
-# given the agent, we could decide the evaluation methods
-def eval_func(tr_agent, data, all_rts, cfg):
-    tr_agent.val_func(data)
-    tr_agent.visualize_batch(data, "test")
-    # print(data.keys())
-    target_pts = data['points'].numpy().transpose(0, 2, 1)
-    input_pts  = data['G'].ndata['x'].view(target_pts.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous().cpu().numpy().transpose(0, 2, 1)
-    target_R   = data['R'].cpu().numpy()
-    target_T   = data['T'].cpu().numpy()
-    idx        = data['idx']
-    infos_dict = {}
-    # print(input_pts.shape, target_pts.shape, target_R.shape, target_T.shape)
-    if 'C' in data:
-        target_C   = data['C'].cpu().numpy()
-    #
-    pred_dict = {}
-    infos_dict['mode_acc']      = []
-    infos_dict['good_per_mode'] = []
-    if cfg.pred_nocs:
-        pred_dict['N'] = tr_agent.output_N.cpu().detach().numpy().transpose(0, 2, 1) # B, N, 3
-        # ransac for pose
-        for m in range(target_R.shape[0]):
-            basename  = f'{cfg.iteration}_' + data['id'][m] + f'{idx[m]}_' + data['class'][m]
-            nocs_gt   = target_pts[m]
-            nocs_pred = np.concatenate([2*np.ones_like(pred_dict['N'][m]), pred_dict['N'][m]], axis=1)
-            part_idx_list_pred = [None, np.arange(nocs_pred.shape[0])]
-            part_idx_list_gt   = [None, np.arange(nocs_gt.shape[0])]
-            rts_dict = compute_pose_ransac(nocs_gt, nocs_pred, input_pts[m], part_idx_list_pred, num_parts, basename, r_raw_err, t_raw_err, s_raw_err, \
-                    partidx_gt=part_idx_list_gt, target_category=cfg.target_category, is_special=cfg.is_special, verbose=False)
-            rts_dict['pred']   = nocs_pred[:, 3:]
-            rts_dict['gt']     = nocs_gt
-            rts_dict['in']     = input_pts[m]
-            all_rts[basename]  = rts_dict
-    else:
-        if cfg.rotation_use_dense:
-            output_R = tr_agent.output_R_full.cpu().detach().numpy()
-            BS, NC = output_R.shape[0], cfg.MODEL.num_channels_R
-            if cfg.pred_mode:
-                gt_M     = tr_agent.target_M.cpu().detach().numpy().reshape(BS, -1)
-                output_M = tr_agent.output_M.cpu().detach().numpy().reshape(BS, -1, NC)
-                pred_dict['R'] = []
-                for m in range(BS):
-                    R1, R2, mode_acc, good_ratio = vote_rotation_ransac(output_R[m], output_M[m], gt_R=target_R[m], gt_M=gt_M[m], use_base=False, thres=5, verbose=True)
-                    if cfg.eval_mode_r==0:
-                        pred_dict['R'].append(R2)
-                    elif cfg.eval_mode_r==1:
-                        pred_dict['R'].append(R1)
-                    infos_dict['mode_acc'].append(mode_acc)
-                    infos_dict['good_per_mode'].append(good_ratio)
-            else:
-                pred_dict['R'] = output_R.mean(axis=-1) # all as B, 3, N
-        #
-        elif cfg.MODEL.num_channels_R > 1:
-            output_R = tr_agent.output_R_pooled.cpu().detach().numpy()
-            BS, NC = output_R.shape[0], cfg.MODEL.num_channels_R
-            if cfg.use_gt_M:
-                pred_dict['M'] = tr_agent.target_M.cpu().detach().numpy().reshape(BS, -1)
-            else:
-                output_M = tr_agent.output_M.cpu().detach().numpy()
-                pred_dict['M'] = np.argmax(output_M.reshape(BS, -1, NC), axis=-1)
-            pred_dict['M'] = (pred_dict['M'].mean(axis=-1) + 0.5).astype(np.int8)
-            pred_dict['R'] = output_R[np.arange(BS), :, pred_dict['M'][:]]
-        else:
-            pred_dict['R'] = tr_agent.output_R_pooled.cpu().detach().numpy()
-        pred_dict['T'] = tr_agent.output_T.cpu().detach().numpy().transpose(0, 2, 1)
-
-        # voting to get the final predictions
-        for m in range(target_R.shape[0]):
-            basename   = f'{cfg.iteration}_' + data['id'][m] + f'{idx[m]}_' + data['class'][m]
-            # basename  = f'{cfg.iteration}_' + data['id'][m] + '_' + data['class'][m]
-            scale_dict = {'gt': [], 'baseline': [], 'nonlinear': []}
-            r_dict     = {'gt': [], 'baseline': [], 'nonlinear': []}
-            t_dict     = {'gt': [], 'baseline': [], 'nonlinear': []}
-            xyz_err    = {'baseline': [], 'nonlinear': []}
-            rpy_err    = {'baseline': [], 'nonlinear': []}
-            scale_err  = {'baseline': [], 'nonlinear': []}
-            rpy_err['baseline'] = axis_diff_degree(pred_dict['R'][m], target_R[m])
-            if input_pts[m].shape[0] == pred_dict['T'][m].shape[0]:
-                pred_center= input_pts[m] - pred_dict['T'][m]
-                gt_center  = input_pts[m] - target_T[m]
-                xyz_err['baseline'] = np.linalg.norm(np.mean(pred_center, axis=0) - np.mean(gt_center, axis=0))
-                t_dict['baseline'].append(pred_center)
-            else:
-                xyz_err['baseline'] = 0
-                t_dict['baseline'].append(pred_dict['T'][m])
-            r_dict['baseline'].append(pred_dict['R'][m])
-            scale_dict['gt'].append(1)
-
-            rts_dict = {}
-            rts_dict['scale']   = scale_dict
-            rts_dict['rotation']      = r_dict
-            rts_dict['translation']   = t_dict
-            rts_dict['xyz_err']   = xyz_err
-            rts_dict['rpy_err']   = rpy_err
-            rts_dict['scale_err'] = scale_err
-            rts_dict['in']     = input_pts[m]
-            all_rts[basename]  = rts_dict # with
-
-        return infos_dict
+def examine_unit(data, tr_agent):
+    def create_se3_data(data):
+        tx, ty, tz = np.random.rand(1, 3)[0] * 180
+        R2 = rot(tx, ty, tz).cuda()
+        G2, features = set_feat(data['G'], R2)
+        xyz2         = G2.ndata['x'].view(2, 512, 3).contiguous()
+        target_R     = R2.unsqueeze(0).repeat(2, 1, 1).contiguous()
+        print('xyz diff max:', torch.max(torch.abs(xyz2 - torch.matmul(xyz1, target_R))))
+        data['G'] = G2
+        data['R'] = target_R
+        return data, xyz2, target_R
+    torch.cuda.empty_cache()
+    loss_dict, info_dict = tr_agent.val_func(data)
+    x1  = tr_agent.output_R
+    f1  = tr_agent.latent_vect['N']
+    torch.cuda.empty_cache()
+    data, xyz2, target_R = create_se3_data(data)
+    loss_dict, info_dict = tr_agent.val_func(data)
+    x2 = tr_agent.output_R
+    f2 = tr_agent.latent_vect['N']
+    examine_equivariance(x1[0], x2[0], f1, f2, target_R[0])
 
 @hydra.main(config_path="config/completion.yaml")
 def main(cfg):
@@ -214,6 +98,7 @@ def main(cfg):
             run_name = f'{cfg.exp_num}_{cfg.target_category}'
         wandb.init(project="haoi-pose", name=run_name)
         wandb.init(config=cfg)
+
     # copy the project codes into log_dir
     if (not cfg.eval) and (not cfg.debug):
         if not os.path.isdir(f'{cfg.log_dir}/code'):
@@ -227,8 +112,10 @@ def main(cfg):
     out_dir = cfg.log_dir
     print('Saving to ', out_dir)
 
-    # create network and training agent
+    #>>>>>>>>>>>>>>>>>>>>>> create network and training agent
     tr_agent = get_agent(cfg)
+    if 'se3' in cfg.encoder_type and cfg.TRAIN.train_batch > 1:
+        equivariance_test(tr_agent.net.encoder, num_features=cfg.MODEL.num_in_channels)
     if cfg.use_wandb:
         if cfg.module=='gan':
             wandb.watch(tr_agent.netG)
@@ -238,109 +125,123 @@ def main(cfg):
 
     # load from checkpoint if provided
     if cfg.use_pretrain or cfg.eval:
-        tr_agent.load_ckpt(cfg.ckpt)
+        tr_agent.load_ckpt('best')
 
-    if cfg.name_dset == 'obman':
-        parser = ObmanParser(cfg)
-    else:
-        parser = ModelParser(cfg)
+    #>>>>>>>>>>>>>>>>>>>> dataset
+    parser = DatasetParser(cfg)
     train_loader = parser.trainloader
     val_loader   = parser.validloader
     test_loader  = parser.validloader
-    dset         = parser.valid_dataset
-    dp = dset.__getitem__(0)
+    valid_dataset= parser.valid_dataset
+    dp = valid_dataset.__getitem__(0)
 
-    # start training
-    clock = tr_agent.clock #
-    if cfg.eval:
-        # data = next(val_loader)
-        """
-        """
-        num_parts = 2
+    if cfg.eval_mini or cfg.eval:
+        if cfg.pre_compute_delta:
+            all_deltas = []
+            for num, data in enumerate(train_loader):
+                if num > 4000:
+                    break
+                torch.cuda.empty_cache()
+                tr_agent.eval_func(data)
+                all_deltas.append(tr_agent.pose_info['delta_r'])
+            valid_deltas = torch.cat(all_deltas, dim=0)
+            # valid_deltas = valid_deltas[valid_deltas[:, 0, 1]>0] # partial airplane
+            if cfg.exp_num == '0.86':
+                valid_deltas = valid_deltas[valid_deltas[:, 0, 0]>0.65]
+                valid_deltas = valid_deltas[valid_deltas[:, 1, 0]<0]
+            elif cfg.exp_num == '0.861' or cfg.exp_num == '0.862':
+                valid_deltas = valid_deltas[valid_deltas[:, 0, 0]>0]
+                valid_deltas = valid_deltas[valid_deltas[:, 1, 0]<0]
+                valid_deltas = valid_deltas[valid_deltas[:, 0, 1]<0]
+            elif cfg.exp_num == '0.863':
+                valid_deltas = valid_deltas[valid_deltas[:, 0, 1]>0]
+                valid_deltas = valid_deltas[valid_deltas[:, 1, 0]<0]
+            elif cfg.exp_num == '0.845':
+                valid_deltas = valid_deltas[valid_deltas[:, 0, 0]<0]
+                valid_deltas = valid_deltas[valid_deltas[:, 0, 1]<0]
+                valid_deltas = valid_deltas[valid_deltas[:, 1, 0]>0]
+            elif cfg.exp_num == '0.8451':
+                valid_deltas = valid_deltas[valid_deltas[:, 0, 0]>0]
+                valid_deltas = valid_deltas[valid_deltas[:, 0, 1]>0]
+                valid_deltas = valid_deltas[valid_deltas[:, 1, 0]>0]
+            delta_R = so3_mean(valid_deltas.unsqueeze(0))
+            print(cfg.target_category, ': ', delta_R.cpu())
+            return
+
+        # main evaluation scripts
         all_rts, file_name, mean_err, r_raw_err, t_raw_err, s_raw_err = prepare_pose_eval(cfg.exp_num, cfg)
-        infos_all = {}
-        pbar = tqdm(val_loader)
-        if 'partial' in cfg.task:
-            num_iteration = 1
-        else:
-            num_iteration = 10
+        infos_dict = {'basename': [], 'in': [], 'r_raw': [],
+                      'r_gt': [], 't_gt': [], 's_gt': [],
+                      'r_pred': [], 't_pred': [], 's_pred': []}
+        track_dict = {'rdiff': [], 'tdiff': [], 'sdiff': [],
+                      '5deg': [], '5cm': [], '5deg5cm': [], 'chamferL1': [], 'r_acc': [], 'chirality': []}
+        num_iteration = 1
+        if 'partial' not in cfg.task:
+            num_iteration = 2
         for iteration in range(num_iteration):
             cfg.iteration = iteration
-            for b, data in enumerate(pbar):
-                if b > 769:
-                    break
-                infos_dict = eval_func(tr_agent, data, all_rts, cfg)
+            for num, data in enumerate(test_loader):
+                if num % 10 == 0:
+                    print('checking batch ', num)
 
-                for key, value in infos_dict.items():
-                    if key not in infos_all:
-                        infos_all[key] = []
-                    infos_all[key].append(value)
-                save_offline =False
-                if save_offline:
-                    if cfg.task == 'adversarial_adaptation':
-                        outputs = tr_agent.fake_pc
-                        for m in range(data["raw"].shape[0]):
-                            model_id  = data["raw_id"][m]
-                            taxonomy_id = data['class'][m]
-                            save_name = f'{cfg.log_dir}/generation/{cfg.split}/input_{taxonomy_id}_{model_id}.npy'
-                            save_for_viz(['points', 'labels'], [data["raw"][m].cpu().numpy().T, np.ones((data["raw"][m].shape[1]))], save_name, type='np')
-                            save_name = f'{cfg.log_dir}/generation/{cfg.split}/{cfg.module}_{taxonomy_id}_{model_id}.npy'
-                            save_for_viz(['points', 'labels'], [outputs[m].cpu().numpy().T, np.ones((outputs[m].cpu().numpy().shape[1]))], save_name, type='np')
+                BS = data['points'].shape[0]
+                idx = data['idx']
+                torch.cuda.empty_cache()
+                tr_agent.eval_func(data)
+
+                pose_diff = tr_agent.pose_err
+                if pose_diff is not None:
+                    for key in ['rdiff', 'tdiff', 'sdiff']:
+                        track_dict[key] += pose_diff[key].float().cpu().numpy().tolist()
+                    print(pose_diff['rdiff'])
+                    deg = pose_diff['rdiff'] <= 5.0
+                    cm = pose_diff['tdiff'] <= 0.05
+                    degcm = deg & cm
+                    for key, value in zip(['5deg', '5cm', '5deg5cm'], [deg, cm, degcm]):
+                        track_dict[key] += value.float().cpu().numpy().tolist()
+
+                if tr_agent.pose_info is not None:
+                    for key, value in tr_agent.pose_info.items():
+                        infos_dict[key] += value.float().cpu().numpy().tolist()
+                    if 'xyz' in data:
+                        input_pts  = data['xyz']
                     else:
-                        outputs = tr_agent.output_pts
-                        latent_vect = tr_agent.latent_vect
-                        graphs = dgl.unbatch(data["G"])
-                        if cfg.use_wandb:
-                            for m in range(data["points"].shape[0]):
-                                # target_pts  = data["points"][m].cpu().numpy().T
-                                target_pts  = graphs[m].ndata['x'].cpu().numpy()
-                                outputs_pts = outputs[m].cpu().numpy().T
-                                outputs_pts = outputs_pts + np.array([0, 1, 0]).reshape(1, -1)
-                                pts = np.concatenate([target_pts, outputs_pts], axis=0)
-                                wandb.log({"input+AE_GAN_output": [wandb.Object3D(pts)], 'step': b*data["points"].shape[0] + m})
+                        input_pts  = data['G'].ndata['x'].view(BS, -1, 3).contiguous() # B, N, 3
+                    for m in range(BS):
+                        basename   = f'{cfg.iteration}_' + data['id'][m] + f'_' + data['class'][m]
+                        infos_dict['basename'].append(basename)
+                        infos_dict['in'].append(input_pts[m].cpu().numpy())
 
-                        for m in range(data["points"].shape[0]):
-                            model_id  = data['id'][m]
-                            taxonomy_id = data['class'][m]
-                            save_name = f'{cfg.log_dir}/generation/{cfg.split}/input_{taxonomy_id}_{model_id}.npy'
-                            save_for_viz(['points', 'labels'], [data["points"][m].cpu().numpy().T, np.ones((data["points"][m].shape[1]))], save_name, type='np')
-                            save_name = f'{cfg.log_dir}/generation/{cfg.split}/{cfg.module}_{taxonomy_id}_{model_id}.npy'
-                            save_for_viz(['points', 'labels'], [outputs[m].cpu().numpy().T, np.ones((outputs[m].cpu().numpy().shape[1]))], save_name, type='np')
-        extra_key = 'pred'
-        if cfg.use_gt_M:
-            extra_key = 'gt'
-        post_summary(all_rts, file_name, args=cfg, extra_key=f'{extra_key}_{cfg.eval_mode_r}')
-        for key, value in infos_all.items():
-            value = np.array(value)
-            if len(value.shape)>2:
-                for j in range(value.shape[-1]):
-                    plot_distribution(value[:, :, j].reshape(-1), labelx=key, labely='frequency', title_name=f'rotation_error_{key}_{j}', sub_name=cfg.exp_num, save_fig=True)
-            else:
-                plot_distribution(value.reshape(-1), labelx=key, labely='frequency', title_name=f'rotation_error_{key}', sub_name=cfg.exp_num, save_fig=True)
-        return
-    elif cfg.eval_mini:
-        track_dict = {'rdiff': [], 'tdiff': [], 'sdiff': [],
-                      '5deg': [], '5cm': [], '5deg5cm': []}
-
-        for num, test_data in enumerate(test_loader):
-            losses, infos = tr_agent.eval_func(test_data)
-            tr_agent.eval_nocs(test_data)
-            pose_diff = tr_agent.pose_err
-            for key in ['rdiff', 'tdiff', 'sdiff']:
-                track_dict[key].append(pose_diff[key].cpu().numpy().mean())
-            deg = pose_diff['rdiff'] <= 5.0
-            cm = pose_diff['tdiff'] <= 0.05
-            degcm = torch.logical_and(deg, cm)
-            for key, value in zip(['5deg', '5cm', '5deg5cm'], [deg, cm, degcm]):
-                track_dict[key].append(value.float().cpu().numpy().mean())
+                if 'completion' in cfg.task:
+                    track_dict['chamferL1'].append(torch.sqrt(tr_agent.recon_loss).cpu().numpy().tolist())
+                tr_agent.visualize_batch(data, "test")
         for key, value in track_dict.items():
+            if len(value) < 1:
+                continue
             print(key, ':', np.array(value).mean())
+            if key == 'rdiff':
+                print(key, '_mid:', np.median(np.array(value)))
+        print(f'experiment {cfg.exp_num} for {cfg.target_category}\n')
+
+        if cfg.save:
+            print('--saving to ', file_name)
+            np.save(file_name, arr={'info': infos_dict, 'err': track_dict})
+
+        # visualize distribution
+        for key, value in track_dict.items():
+            if len(value) < 1:
+                continue
+            value = np.array(value)
+            plot_distribution(value.reshape(-1), labelx=key, labely='frequency', title_name=f'{key}', sub_name=cfg.exp_num, save_fig=True)
+
         return
 
-    best_R_error = 100
-    val_loader   = cycle(val_loader)
+    # >>>>>>>>>>> main training
+    clock = tr_agent.clock #
+    val_loader  = cycle(val_loader)
+    best_5deg   = 0
+    best_chamferL1 = 100
     for e in range(clock.epoch, cfg.nr_epochs):
-        # begin iteration
         pbar = tqdm(train_loader)
         for b, data in enumerate(pbar):
             # train step
@@ -364,55 +265,47 @@ def main(cfg):
                     tr_agent.visualize_batch(data, "validation")
 
             if clock.step % cfg.eval_frequency == 0:
-                track_dict = {'averageR': [], '100bestR': []}
+                track_dict = {'rdiff': [], 'tdiff': [], 'sdiff': [],
+                              '5deg': [], '5cm': [], '5deg5cm': [], 'chamferL1': [], 'r_acc': []}
                 if cfg.num_modes_R > 1:
                     track_dict.update({'mode_accuracy': [], 'chosenR': []})
-                if cfg.pred_nocs:
-                    track_dict = {'rdiff': [], 'tdiff': [], 'sdiff': [],
-                                  '5deg': [], '5cm': [], '5deg5cm': []}
 
                 for num, test_data in enumerate(test_loader):
-                    # print('--going over ', num)
-                    if num > 100:  # we only evaluate 100 data every 1000 steps
+                    if num > 100:
                         break
-                    losses, infos = tr_agent.eval_func(test_data)
-                    if cfg.pred_nocs:
-                        tr_agent.eval_nocs(test_data)
-                        pose_diff = tr_agent.pose_err
+                    tr_agent.eval_func(test_data)
+                    pose_diff = tr_agent.pose_err
+                    if pose_diff is not None:
                         for key in ['rdiff', 'tdiff', 'sdiff']:
                             track_dict[key].append(pose_diff[key].cpu().numpy().mean())
+                        pose_diff['rdiff'][pose_diff['rdiff']>170] = 180 - pose_diff['rdiff'][pose_diff['rdiff']>170]
                         deg = pose_diff['rdiff'] <= 5.0
                         cm = pose_diff['tdiff'] <= 0.05
-                        degcm = torch.logical_and(deg, cm)
+                        degcm = deg & cm
                         for key, value in zip(['5deg', '5cm', '5deg5cm'], [deg, cm, degcm]):
                             track_dict[key].append(value.float().cpu().numpy().mean())
-                    else:
-                        degree_err    = tr_agent.degree_err.cpu().detach().numpy().squeeze()
-                        best100_ind   = np.argsort(degree_err, axis=1)  # [B, N]
-                        best100_ind = best100_ind[:, :100]
-                        best100_err = degree_err[np.arange(best100_ind.shape[0]).reshape(-1, 1), best100_ind].mean()
-                        # best100_err   = degree_err[0, best100_ind[0][:100]].mean() + degree_err[1, best100_ind[1][:100]].mean()
-                        # 1. whole R loss in degree;
-                        track_dict['averageR'].append(degree_err.mean())
-                        # 2. better R estimation;
-                        track_dict['100bestR'].append(best100_err)
-                        # 3. more confident estimations
-                        if cfg.MODEL.num_channels_R > 1:
-                            mode_acc = tr_agent.classifyM_acc.cpu().detach().numpy().mean()
-                            chosen_deg_err = tr_agent.degree_err_chosen.cpu().detach().numpy().mean()
-                            track_dict['mode_accuracy'].append(mode_acc)
-                            track_dict['chosenR'].append(chosen_deg_err)
-                # print('>>>>>>during testing: ', np.array(track_dict['averageR']).mean(), np.array(track_dict['100bestR']).mean())
-                r_key = 'rdiff' if cfg.pred_nocs else ('chosen_R' if cfg.MODEL.num_channels_R > 1 else 'averageR')
-                if np.array(track_dict[r_key]).mean() < best_R_error:
-                    best_R_error = np.array(track_dict[r_key]).mean()
-                    tr_agent.save_ckpt('best')
-
+                    elif 'so3' in cfg.encoder_type:
+                        test_infos = tr_agent.infos
+                        if 'r_acc' in test_infos:
+                            track_dict['r_acc'].append(test_infos['r_acc'].float().cpu().numpy().mean())
+                        if 'rdiff' in test_infos:
+                            track_dict['rdiff'].append(test_infos['rdiff'].float().cpu().numpy().mean())
+                    if 'completion' in cfg.task:
+                        track_dict['chamferL1'].append(tr_agent.recon_loss.cpu().numpy().mean())
                 if cfg.use_wandb:
                     for key, value in track_dict.items():
+                        if len(value) < 1:
+                            continue
                         wandb.log({f'test/{key}': np.array(value).mean(), 'step': clock.step})
-            clock.tick()
+                if np.array(track_dict['5deg']).mean() > best_5deg:
+                    tr_agent.save_ckpt('best')
+                    best_5deg = np.array(track_dict['5deg']).mean()
 
+                if np.array(track_dict['chamferL1']).mean() < best_chamferL1:
+                    tr_agent.save_ckpt('best')
+                    best_chamferL1 = np.array(track_dict['chamferL1']).mean()
+
+            clock.tick()
             if clock.step % cfg.save_step_frequency == 0:
                 tr_agent.save_ckpt('latest')
 

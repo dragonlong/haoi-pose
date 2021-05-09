@@ -6,8 +6,8 @@ from torch import nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 from scipy.optimize import linear_sum_assignment
-from kaolin.nnsearch import nnsearch
-import kaolin.cuda.sided_distance as sd
+# from kaolin.nnsearch import nnsearch
+# import kaolin.cuda.sided_distance as sd
 from scipy.spatial import cKDTree as Tree
 from typing import Any
 from collections import OrderedDict
@@ -69,7 +69,6 @@ compute_multi_offsets_loss(vect, vect_gt, confidence=None): K=63
 
 chamfer_distance(S1: torch.Tensor, S2: torch.Tensor):
 directed_distance(S1: torch.Tensor, S2: torch.Tensor):
-
 compute_objectness_loss(end_points): Compute objectness loss for the proposals.
 compute_box_and_sem_cls_loss(end_points, config=None): Compute 3D bounding box and semantic classification loss.
 """
@@ -232,6 +231,7 @@ def compute_1vN_nocs_loss(nocs, nocs_gt, confidence=None, target_category='remot
         mask_splits = [confidence.unsqueeze(1)]
     else:
         mask_splits = None
+
     # augment GT with category infos
     all_rmats = [np.eye(3)]
     for key, M in sym_type[target_category].items():
@@ -249,7 +249,6 @@ def compute_1vN_nocs_loss(nocs, nocs_gt, confidence=None, target_category='remot
     nocs_gt_aug = torch.matmul(rmats, torch.unsqueeze(nocs_gt, 1)-0.5) + 0.5
     for i in range(num_parts): #
         diff_l2 = torch.norm(nocs_splits[i].unsqueeze(1) - nocs_gt_aug, dim=2) # BxMxN
-        # diff_abs= torch.sum(torch.abs(nocs_splits[i] - nocs_gt), dim=1)        # BxMxN
         if mask_splits is not None:
             loss_part = torch.sum(mask_splits[i][:, 0:1, :]  * diff_l2, dim=-1)/(torch.sum(mask_splits[i][:, 0:1, :], dim=-1) + 1)   # [B, M, N] * [B, 1, N] -> B, M
         else:

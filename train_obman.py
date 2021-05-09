@@ -19,7 +19,7 @@ from omegaconf import DictConfig, ListConfig, OmegaConf
 #
 import dataset
 from common.train_utils import CheckpointIO
-from dataset.obman_parser import ObmanParser
+from dataset.dataset_parser import DatasetParser
 from utils import config
 from collections import defaultdict
 import shutil
@@ -95,7 +95,7 @@ def main(cfg):
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
 
-    parser = ObmanParser(cfg)
+    parser = DatasetParser(cfg)
     val_dataset   = parser.valid_dataset
     train_dataset = parser.train_dataset
 

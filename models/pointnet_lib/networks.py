@@ -8,12 +8,12 @@ sys.path.insert(0, BASEPATH)
 
 from point_transformer_modules import PointTransformerResBlock, PointTransformerDownBlock, PointTransformerUpBlock, MLP
 
-
+#
 class PointTransformer(nn.Module):
     """
     Output: 128 channels
     """
-    def __init__(self, num_channels_R=2, R_dim=3):
+    def __init__(self, num_channels_R=2, R_dim=3, num_in_channels=3):
         super(PointTransformer, self).__init__()
         cfg = {
             "channel_mult": 4,
@@ -46,8 +46,10 @@ class PointTransformer(nn.Module):
         attn_mlp_hidden_mult = cfg["attn_mlp_hidden_mult"]
         pre_module_channel = cfg["pre_module"]["channel"]
         pre_module_nsample = cfg["pre_module"]["nsample"]
+        self.num_in_channels = num_in_channels
+        self.num_channels_R  = num_channels_R
         self.pre_module = nn.ModuleList([
-            MLP(dim=1, in_channel=3, mlp=[pre_module_channel * k] * 2, use_bn=True, skip_last=False),
+            MLP(dim=1, in_channel=num_in_channels, mlp=[pre_module_channel * k] * 2, use_bn=True, skip_last=False),
             PointTransformerResBlock(dim=pre_module_channel * k,
                                      div=div, pos_mlp_hidden_dim=pos_mlp_hidden_dim,
                                      attn_mlp_hidden_mult=attn_mlp_hidden_mult,
@@ -85,9 +87,18 @@ class PointTransformer(nn.Module):
             self.heads[key] = MLP(dim=1, in_channel=pre_module_channel * k, mlp=mlp[:-1], use_bn=True, skip_last=True,
                                   last_acti=mlp[-1])
 
-    def forward(self, xyz):  # xyz: [B, 3, N]
+    def forward(self, xyz):  # xyz: [B, 3+X, N]
+        # is_input_nan = torch.isnan(xyz).any()
+        # print('input tensor is ', is_input_nan)
         xyz_list, points_list = [], []
-        points = self.pre_module[0](xyz)
+        if xyz.shape[1] > 3: # with extra feat
+            xyz, feat = torch.split(xyz, 3, dim=1)
+            if self.num_in_channels > 3:
+                points = self.pre_module[0](torch.cat([xyz, feat], dim=1))
+            else:
+                points = self.pre_module[0](feat)
+        else:
+            points = self.pre_module[0](xyz)
         points = self.pre_module[1](xyz, points)
         xyz_list.append(xyz)
         points_list.append(points)
@@ -103,14 +114,18 @@ class PointTransformer(nn.Module):
         output = {}
         for key, head in self.heads.items():
             output[key] = head(points)
+            # is_output_nan = torch.isnan(output[key]).any()
+            # print('output tensor is ', is_output_nan)
 
         return output
-
+def bp():
+    import pdb;pdb.set_trace()
 
 if __name__ == '__main__':
-    model = PointTransformer()
+    bp()
+    model = PointTransformer().cuda()
 
-    input = torch.randn((1, 1024, 3))
+    input = torch.randn((1, 1024, 3)).cuda()
 
     output = model(input)
     for key, value in output.items():
