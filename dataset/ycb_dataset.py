@@ -2,6 +2,7 @@ import torch.utils.data as data
 from PIL import Image
 import os
 import os.path
+from os.path import join as pjoin
 import torch
 import numpy as np
 import torchvision.transforms as transforms
@@ -17,13 +18,12 @@ import __init__
 from common.transformations import quaternion_from_euler, euler_matrix, random_quaternion, quaternion_matrix
 
 
-
 class YCBPoseDataset(data.Dataset):
-    def __init__(self, mode, num_pt, add_noise, root, noise_trans, refine):
-        if mode == 'train':
-            self.path = 'datasets/ycb_config/train_data_list.txt'
-        elif mode == 'test':
-            self.path = 'datasets/ycb_config/test_data_list.txt'
+    def __init__(self, mode, num_pt, add_noise, root, noise_trans, refine, instance=None):
+        # add_noise: add noise to both rgb & pc
+        # noise_trans: amount of noise added to the point cloud (must set add_noise to True)
+        # refine: determines #pts in the complete point cloud
+
         self.num_pt = num_pt
         self.root = root
         self.add_noise = add_noise
@@ -32,7 +32,15 @@ class YCBPoseDataset(data.Dataset):
         self.list = []
         self.real = []
         self.syn  = []
-        input_file = open(self.path)
+
+        cur_path = os.path.abspath(os.path.dirname(__file__))
+        config_path = '/'.join(cur_path.split('/')[:-1] + ['config/datasets/ycb_config'])
+        if instance is None:
+            data_list_path = pjoin(config_path, f'{mode}_data_list.txt')
+        else:
+            assert 1 <= instance <= 21
+            data_list_path = pjoin(config_path, f'per_instance_{mode}_list', f'{instance}.txt')
+        input_file = open(data_list_path)
         while 1:
             input_line = input_file.readline()
             if not input_line:
@@ -50,7 +58,7 @@ class YCBPoseDataset(data.Dataset):
         self.len_real = len(self.real)
         self.len_syn = len(self.syn)
 
-        class_file = open('datasets/ycb_config/classes.txt')
+        class_file = open(pjoin(config_path, 'classes.txt'))
         class_id = 1
         self.cld = {}
         while 1:
@@ -139,7 +147,7 @@ class YCBPoseDataset(data.Dataset):
                     add_front = True
                     break
 
-        obj = meta['cls_indexes'].flatten().astype(np.int32)
+        obj = meta['cls_indexes'].flatten().astype(np.int32)  # index starts from 1!
 
         while 1:
             idx = np.random.randint(0, len(obj))
@@ -216,12 +224,16 @@ class YCBPoseDataset(data.Dataset):
         #    fw.write('{0} {1} {2}\n'.format(it[0], it[1], it[2]))
         # fw.close()
 
-        target = np.dot(model_points, target_r.T)
+        target = np.dot(model_points, target_r.T)  # the complete point cloud corresponding to the observation
         if self.add_noise:
-            target = np.add(target, target_t + add_t)
+            target = np.add(target, target_t + add_t)  # include noise as well
         else:
             target = np.add(target, target_t)
 
+        # returns, for a random instance in in this image
+        # (0) point cloud (1) their index in image (2) normalized image
+        # (3) posed complete point cloud
+        # (4) complete point cloud in canonical space (5) class id
         return torch.from_numpy(cloud.astype(np.float32)), \
                torch.LongTensor(choose.astype(np.int32)), \
                self.norm(torch.from_numpy(img_masked.astype(np.float32))), \
@@ -288,3 +300,7 @@ def get_bbox(label):
 
 
 if __name__ == '__main__':
+
+    dataset = YCBPoseDataset('train', num_pt=1024, add_noise=True,
+                             root='../../data/ycb',
+                             noise_trans=0.03, refine=False)
