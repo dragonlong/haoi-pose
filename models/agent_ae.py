@@ -432,7 +432,7 @@ class PointAEPoseAgent(BaseAgent):
 
         if 'completion' in self.config.task:
             if 'ycb' in self.config.task:
-                self.output_pts = data['full']
+                self.output_pts = data['full'].permute(0, 2, 1).to(self.latent_vect['R'].device).float()  # [B, N, 3] -> [B, 3, N]
                 self.recon_canon_loss = 0
             else:
                 if isinstance(self.latent_vect, dict):
@@ -451,9 +451,9 @@ class PointAEPoseAgent(BaseAgent):
             nb, nr, na = self.latent_vect['R'].shape  #
             np_out = self.output_pts.shape[-1]
             rotation_mapping = compute_rotation_matrix_from_quaternion if nr == 4 else compute_rotation_matrix_from_ortho6d
-            pred_RAnchor = rotation_mapping(self.latent_vect['R'].transpose(1,2).contiguous().view(-1,nr)).view(nb,-1,3,3)
+            pred_RAnchor = rotation_mapping(self.latent_vect['R'].transpose(1,2).contiguous().view(-1,nr)).view(nb,-1,3,3).float()
 
-            anchors = torch.from_numpy(L.get_anchors(self.config.model.kanchor)).to(self.output_pts)
+            anchors = torch.from_numpy(L.get_anchors(self.config.model.kanchor)).to(self.output_pts).to(pred_RAnchor.device).float()
             select_r= False
 
             # The actual prediction is the classified anchor rotation @ regressed rotation
@@ -463,6 +463,7 @@ class PointAEPoseAgent(BaseAgent):
             # [4, 60, 3, 1024]  [nb, na, 3, np] -->  [nb, na, np, 3]
             if self.config.pred_t:
                 pred_T          = self.output_T.permute(0, 2, 1).contiguous().unsqueeze(-1).contiguous()
+                # print('predR', pred_R.device, 'output_pts', self.output_pts.dtype, self.output_pts.device, 'predT', pred_T.dtype, pred_T.device)
                 transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5 + pred_T).permute(0, 1, 3, 2).contiguous() #
                 shift_dis        = input_pts.mean(dim=1, keepdim=True)
                 dist1, dist2 = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), (input_pts - shift_dis).unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)

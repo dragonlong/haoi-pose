@@ -91,6 +91,8 @@ def main(cfg):
         os.makedirs(cfg.log_dir + '/checkpoints'
         )
 
+    print(OmegaConf.to_yaml(cfg))
+
     if cfg.use_wandb:
         if cfg.eval:
             run_name = f'{cfg.exp_num}_{cfg.target_category}_eval'

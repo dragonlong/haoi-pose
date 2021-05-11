@@ -4,7 +4,7 @@ python train_aegan.py \
 			 training=ae_gan \
        models=epn \
        encoder_type=enc_so3net \
-       name_model=ae
+       name_model=ae \
        model.model='enc_so3net' \
 			 model.pooling_method='max' \
 			 datasets=ycb \
@@ -25,7 +25,7 @@ python train_aegan.py \
 			 training=ae_gan \
        models=epn \
        encoder_type=enc_so3net \
-       name_model=ae
+       name_model=ae \
        model.model='enc_so3net' \
 			 model.pooling_method='max' \
 			 datasets=ycb \
@@ -46,7 +46,7 @@ python train_aegan.py \
 			 training=ae_gan \
        models=epn \
        encoder_type=enc_so3net \
-       name_model=ae
+       name_model=ae \
        model.model='enc_so3net' \
 			 model.pooling_method='max' \
 			 datasets=ycb \
@@ -67,7 +67,7 @@ python train_aegan.py \
 			 training=ae_gan \
        models=epn \
        encoder_type=enc_so3net \
-       name_model=ae
+       name_model=ae \
        model.model='enc_so3net' \
 			 model.pooling_method='max' \
 			 datasets=ycb \
