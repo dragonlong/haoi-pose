@@ -431,20 +431,24 @@ class PointAEPoseAgent(BaseAgent):
             self.regressionT_loss = compute_vect_loss(self.output_T, target_T, confidence=mask).mean() # TYPE_LOSS='SOFT_L1'
 
         if 'completion' in self.config.task:
-            if isinstance(self.latent_vect, dict):
-                self.output_pts = self.net.decoder(self.latent_vect['0'])
+            if 'ycb' in self.config.task:
+                self.output_pts = data['full']
+                self.recon_canon_loss = 0
             else:
-                self.output_pts = self.net.decoder(self.latent_vect)
-            # in nocs space
-            dist1_canon, dist2_canon = self.chamfer_dist(self.output_pts.permute(0, 2, 1).contiguous(), target_pts, return_raw=True)
-            if 'partial' in self.config.task:
-                self.recon_canon_loss = (dist2_canon).mean()
-            else:
-                self.recon_canon_loss = dist1_canon.mean() + dist2_canon.mean()
+                if isinstance(self.latent_vect, dict):
+                    self.output_pts = self.net.decoder(self.latent_vect['0'])
+                else:
+                    self.output_pts = self.net.decoder(self.latent_vect)
+                # in nocs space
+                dist1_canon, dist2_canon = self.chamfer_dist(self.output_pts.permute(0, 2, 1).contiguous(), target_pts, return_raw=True)
+                if 'partial' in self.config.task:
+                    self.recon_canon_loss = (dist2_canon).mean()
+                else:
+                    self.recon_canon_loss = dist1_canon.mean() + dist2_canon.mean()
             self.infos["recon_canon"] = self.recon_canon_loss
 
             # get rotated R, Option 1:
-            nb, nr, na = self.latent_vect['R'].shape #
+            nb, nr, na = self.latent_vect['R'].shape  #
             np_out = self.output_pts.shape[-1]
             rotation_mapping = compute_rotation_matrix_from_quaternion if nr == 4 else compute_rotation_matrix_from_ortho6d
             pred_RAnchor = rotation_mapping(self.latent_vect['R'].transpose(1,2).contiguous().view(-1,nr)).view(nb,-1,3,3)
