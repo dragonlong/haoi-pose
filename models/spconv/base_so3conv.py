@@ -713,7 +713,7 @@ class DirectSO3OutBlock(nn.Module):
 
 # outblock for rotation regression model
 class SO3OutBlockR(nn.Module):
-    def __init__(self, params, norm=None, pooling_method='mean', pred_t=False):
+    def __init__(self, params, norm=None, pooling_method='mean', pred_t=False, feat_mode_num=60):
         super(SO3OutBlockR, self).__init__()
 
         c_in = params['dim_in']
@@ -723,6 +723,7 @@ class SO3OutBlockR(nn.Module):
         self.linear = nn.ModuleList()
         self.temperature = params['temperature']
         self.representation = params['representation']
+        self.feat_mode_num = feat_mode_num
         # self.attention_layer = nn.Conv2d(mlp[-1], 1, (1,1))
         if norm is not None:
             self.norm = nn.ModuleList()
@@ -733,7 +734,10 @@ class SO3OutBlockR(nn.Module):
             self.pointnet = sptk.PointnetSO3Conv(mlp[-1],mlp[-1], na)
 
         self.attention_layer = nn.Conv1d(mlp[-1], 1, (1))
-        self.regressor_layer = nn.Conv1d(mlp[-1],4,(1))
+        if self.feat_mode_num < 2:
+            self.regressor_layer = nn.Conv1d(mlp[-1],4*60,(1))
+        else:
+            self.regressor_layer = nn.Conv1d(mlp[-1],4,(1))
 
         self.pred_t = pred_t
         if pred_t:
@@ -748,12 +752,10 @@ class SO3OutBlockR(nn.Module):
 
     def forward(self, x):
         x_out = x.feats
-
-        # the first one is mapping with linear layer, then pool with mean
-        # the second one is first try concatenating rotated xyz, then mapping and maxpooling;(pointnet)
+        if x_out.shape[-1] == 1:
+            x_out = x_out.repeat(1, 1, 1, 60).contiguous()
         end = len(self.linear)
         for lid, linear in enumerate(self.linear):
-            # norm = self.norm[norm_cnt]
             x_out = linear(x_out)
             if self.norm is not None:
                 x_out = self.norm[lid](x_out)
@@ -771,7 +773,10 @@ class SO3OutBlockR(nn.Module):
         confidence = F.softmax(attention_wts * self.temperature, dim=2).view(x_out.shape[0], x_out.shape[2])
         # regressor
         output = {}
-        y = self.regressor_layer(x_out) # Bx6xA
+        if self.feat_mode_num < 2:
+            y = self.regressor_layer(x_out[:, :, 0:1]).squeeze(-1).view(x.xyz.shape[0], 4, -1).contiguous()
+        else:
+            y = self.regressor_layer(x_out) # Bx6xA
         output['1'] = confidence #
         output['R'] = y
         if self.pred_t:
@@ -781,25 +786,94 @@ class SO3OutBlockR(nn.Module):
             output['T'] = None
         return output
 
+# outblock for rotation regression model
+class SO3OutBlockRT(nn.Module):
+    def __init__(self, params, norm=None, pooling_method='mean', global_scalar=False, feat_mode_num=60):
+        super(SO3OutBlockRT, self).__init__()
 
-# RelSO3OutBlockR(
-#   (pointnet): PointnetSO3Conv(
-#     (embed): Conv2d(259, 256, kernel_size=(1, 1), stride=(1, 1))
-#   )
-#   (linear): ModuleList(
-#     (0): Conv2d(512, 256, kernel_size=(1, 1), stride=(1, 1))
-#     (1): Conv2d(256, 128, kernel_size=(1, 1), stride=(1, 1))
-#     (2): Conv2d(128, 64, kernel_size=(1, 1), stride=(1, 1))
-#   )
-#   (attention_layer): Conv2d(64, 1, kernel_size=(1, 1), stride=(1, 1))
-#   (regressor_layer): Conv2d(64, 4, kernel_size=(1, 1), stride=(1, 1))
-# )
+        c_in = params['dim_in']
+        mlp = params['mlp']
+        na = params['kanchor']
 
-# (Pdb) print(f1.shape, f2.shape, x1.shape, x2.shape) [nb, nc, np, na]
-# torch.Size([2, 256, 64, 60]) torch.Size([2, 256, 64, 60]) torch.Size([2, 3, 64]) torch.Size([2, 3, 64])
-# (Pdb) print(confidence.shape, quats.shape)
-# torch.Size([2, 60, 60]) torch.Size([2, 4, 60, 60])
-# outblock for relative rotation regression, torch.Size([2, 60, 60]) torch.Size([2, 4, 60, 60])
+        self.linear = nn.ModuleList()
+        self.temperature = params['temperature']
+        self.representation = params['representation']
+        self.global_scalar = global_scalar
+        self.feat_mode_num=feat_mode_num
+        # self.attention_layer = nn.Conv2d(mlp[-1], 1, (1,1))
+        if norm is not None:
+            self.norm = nn.ModuleList()
+        else:
+            self.norm = None
+        self.pooling_method = pooling_method
+        if self.pooling_method == 'pointnet':
+            self.pointnet = sptk.PointnetSO3Conv(mlp[-1],mlp[-1], na)
+
+        self.attention_layer = nn.Conv1d(mlp[-1], 1, (1))
+        if self.feat_mode_num < 2:
+            self.regressor_layer = nn.Conv1d(mlp[-1],4*60,(1))
+        else:
+            self.regressor_layer = nn.Conv1d(mlp[-1],4,(1))
+        self.regressor_scalar_layer = nn.Conv1d(mlp[-1],1,(1)) # [B, C, A] --> [B, 1, A] scalar, local
+
+        # ------------------ uniary conv ----------------
+        for c in mlp: #
+            self.linear.append(nn.Conv2d(c_in, c, 1))
+            if norm is not None:
+                self.norm.append(nn.BatchNorm2d(c))
+            c_in = c
+
+        # ----------------- dense regression per mode per point ------------------
+        self.regressor_dense_layer = nn.Sequential(nn.Conv2d(2* mlp[-1], mlp[-1], 1),
+                                                 nn.BatchNorm2d(mlp[-1]),
+                                                 nn.LeakyReLU(inplace=True),
+                                                 nn.Conv2d(c, 3, 1)) # randomly
+
+    def forward(self, x, anchors=None):
+        x_out = x.feats         # nb, nc, np, na -> nb, nc, na
+        if x_out.shape[-1] == 1:
+            x_out = x_out.repeat(1, 1, 1, 60).contiguous()
+        end = len(self.linear)
+        for lid, linear in enumerate(self.linear):
+            # norm = self.norm[norm_cnt]
+            x_out = linear(x_out)
+            if self.norm is not None:
+                x_out = self.norm[lid](x_out)
+            x_out = F.relu(x_out)
+
+        shared_feat = x_out
+        # mean pool at xyz ->  BxCxA
+        if self.pooling_method == 'mean':
+            x_out = x_out.mean(2) # max perform better? or point-based xyz conv
+        elif self.pooling_method == 'max':
+            x_out = x_out.max(2)[0]
+        elif self.pooling_method == 'pointnet':
+            x_in = sptk.SphericalPointCloud(x.xyz, x_out, None)
+            x_out = self.pointnet(x_in)
+
+        t_out = self.regressor_dense_layer(torch.cat([x_out.unsqueeze(2).repeat(1, 1, shared_feat.shape[2], 1).contiguous(), shared_feat], dim=1)) # dense branch
+        # anchors = torch.from_numpy(L.get_anchors(self.config.model.kanchor)).to(self.output_pts)
+        if self.global_scalar:
+            y_t = self.regressor_scalar_layer(shared_feat.max(dim=-1)[0]) # [nb, 1, p]
+            y_t = F.normalize(t_out, p=2, dim=1) * y_t.unsqueeze(-1)   # 4, 3, 64, 60
+            y_t = torch.matmul(anchors, y_t.permute(0, 3, 1, 2).contiguous()) + x.xyz.unsqueeze(1) # nb, 60, 3, 64
+            y_t = y_t.mean(dim=-1).permute(0, 2, 1).contiguous()
+        else:
+            y_t = torch.matmul(anchors, t_out.permute(0, 3, 1, 2).contiguous()) + x.xyz.unsqueeze(1) # nb, 60, 3, 64
+            y_t = y_t.mean(dim=-1).permute(0, 2, 1).contiguous()
+            # y_t = (t_out + x.xyz.unsqueeze(-1)).mean(dim=2)            # [nb, 3, np, na] --> [nb, 3, na]
+
+        attention_wts = self.attention_layer(x_out)  # Bx1XA
+        confidence = F.softmax(attention_wts * self.temperature, dim=2).view(x_out.shape[0], x_out.shape[2])
+        # regressor
+        output = {}
+        y = self.regressor_layer(x_out) # Bx6xA
+        output['1'] = confidence #
+        output['R'] = y
+        output['T'] = y_t
+
+        return output
+
 class RelSO3OutBlockR(nn.Module):
     def __init__(self, params, norm=None):
         super(RelSO3OutBlockR, self).__init__()

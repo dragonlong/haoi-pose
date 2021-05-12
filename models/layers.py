@@ -9,8 +9,9 @@ from torch.nn.parameter import Parameter
 from torch.nn.init import kaiming_uniform_
 
 import __init__
+import vgtk.so3conv as sptk
 
-def breakpoint():
+def bp():
     import pdb;pdb.set_trace()
 
 def MLP(channels, activation=nn.LeakyReLU(0.2), bn_momentum=0.1, bias=True):
@@ -764,6 +765,76 @@ def global_average(x, batch_lengths):
     # Average features in each batch
     return torch.stack(averaged_features)
 
+# outblock for rotation regression model
+class GeneralOutBlockRT(nn.Module):
+    def __init__(self, latent_dim=128, norm=None, pooling_method='max', global_scalar=False):
+        super(GeneralOutBlockRT, self).__init__()
+
+        c_in = 128
+        mlp = [128, 128]
+        self.temperature = 3
+        self.representation = 'quat'
+
+        self.global_scalar = global_scalar
+        self.pooling_method = pooling_method
+        self.linear = nn.ModuleList()
+        self.norm   = nn.ModuleList()
+        self.attention_layer = nn.Conv1d(mlp[-1], 1, (1))
+        self.regressor_layer = nn.Conv1d(mlp[-1],4*60,(1))
+        self.regressor_scalar_layer = nn.Conv1d(mlp[-1],1,(1)) # [B, C, A] --> [B, 1, A] scalar, local
+        self.pointnet = nn.Sequential(nn.Conv1d(mlp[-1], mlp[-1], 1),
+                                      nn.BatchNorm1d(mlp[-1]),
+                                      nn.LeakyReLU(inplace=True)) # for Z
+        # ------------------ uniary conv ----------------
+        for c in mlp: #
+            self.linear.append(nn.Conv1d(c_in, c, 1))
+            self.norm.append(nn.BatchNorm1d(c))
+            c_in = c
+
+        # ----------------- dense regression ------------------
+        self.regressor_dense_layer = nn.Sequential(nn.Conv1d(2* mlp[-1], mlp[-1], 1),
+                                                 nn.BatchNorm1d(mlp[-1]),
+                                                 nn.LeakyReLU(inplace=True),
+                                                 nn.Conv1d(c, 3, 1)) # randomly
+
+    def forward(self, feats, xyz=None):
+        x_out = feats         # nb, nc, np
+        end = len(self.linear)
+        for lid, linear in enumerate(self.linear):
+            x_out = linear(x_out)
+            x_out = self.norm[lid](x_out)
+            x_out = F.relu(x_out)
+
+        shared_feat = x_out
+        # 1. R prediction
+        # mean pool at xyz ->  BxC
+        if self.pooling_method == 'mean':
+            x_out = x_out.mean(2)
+        elif self.pooling_method == 'max':
+            x_out = x_out.max(2)[0]
+        x_out = x_out.unsqueeze(-1)
+        attention_wts = self.attention_layer(x_out)  # Bx1XA
+        confidence    = F.softmax(attention_wts * self.temperature, dim=2).view(x_out.shape[0], x_out.shape[2])
+        y_r           = self.regressor_layer(x_out).view(xyz.shape[0], 4, -1) # Bx4xA
+
+        # 2. t prediction
+        t_out = self.regressor_dense_layer(torch.cat([x_out.repeat(1, 1, shared_feat.shape[2]).contiguous(), shared_feat], dim=1)) # dense branch
+        y_t = self.regressor_scalar_layer(shared_feat) # [nb, 1, p]
+        y_t = F.normalize(t_out, p=2, dim=1) * y_t     # scalar from invariant T
+        y_t = y_t.mean(dim=2).unsqueeze(-1)
+
+
+        # 3. Z prediction
+        y_z = self.pointnet(shared_feat).max(dim=-1)[0]        # pooling over all points, [nb, nc]
+
+        # regressor
+        output = {}
+        output['1'] = confidence #
+        output['0'] = y_z #
+        output['R'] = y_r
+        output['T'] = y_t
+
+        return output
 
 if __name__ == '__main__':
     gpu = 0

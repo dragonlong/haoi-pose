@@ -5,14 +5,17 @@ import torch.nn.parallel
 import torch.utils.data
 import numpy as np
 import torch.nn.functional as F
-import __init__
+import sys
+TRAIN_PATH = "../../"
+sys.path.insert(0, TRAIN_PATH)
+
 import global_info
 
 setting = global_info.setting()
-if setting.USE_MULTI_GPU:
-    BatchNorm1d = nn.SyncBatchNorm
-else:
-    BatchNorm1d = nn.BatchNorm1d
+# if setting.USE_MULTI_GPU:
+#     BatchNorm1d = nn.SyncBatchNorm
+# else:
+BatchNorm1d = nn.BatchNorm1d
 
 class STN3d(nn.Module):
     def __init__(self):
@@ -190,7 +193,7 @@ class PointNetDecoder(nn.Module):
         # x = F.log_softmax(x.view(-1,self.k), dim=-1)
         # x = x.view(batchsize, n_pts, self.k)
         if return_feature_maps:
-            return x, feat_dict
+            return feat_dict
         else:
             return x
 
@@ -234,8 +237,8 @@ def feature_transform_regularizer(trans, gpu=0):
 
 if __name__ == '__main__':
     deploy_device   = torch.device('cuda:0')
-    sim_data = torch.rand(32,3,1500, requires_grad=True, device=deploy_device)
-    y = torch.empty(32, 1500, dtype=torch.long, device=deploy_device).random_(0, 20)
+    sim_data = torch.rand(32,3,1024, requires_grad=True, device=deploy_device)
+    y = torch.empty(32, 1024, dtype=torch.long, device=deploy_device).random_(0, 20)
     trans = STN3d().cuda()
     out = trans(sim_data)
     print('stn', out.size())

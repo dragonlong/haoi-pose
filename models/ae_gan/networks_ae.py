@@ -30,9 +30,11 @@ from common.debugger import *
 from models.model_factory import ModelBuilder
 from models.pointnet_lib.networks import PointTransformer
 from models.decoders.pointnet_2 import PointNet2Segmenter
+from models.backbones.pointnet import PointNetEncoder, PointNetDecoder
 from models.decoders.egnn_model import EquivariantDGCNN
 from models.decoders.dgcnn import DGCNN_semseg
 from models.generator import AtlasNetGenerator, TreeGANGenerator
+from models.layers import GeneralOutBlockRT
 #
 from omegaconf import DictConfig, ListConfig
 from models.pointnet_lib.pointnet2_modules import knn_point
@@ -228,20 +230,27 @@ class PointNetplusplus(nn.Module):
     def __init__(self, cfg):
         super().__init__()
         self.backbone   = PointNet2Segmenter(num_classes=3, in_features=cfg.MODEL.num_in_channels, use_random_ball_query=True)
-        net_header, head_names  = ModelBuilder.build_header(layer_specs=cfg.HEAD)
-        self.head       = net_header
-        self.head_names = head_names
+        self.use_head_assemble = cfg.use_head_assemble
+        if cfg.use_head_assemble:
+            self.head = GeneralOutBlockRT(latent_dim=cfg.latent_dim, norm=1, global_scalar=True) # max pooling by default
+        else:
+            net_header, head_names  = ModelBuilder.build_header(layer_specs=cfg.HEAD)
+            self.head       = net_header
+            self.head_names = head_names
 
     def forward(self, xyz):
         net, bottle_neck = self.backbone(xyz)
-        pred_dict = {}
-        for i, sub_head in enumerate(self.head):
-            if 'regression' in self.head_names[i]:
-                if bottle_neck.size(-1) !=1:
-                    bottle_neck = bottle_neck.max(-1)[0]
-                pred_dict[self.head_names[i]] = self.head[i](bottle_neck.view(-1, 1024))
-            else:
-                pred_dict[self.head_names[i]] = self.head[i](net)
+        if self.use_head_assemble:
+            pred_dict = self.head(net, xyz=xyz)
+        else:
+            pred_dict = {}
+            for i, sub_head in enumerate(self.head):
+                if 'regression' in self.head_names[i]:
+                    if bottle_neck.size(-1) !=1:
+                        bottle_neck = bottle_neck.max(-1)[0]
+                    pred_dict[self.head_names[i]] = self.head[i](bottle_neck.view(-1, 1024))
+                else:
+                    pred_dict[self.head_names[i]] = self.head[i](net)
 
         return pred_dict
 
@@ -718,35 +727,6 @@ class GraphFPResNoSkipLinkModule(nn.Module):
 
         return h
 
-# class en3_transformer(nn.Module):
-#     """en3_transformer with multiple heads"""
-#     def __init__(self, cfg):
-#         super().__init__()
-#         k = 16
-#         C               = cfg.MODEL.num_mid_channels
-#         C_in            = cfg.MODEL.num_in_channels
-#         self.num_R      = cfg.MODEL.num_channels_R
-#         C_out           = self.num_R                # for 6D rotation, use 2; for 3D rotation, use 1.
-#         self.backbone   = EquivariantDGCNN(k, C, C_in, C_out) # k, C, C_in=1, C_out=2):
-#         net_header, head_names  = ModelBuilder.build_header(layer_specs=cfg.HEAD)
-#         self.head       = net_header
-#         self.head_names = head_names
-#
-#
-#     def forward(self, f=None, x=None, pts=None):
-#         if pts is not None:
-#             x = pts[:, :3, :].permute(0, 2, 1).contiguous()
-#             f = pts[:, 3:, :].permute(0, 2, 1).contiguous()
-#
-#         x_out, f_out = self.backbone(x) # x: # [batch_size, C_out, 3, num_points];  f: [batch_size, 64, num_points]
-#         pred_dict = {}
-#         pred_dict['R'] = x_out[:, :self.num_R, :, :]# N, C, 3, N
-#         pred_dict['T'] = x_out[:, -1, :, :]
-#         for i, sub_head in enumerate(self.head):
-#             pred_dict[self.head_names[i]] = self.head[i](f_out)
-#
-#         return pred_dict
-
 # PointNet as Encoder
 ##############################################################################
 class EncoderPointNet(nn.Module):
@@ -776,6 +756,18 @@ class EncoderPointNet(nn.Module):
         x = torch.max(x, dim=2)[0]
         return x
 
+class EncoderDecoderPointNet(nn.Module):
+    def __init__(self, cfg):
+        super(EncoderDecoderPointNet, self).__init__()
+        self.enc = PointNetEncoder()
+        self.dec = PointNetDecoder(k=3)
+        self.head = GeneralOutBlockRT(latent_dim=cfg.latent_dim, norm=1, global_scalar=True) # max pooling by default
+
+    def forward(self, xyz):
+        shared_feat = self.dec(self.enc(xyz, gpu=0), return_feature_maps=True)[128]
+        out = self.head(shared_feat, xyz)
+
+        return out
 
 class PointAE(nn.Module):
     def __init__(self, cfg):
@@ -787,6 +779,8 @@ class PointAE(nn.Module):
                                            vector_attention=cfg.MODEL.vector_attention)
         elif 'plus' in self.encoder_type:
             self.encoder = PointNetplusplus(cfg)
+        elif 'pointnet' in self.encoder_type:
+            self.encoder = EncoderDecoderPointNet(cfg)
         elif 'en3' in self.encoder_type:
             self.encoder = EquivariantDGCNN(C_in=cfg.MODEL.num_in_channels, num_mode=cfg.num_modes_R, depth=cfg.MODEL.num_layers, config=cfg.MODEL) # k, C, C_in=1, C_out=2):
         elif 'point_transformer' in self.encoder_type:
@@ -794,7 +788,7 @@ class PointAE(nn.Module):
                                             R_dim=6 if cfg.pred_6d else 3, num_in_channels=cfg.MODEL.num_in_channels)
         elif 'dgcnn' in self.encoder_type:
             self.encoder = DGCNN_semseg(num_mode=cfg.num_modes_R)
-        elif 'so3' in self.encoder_type:
+        elif 'so3net' in self.encoder_type:
             module = import_module('models.spconv')
             param_outfile = None
             self.encoder =  getattr(module, cfg.model.model).build_model_from(cfg, param_outfile)

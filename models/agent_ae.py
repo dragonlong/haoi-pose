@@ -7,6 +7,7 @@ from models.ae_gan import get_network
 from models.base import BaseAgent
 # from utils.emd import earth_mover_distance
 from utils.extensions.chamfer_dist import ChamferDistance
+from utils.p2i_utils import look_at
 from models.losses import loss_geodesic, loss_vectors, compute_vect_loss, compute_1vN_nocs_loss, compute_miou_loss
 from common.d3_utils import compute_rotation_matrix_from_euler, compute_euler_angles_from_rotation_matrices, compute_rotation_matrix_from_ortho6d, mean_angular_error
 from common.yj_pose import compute_pose_diff, rot_diff_degree
@@ -15,7 +16,6 @@ from os.path import exists, join
 
 import vgtk.so3conv.functional as L
 from vgtk.functional import compute_rotation_matrix_from_quaternion, compute_rotation_matrix_from_ortho6d, so3_mean
-# from vgtk.zpconv.functional import Gathering, batched_index_select, acos_safe
 from global_info import global_info
 
 infos           = global_info()
@@ -142,7 +142,7 @@ class PointAEPoseAgent(BaseAgent):
         else:
             input_pts  = data['G'].ndata['x'].view(BS, -1, 3).contiguous().cuda() # B, N, 3
 
-        if self.output_T is not None:
+        if self.config.pred_t:
             pred_center= torch.matmul(self.r_pred, self.t_pred.unsqueeze(-1)) + input_pts.mean(dim=-1, keepdim=True) # local center, plus offsets
             gt_center  = data['T'].cuda() # B, 3 # from original to
             trans_err = torch.norm(pred_center[:, :, 0] - gt_center[:, 0, :], dim=-1)
@@ -183,9 +183,9 @@ class PointAEPoseAgent(BaseAgent):
         pred_center= input_pts - self.output_T.permute(0, 2, 1).contiguous()
         gt_center  = input_pts - data['T'].cuda() # B, N, 3
         mean_pred_c = torch.sum(pred_center * mask.unsqueeze(-1), dim=1) / (torch.sum(mask.unsqueeze(-1), dim=1) + epsilon)
-        trans_err = torch.norm(mean_pred_c - gt_center[:, 0, :], dim=1)
+        trans_err = torch.norm(mean_pred_c - gt_center[:, 0, :], dim=1) #
 
-        scale_err = torch.Tensor([0, 0])
+        scale_err = torch.Tensor([0, 0]) #
         scale = torch.Tensor([1.0, 1.0])
         self.pose_err  = {'rdiff': rot_err, 'tdiff': trans_err, 'sdiff': scale_err}
         self.pose_info = {'r_gt': gt_rot, 't_gt': gt_center.mean(dim=1), 's_gt': scale, 'r_pred': pred_rot, 'r_raw': self.output_R, 't_pred': pred_center.mean(dim=1), 's_pred': scale}
@@ -406,6 +406,7 @@ class PointAEPoseAgent(BaseAgent):
             input_pts = data['xyz'].cuda()
         else:
             input_pts  = data['G'].ndata['x'].view(BS, -1, 3).contiguous().cuda()
+        shift_dis      = input_pts.mean(dim=1, keepdim=True)
         BS = data['points'].shape[0]
         N  = data['points'].shape[1] # B, N, 3
         if 'C' in data:
@@ -418,7 +419,6 @@ class PointAEPoseAgent(BaseAgent):
 
         if self.config.pred_nocs:
             if self.output_N.shape[-1] < N:
-                shift_dis        = input_pts.mean(dim=1, keepdim=True)
                 reduced_pts      = self.latent_vect['xyz']
                 target_pts       = torch.matmul(data['R'].cuda(), reduced_pts + shift_dis - target_T) / data['S'].cuda().unsqueeze(-1) + 0.5
                 target_pts       = target_pts.permute(0, 2, 1).contiguous()
@@ -458,8 +458,12 @@ class PointAEPoseAgent(BaseAgent):
 
             # [4, 60, 3, 1024]  [nb, na, 3, np] -->  [nb, na, np, 3]
             if self.config.pred_t:
-                pred_T          = self.output_T.permute(0, 2, 1).contiguous().unsqueeze(-1).contiguous()
-                transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5 + pred_T).permute(0, 1, 3, 2).contiguous() #
+                # pred_T          = self.output_T.permute(0, 2, 1).contiguous().unsqueeze(-1).contiguous()
+                # transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5 + pred_T).permute(0, 1, 3, 2).contiguous() #
+                pred_T          = self.output_T.permute(0, 2, 1).contiguous().unsqueeze(-1).contiguous() # nb, na, 3, 1
+                # pred_T          = torch.matmul(anchors, pred_T) # nb, na, 3, 1, TODO
+                transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5) + pred_T
+                transformed_pts = transformed_pts.permute(0, 1, 3, 2).contiguous() # nb, na, np, 3
                 shift_dis        = input_pts.mean(dim=1, keepdim=True)
                 dist1, dist2 = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), (input_pts - shift_dis).unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
             else:
@@ -472,10 +476,10 @@ class PointAEPoseAgent(BaseAgent):
                 all_dist = (dist1.mean(-1) + dist2.mean(-1)).view(nb, -1).contiguous()
 
             min_loss, min_indices = torch.min(all_dist, dim=-1) # we only allow one mode to be True
-            self.recon_loss = min_loss.mean()
+            self.recon_loss   = min_loss.mean()
             self.rlabel_pred  = min_indices.detach().clone()
             self.rlabel_pred.requires_grad = False
-            self.transformed_pts = transformed_pts[torch.arange(0, BS), min_indices]
+            self.transformed_pts = transformed_pts[torch.arange(0, BS), min_indices] + shift_dis
             self.r_pred = pred_R[torch.arange(0, BS), min_indices].detach().clone() # correct R by searching
             self.r_pred.requires_grad = False
             if self.config.pred_t:
@@ -496,6 +500,26 @@ class PointAEPoseAgent(BaseAgent):
                 self.classifyM_loss = self.config.modecls_loss_multiplier * cls_loss.mean()
                 self.infos['r_acc'] = r_acc
                 self.infos['rdiff'] = mean_angular_error(select_R, r_gt).mean() * 180 / np.pi
+            # GT
+            if self.config.pred_t:
+                gt_view_matrix = look_at(
+                    eyes=torch.tensor([[0, 0, 0]], dtype=torch.float32).repeat(BS, 1).contiguous(), # can multiply 0.8 if the eye is too close?
+                    centers=data['T'].squeeze(),
+                    ups=torch.tensor([[0, 0, 1]], dtype=torch.float32).repeat(BS, 1).contiguous(),
+                )
+                gt_pre_matrix = self.render.projection_matrix @ gt_view_matrix
+                self.gt_depth_map = self.render(input_pts, view_id=0, radius_list=[15.0, 20.0], pre_matrix=gt_pre_matrix)
+
+                # pred
+                pred_center= torch.matmul(self.r_pred, self.t_pred.unsqueeze(-1)).squeeze() + shift_dis.squeeze()
+                pred_view_matrix =look_at(
+                    eyes=torch.tensor([[0, 0, 0]], dtype=torch.float32).repeat(BS, 1).contiguous(), # can multiply 0.8 if the eye is too close?
+                    centers=pred_center.cpu(),
+                    ups=torch.tensor([[0, 0, 1]], dtype=torch.float32).repeat(BS, 1).contiguous(),
+                )
+                pred_pre_matrix = self.render.projection_matrix @ pred_view_matrix
+                self.pred_depth_map = self.render(self.transformed_pts, view_id=0, radius_list=[15.0, 20.0], pre_matrix=pred_pre_matrix)
+                self.projection_loss = self.render_loss(self.pred_depth_map, self.gt_depth_map.detach())
 
     # seems vector is more stable
     def collect_loss(self):
@@ -515,6 +539,8 @@ class PointAEPoseAgent(BaseAgent):
                 loss_dict['classifyM'] = self.classifyM_loss
             if self.config.use_objective_V:
                 loss_dict['consistency'] = self.consistency_loss
+            if self.config.use_objective_P:
+                loss_dict['projection'] = self.projection_loss
         if 'completion' in self.config.task:
             if self.config.use_objective_canon:
                 loss_dict['recon'] = self.recon_canon_loss
