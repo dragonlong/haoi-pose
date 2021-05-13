@@ -750,7 +750,7 @@ class SO3OutBlockR(nn.Module):
                 self.norm.append(nn.BatchNorm2d(c))
             c_in = c
 
-    def forward(self, x):
+    def forward(self, x, anchors=None):
         x_out = x.feats
         if x_out.shape[-1] == 1:
             x_out = x_out.repeat(1, 1, 1, 60).contiguous()
@@ -788,7 +788,7 @@ class SO3OutBlockR(nn.Module):
 
 # outblock for rotation regression model
 class SO3OutBlockRT(nn.Module):
-    def __init__(self, params, norm=None, pooling_method='mean', global_scalar=False, feat_mode_num=60):
+    def __init__(self, params, norm=None, pooling_method='mean', global_scalar=False, use_anchors=False, feat_mode_num=60):
         super(SO3OutBlockRT, self).__init__()
 
         c_in = params['dim_in']
@@ -799,6 +799,7 @@ class SO3OutBlockRT(nn.Module):
         self.temperature = params['temperature']
         self.representation = params['representation']
         self.global_scalar = global_scalar
+        self.use_anchors   = use_anchors
         self.feat_mode_num=feat_mode_num
         # self.attention_layer = nn.Conv2d(mlp[-1], 1, (1,1))
         if norm is not None:
@@ -856,12 +857,14 @@ class SO3OutBlockRT(nn.Module):
         if self.global_scalar:
             y_t = self.regressor_scalar_layer(shared_feat.max(dim=-1)[0]) # [nb, 1, p]
             y_t = F.normalize(t_out, p=2, dim=1) * y_t.unsqueeze(-1)   # 4, 3, 64, 60
-            y_t = torch.matmul(anchors, y_t.permute(0, 3, 1, 2).contiguous()) + x.xyz.unsqueeze(1) # nb, 60, 3, 64
+            if self.use_anchors:
+                y_t = torch.matmul(anchors, y_t.permute(0, 3, 1, 2).contiguous()) + x.xyz.unsqueeze(1) # nb, 60, 3, 64
+            else:
+                y_t = y_t.permute(0, 3, 1, 2).contiguous() + x.xyz.unsqueeze(1) # nb, 60, 3, 64
             y_t = y_t.mean(dim=-1).permute(0, 2, 1).contiguous()
         else:
             y_t = torch.matmul(anchors, t_out.permute(0, 3, 1, 2).contiguous()) + x.xyz.unsqueeze(1) # nb, 60, 3, 64
             y_t = y_t.mean(dim=-1).permute(0, 2, 1).contiguous()
-            # y_t = (t_out + x.xyz.unsqueeze(-1)).mean(dim=2)            # [nb, 3, np, na] --> [nb, 3, na]
 
         attention_wts = self.attention_layer(x_out)  # Bx1XA
         confidence = F.softmax(attention_wts * self.temperature, dim=2).view(x_out.shape[0], x_out.shape[2])

@@ -823,7 +823,6 @@ class GeneralOutBlockRT(nn.Module):
         y_t = F.normalize(t_out, p=2, dim=1) * y_t     # scalar from invariant T
         y_t = y_t.mean(dim=2).unsqueeze(-1)
 
-
         # 3. Z prediction
         y_z = self.pointnet(shared_feat).max(dim=-1)[0]        # pooling over all points, [nb, nc]
 

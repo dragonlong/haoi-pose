@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 import wandb
+import torchvision
 import __init__
 from models.ae_gan import get_network
 from models.base import BaseAgent
@@ -112,7 +113,7 @@ class PointAEPoseAgent(BaseAgent):
             if self.config.pre_compute_delta:
                 delta_R = so3_mean(self.r_pred.unsqueeze(0))
                 self.pose_err = None
-                self.pose_info = {'delta_r': self.r_pred}
+                self.pose_info = {'delta_r': self.r_pred, 'delta_t': self.t_pred}
             else:
                 self.eval_ssl(data)
 
@@ -458,13 +459,17 @@ class PointAEPoseAgent(BaseAgent):
 
             # [4, 60, 3, 1024]  [nb, na, 3, np] -->  [nb, na, np, 3]
             if self.config.pred_t:
-                # pred_T          = self.output_T.permute(0, 2, 1).contiguous().unsqueeze(-1).contiguous()
-                # transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5 + pred_T).permute(0, 1, 3, 2).contiguous() #
-                pred_T          = self.output_T.permute(0, 2, 1).contiguous().unsqueeze(-1).contiguous() # nb, na, 3, 1
-                # pred_T          = torch.matmul(anchors, pred_T) # nb, na, 3, 1, TODO
+                if self.config.t_method_type == -1:
+                    pred_T          = self.output_T.permute(0, 2, 1).contiguous().unsqueeze(-1).contiguous()
+                    pred_T          = torch.matmul(pred_R, pred_T) # nb, na, 3, 1,
+                elif self.config.t_method_type == 0:
+                    pred_T          = self.output_T.permute(0, 2, 1).contiguous().unsqueeze(-1).contiguous()
+                    pred_T          = torch.matmul(anchors, pred_T) # nb, na, 3, 1,
+                else: # type 1, 2, 3
+                    pred_T          = self.output_T.permute(0, 2, 1).contiguous().unsqueeze(-1).contiguous() # nb, na, 3, 1
                 transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5) + pred_T
                 transformed_pts = transformed_pts.permute(0, 1, 3, 2).contiguous() # nb, na, np, 3
-                shift_dis        = input_pts.mean(dim=1, keepdim=True)
+                shift_dis       = input_pts.mean(dim=1, keepdim=True)
                 dist1, dist2 = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), (input_pts - shift_dis).unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
             else:
                 transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5).permute(0, 1, 3, 2).contiguous() #
@@ -483,7 +488,7 @@ class PointAEPoseAgent(BaseAgent):
             self.r_pred = pred_R[torch.arange(0, BS), min_indices].detach().clone() # correct R by searching
             self.r_pred.requires_grad = False
             if self.config.pred_t:
-                self.t_pred = self.output_T.permute(0, 2, 1).contiguous()[torch.arange(0, BS), min_indices]
+                self.t_pred = pred_T.squeeze(-1)[torch.arange(0, BS), min_indices] + shift_dis.squeeze()
             else:
                 self.t_pred = None
             # jointly train is fine, no necessary pretraining;
@@ -511,15 +516,26 @@ class PointAEPoseAgent(BaseAgent):
                 self.gt_depth_map = self.render(input_pts, view_id=0, radius_list=[15.0, 20.0], pre_matrix=gt_pre_matrix)
 
                 # pred
-                pred_center= torch.matmul(self.r_pred, self.t_pred.unsqueeze(-1)).squeeze() + shift_dis.squeeze()
                 pred_view_matrix =look_at(
                     eyes=torch.tensor([[0, 0, 0]], dtype=torch.float32).repeat(BS, 1).contiguous(), # can multiply 0.8 if the eye is too close?
-                    centers=pred_center.cpu(),
+                    centers=self.t_pred.cpu(),
                     ups=torch.tensor([[0, 0, 1]], dtype=torch.float32).repeat(BS, 1).contiguous(),
                 )
                 pred_pre_matrix = self.render.projection_matrix @ pred_view_matrix
                 self.pred_depth_map = self.render(self.transformed_pts, view_id=0, radius_list=[15.0, 20.0], pre_matrix=pred_pre_matrix)
-                self.projection_loss = self.render_loss(self.pred_depth_map, self.gt_depth_map.detach())
+                self.projection_loss = 0.1 * self.render_loss(self.pred_depth_map, self.gt_depth_map.detach())
+                self.infos['projection'] = self.projection_loss
+                # if self.config.vis and self.config.use_objective_P and self.config.eval:
+                #     ids = data['idx']
+                #     if not exists(f'{self.config.log_dir}/depth/'):
+                #         makedirs(f'{self.config.log_dir}/depth/')
+                #     for k in range(BS):
+                #         for m in range(self.gt_depth_map.shape[1]):
+                #             save_path = f"{self.config.log_dir}/depth/{ids[k]}_r{m}_depth_maps_gt.jpg"
+                #             torchvision.utils.save_image(self.gt_depth_map[k, m, :, :], save_path, pad_value=1)
+                #             save_path = f"{self.config.log_dir}/depth/{ids[k]}_r{m}_depth_maps_pred.jpg"
+                #             torchvision.utils.save_image(self.pred_depth_map[k, m, :, :], save_path, pad_value=1)
+                #             print('---saving to ', save_path)
 
     # seems vector is more stable
     def collect_loss(self):

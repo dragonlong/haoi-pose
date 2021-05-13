@@ -500,6 +500,9 @@ class global_info(object):
         delta_R['0.8451_shapenetaligned_airplane']  = np.array([[[ 0.4569,  0.8890,  0.0311],
                  [ 0.3217, -0.1325, -0.9375],
                  [-0.8293,  0.4384, -0.3465]]])
+        delta_R['0.8475_shapenetaligned_airplane']  = np.array([[[ 0.4590, -0.6603, -0.5944],
+                 [-0.7184, -0.6695,  0.1889],
+                 [-0.5227,  0.3404, -0.7816]]])
 
         delta_R['0.84a_shapenetaligned_airplane']  = np.array([[[ 0.5541,  0.6258, -0.5490],
                  [ 0.0681, -0.6913, -0.7194],
