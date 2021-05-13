@@ -144,7 +144,7 @@ def get_dataset(cfg,
 
     elif name_dset == 'ycb':
         print('using ycb data ', split)
-        return YCBDataset()
+        return YCBDataset(cfg=cfg, root=cfg.DATASET.data_path, split=split)
 
     # elif name_dset == 'nocs_synthetic_simple':
     #     print('using nocs_synthetic data ', split)
@@ -250,6 +250,7 @@ def summary(features):
 class DatasetParser(Parser):
     def __init__(self, cfg, mode='train', return_loader=True, domain=None, first_n=-1, add_noise=False, fixed_order=False, num_expr=0.01):
         name_dset  = cfg.name_dset
+        print('name_dset', name_dset)
         collate = None
         if 'Graph' in cfg.dataset_class:
             if cfg.module == 'gan':

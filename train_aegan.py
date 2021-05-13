@@ -122,6 +122,8 @@ def main(cfg):
         os.makedirs(cfg.log_dir + '/checkpoints'
         )
 
+    print(OmegaConf.to_yaml(cfg))
+
     if cfg.use_wandb:
         if cfg.eval:
             run_name = f'{cfg.exp_num}_{cfg.target_category}_eval'
@@ -306,7 +308,8 @@ def main(cfg):
 
             if clock.step % cfg.eval_frequency == 0:
                 track_dict = {'rdiff': [], 'tdiff': [], 'sdiff': [],
-                              '5deg': [], '5cm': [], '5deg5cm': [], 'chamferL1': [], 'r_acc': []}
+                              '5deg': [], '5cm': [], '5deg5cm': [], 'chamferL1': [], 'r_acc': [],
+                              'class_acc': []}
                 if cfg.num_modes_R > 1:
                     track_dict.update({'mode_accuracy': [], 'chosenR': []})
 
@@ -332,6 +335,8 @@ def main(cfg):
                             track_dict['rdiff'].append(test_infos['rdiff'].float().cpu().numpy().mean())
                     if 'completion' in cfg.task:
                         track_dict['chamferL1'].append(tr_agent.recon_loss.cpu().numpy().mean())
+                        if 'classification_acc' in test_infos:
+                            track_dict['class_acc'].append(test_infos['classification_acc'].float().cpu().numpy().mean())
                 if cfg.use_wandb:
                     for key, value in track_dict.items():
                         if len(value) < 1:

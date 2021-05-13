@@ -101,6 +101,7 @@ class PointAEPoseAgent(BaseAgent):
 
     def eval_func(self, data):
         self.net.eval()
+        self.is_testing = True
         with torch.no_grad():
             self.forward(data)
 
@@ -131,7 +132,7 @@ class PointAEPoseAgent(BaseAgent):
             else:
                 self.delta_R= torch.eye(3).reshape((1, 3, 3)).repeat(BS, 1, 1).cuda()
         else:
-            self.delta_R= torch.eye(3).reshape((1, 3, 3)).cuda()
+            self.delta_R = torch.eye(3).reshape((1, 3, 3)).cuda()
 
         # self.delta_R
         pred_rot    = torch.matmul(self.r_pred, self.delta_R.float().permute(0, 2, 1).contiguous())
@@ -433,8 +434,29 @@ class PointAEPoseAgent(BaseAgent):
 
         if 'completion' in self.config.task:
             if 'ycb' in self.config.task:
-                self.output_pts = data['full']
+                self.output_pts = data['full'].permute(0, 2, 1).to(self.latent_vect['R'].device).float()  # [B, N, 3] -> [B, 3, N]
                 self.recon_canon_loss = 0
+                if self.instance is None:  # classify the object
+                    logits = self.latent_vect['class']  # [B, num_heads]
+                    pred_labels = torch.argmax(logits, dim=-1)
+                    gt_labels = data['class'].to(logits.device).long()
+                    self.classification_loss = nn.CrossEntropyLoss()(logits, gt_labels)
+                    self.classification_acc = (pred_labels == gt_labels).mean()
+                    self.infos['classification_loss'] = self.classification_loss
+                    self.infos['classification_acc'] = self.classification_acc
+
+                    chosen_class = pred_labels if self.is_testing else gt_labels
+                    batch_idx = torch.arange(len(chosen_class)).to(chosen_class.device).long()
+
+                    for key, value in self.latent_vect.items():
+                        print(key, value.shape)
+
+                    for key in ['1', 'R', 'T']:
+                        self.latent_vect[key] = self.latent_vect[key][batch_idx, chosen_class]
+                    self.output_T = self.latent_vect['T']
+
+                    for key, value in self.latent_vect.items():
+                        print(key, value.shape)
             else:
                 if isinstance(self.latent_vect, dict):
                     self.output_pts = self.net.decoder(self.latent_vect['0'])
@@ -452,9 +474,9 @@ class PointAEPoseAgent(BaseAgent):
             nb, nr, na = self.latent_vect['R'].shape  #
             np_out = self.output_pts.shape[-1]
             rotation_mapping = compute_rotation_matrix_from_quaternion if nr == 4 else compute_rotation_matrix_from_ortho6d
-            pred_RAnchor = rotation_mapping(self.latent_vect['R'].transpose(1,2).contiguous().view(-1,nr)).view(nb,-1,3,3)
+            pred_RAnchor = rotation_mapping(self.latent_vect['R'].transpose(1,2).contiguous().view(-1,nr)).view(nb,-1,3,3).float()
 
-            anchors = torch.from_numpy(L.get_anchors(self.config.model.kanchor)).to(self.output_pts)
+            anchors = torch.from_numpy(L.get_anchors(self.config.model.kanchor)).to(self.output_pts).to(pred_RAnchor.device).float()
             select_r= False
 
             # The actual prediction is the classified anchor rotation @ regressed rotation
@@ -566,6 +588,8 @@ class PointAEPoseAgent(BaseAgent):
                 loss_dict['recon'] = self.recon_canon_loss
             else:
                 loss_dict['recon'] = self.recon_loss
+            if 'ycb' in self.config.task and self.instance is None:
+                loss_dict['classification'] = self.classification_loss * 0.01
             if self.config.use_symmetry_loss:
                 loss_dict['chirality'] = self.recon_chirality_loss
 

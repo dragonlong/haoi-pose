@@ -42,6 +42,8 @@ class BaseAgent(object):
         # setup render
         self.render = ComputeDepthMaps(projection="perspective", eyepos_scale=1, image_size=256).float()
 
+        self.is_testing = False  # e.g. use gt labels to choose during training, use predicted labels during testing
+
     @abstractmethod
     def build_net(self, config):
         raise NotImplementedError
@@ -158,6 +160,7 @@ class BaseAgent(object):
     def train_func(self, data):
         """one step of training"""
         self.net.train()
+        self.is_testing = False
 
         self.forward(data)
 
@@ -170,6 +173,7 @@ class BaseAgent(object):
     def val_func(self, data):
         """one step of validation"""
         self.net.eval()
+        self.is_testing = True
         with torch.no_grad():
             self.forward(data)
         losses = self.collect_loss()

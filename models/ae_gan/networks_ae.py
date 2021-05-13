@@ -278,6 +278,7 @@ class RegressorFC(nn.Module):
     def forward(self, x):
         return x # B, 3, 3
 
+
 class DecoderFC(nn.Module):
     def __init__(self, n_features=(256, 256), latent_dim=128, output_pts=2048, bn=False):
         super(DecoderFC, self).__init__()
@@ -791,7 +792,7 @@ class PointAE(nn.Module):
         elif 'so3net' in self.encoder_type:
             module = import_module('models.spconv')
             param_outfile = None
-            self.encoder =  getattr(module, cfg.model.model).build_model_from(cfg, param_outfile)
+            self.encoder = getattr(module, cfg.model.model).build_model_from(cfg, param_outfile)
         else:
             self.encoder = EncoderPointNet(eval(cfg.enc_filters), cfg.latent_dim, cfg.enc_bn)
 
