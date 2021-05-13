@@ -4,5 +4,6 @@ DATASET:
   add_noise: False
   noise_trans: 0.04
   use_rgb: False
+  num_classes: 21
   workers: 8
 instance:

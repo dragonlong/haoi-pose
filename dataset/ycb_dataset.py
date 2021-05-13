@@ -29,10 +29,12 @@ class YCBDataset(data.Dataset):
         self.root = root
         # add_noise: add noise to both rgb & pc
         # noise_trans: amount of noise added to the point cloud (must set add_noise to True)
-        self.add_noise = cfg.DATASET.add_noise
+        self.add_noise = cfg.DATASET.add_noise and split == 'train'
         self.noise_trans = cfg.DATASET.noise_trans
         self.use_rgb = cfg.DATASET.use_rgb
         instance = cfg.instance
+        if instance is not None:
+            instance = int(instance)
         self.instance = instance
 
         self.cfg = cfg
@@ -175,6 +177,9 @@ class YCBDataset(data.Dataset):
                     break
         else:
             idx = [i for i in range(len(obj)) if obj[i] == self.instance][0]
+            mask_depth = ma.getmaskarray(ma.masked_not_equal(depth, 0))
+            mask_label = ma.getmaskarray(ma.masked_equal(label, obj[idx]))
+            mask = mask_label * mask_depth
 
         instance = obj[idx]
 
@@ -226,7 +231,7 @@ class YCBDataset(data.Dataset):
         cloud = np.concatenate((pt0, pt1, pt2), axis=1) / scale  # [N, 3]
         canon_cloud = np.dot(cloud - target_t, target_r) + 0.5
         if self.add_noise:
-            cloud = np.add(cloud, add_t)
+            cloud = cloud + add_t.astype(cloud.dtype)
 
         _, R_label, R0 = rotation_distance_np(target_r, self.anchors)
         R_gt = torch.from_numpy(target_r.astype(np.float32))  # predict r
@@ -258,11 +263,12 @@ class YCBDataset(data.Dataset):
             'class': obj[idx] - 1
         }
 
+        """
         output_path = 'ycb_data_sample.pkl'
         with open(output_path, 'wb') as f:
             pickle.dump(data_dict, f)
-
         sys.exit(0)
+        """
 
         return data_dict
 
