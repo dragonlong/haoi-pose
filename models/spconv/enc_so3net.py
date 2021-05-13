@@ -15,6 +15,7 @@ def bp():
 # used for ModelNet40 direct regression of
 # [nb, nc, np, na] --> [nb, nr, na], relative rotation;
 # [nb, nc, np, na] --> [nb, na] confidence
+
 import __init__
 import vgtk
 from models import spconv as M
@@ -59,11 +60,21 @@ class InvSO3ConvModel(nn.Module):
         self.invariance = True
         self.config = config
 
-        # anchors, plus local relative R regression
-        self.outblockR = M.SO3OutBlockR(params['outblock'], norm=1, pooling_method=config.model.pooling_method, pred_t=config.pred_t)
+        # per anchors R, T estimation
+        if config.t_method_type == -1:    # 0.845, R_i * delta_T
+            self.outblockRT = M.SO3OutBlockR(params['outblock'], norm=1, pooling_method=config.model.pooling_method, pred_t=config.pred_t, feat_mode_num=self.na_in)
+        elif config.t_method_type == 0:   # 0.847, R_i0 * delta_T
+            self.outblockRT = M.SO3OutBlockR(params['outblock'], norm=1, pooling_method=config.model.pooling_method, pred_t=config.pred_t, feat_mode_num=self.na_in)
+        elif config.t_method_type == 1: # 0.8472,R_i0 * (xyz + Scalar*delta_T)_mean, current fastest
+            self.outblockRT = M.SO3OutBlockRT(params['outblock'], norm=1, pooling_method=config.model.pooling_method, global_scalar=True, use_anchors=False, feat_mode_num=self.na_in)
+        elif config.t_method_type == 2: # 0.8475,(xyz + R_i0 * Scalar*delta_T)_mean, current best
+            self.outblockRT = M.SO3OutBlockRT(params['outblock'], norm=1, pooling_method=config.model.pooling_method, global_scalar=True, use_anchors=True, feat_mode_num=self.na_in)
+        elif config.t_method_type == 3: # (xyz + R_i0 * delta_T)_mean
+            self.outblockRT = M.SO3OutBlockRT(params['outblock'], norm=1, pooling_method=config.model.pooling_method, feat_mode_num=self.na_in)
+
         # invariant feature for shape reconstruction
         self.outblockN = M.InvOutBlockOurs(params['outblock'], norm=1, pooling_method='max')
-
+        self.anchors = torch.from_numpy(L.get_anchors(self.config.model.kanchor)).cuda()
 
     def forward(self, x):
         # nb, np, 3 -> [nb, 3, np] x [nb, 1, np, na]
@@ -74,10 +85,10 @@ class InvSO3ConvModel(nn.Module):
         for block_i, block in enumerate(self.backbone):
             x = block(x)
 
-        output = self.outblockR(x) # 1, delta_R, deltaT
+        output = self.outblockRT(x, self.anchors) # 1, delta_R, deltaT
         manifold_embed    = self.outblockN(x)
-        output['xyz'] = x.xyz
         output['0'] = manifold_embed
+        output['xyz']     = x.xyz
 
         return output
 

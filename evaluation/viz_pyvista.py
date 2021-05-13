@@ -90,7 +90,7 @@ if __name__ == '__main__':
     pv.set_plot_theme("document")
     off_screen = False
     color      = 'gold' #'deepskyblue'
-    exp_num    = 0.862 #0.855 # 0.851 # 0.845 # 0.81 # 0.84
+    exp_num    = 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
     window_shape = (1,3)
     k = 1.3
     k1 = 1.05
@@ -131,10 +131,10 @@ if __name__ == '__main__':
         for key in query_keys:
             point_normal_set = np.loadtxt(fn.replace('canon', key), delimiter=' ').astype(np.float32)
             pts = point_normal_set[:, :3]
-            if key == 'input':
-                refer_shift = pts.mean(axis=0, keepdims=True)
-            if key == 'pred':
-                pts = pts + refer_shift
+            # if key == 'input':
+            #     refer_shift = pts.mean(axis=0, keepdims=True)
+            # if key == 'pred':
+            #     pts = pts + refer_shift
             # r_mat  = point_normal_set[:, 4:].reshape(-1, 3, 3)
             points[key] = pv.PolyData(pts)
         # point_cloud['vectors'] = x_axis[:, 0, :]

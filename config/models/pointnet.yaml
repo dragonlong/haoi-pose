@@ -1,24 +1,23 @@
-models:
-    PointNet:
-        class: pointnet.PointNet
-        conv_type: "MESSAGE_PASSING"
-        input_stn:
-            local_nn: [3, 64, 128, 1024]
-            global_nn: [1024, 512, 256]
-        local_nn_1: [3, 64, 64]
-        feat_stn:
-            k: 64
-            local_nn: [64, 64, 128, 1024]
-            global_nn: [1024, 512, 256]
-        local_nn_2: [64, 64, 128, 1024]
-        seg_nn: [1024 + 64, 512, 256, 128, N_CLS]
+# @package _global_
+MODEL:
+  use_xyz: True
+  num_classes: 4
+  num_channels_R: 1
+  num_in_channels: 0
+  arch_encoder: "identical"
+  arch_decoder: "kaolin" # "pointnet2_single"
+  arch_head: "segmentation"
+  weights_encoder: ""
+  weights_decoder: ""
+  weights_header: ""
+  use_ball_query: True
 
-    PointNet_Features:
-        class: pointnet.SegPointNetModel
-        conv_type: "PARTIAL_DENSE"
-        pointnet:
-            local_nn: [3, 32, 64, 4]
-            global_nn: [4, 2]
-            aggr: "mean"
-            return_local_out: True
-        seg_nn: [4 + 2, 50, N_CLS]
+HEAD:
+  R: [128, 128, 3, None]
+  T: [128, 128, 3, None]
+  N: [128, 128, 3, 'sigmoid']
+  M: [128, 128, 2, 'softmax']
+  C: [128, 128, 2, 'softmax']
+
+model:
+  input_num: 1024

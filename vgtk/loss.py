@@ -28,7 +28,8 @@ class CrossEntropyLoss(torch.nn.Module):
         pred_label = pred_label.reshape(-1)
         label_flattened = label.reshape(-1)
         acc = (pred_label == label_flattened).sum().float() / float(label_flattened.shape[0])
-        return self.metric(pred, label), acc
+        return torch.zeros(label.shape[0]).cuda(), acc
+        # return self.metric(pred, label), acc
 
 class AttentionCrossEntropyLoss(torch.nn.Module):
     def __init__(self, loss_type, loss_margin):

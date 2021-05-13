@@ -18,6 +18,9 @@ HEAD:
   N: [128, 128, 3, 'sigmoid']
   M: [128, 128, 2, 'softmax']
   C: [128, 128, 2, 'softmax']
+  
+model:
+  input_num: 1024
   # nocs_per_point : [128, 64, None, 'sigmoid']
   # gocs_per_point : [128, 3, 'sigmoid']
   # handheatmap_per_point :  [128, 128, 21, 'sigmoid']

@@ -288,7 +288,7 @@ class DatasetParser(Parser):
                 collate_fn=collate,
                 num_workers=int(cfg.TRAIN.workers),
                 pin_memory=True,
-                drop_last=False,
+                drop_last=True,
             )
             self.validloader = torch.utils.data.DataLoader(
                 self.valid_dataset,

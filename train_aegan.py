@@ -70,6 +70,37 @@ def examine_unit(data, tr_agent):
     f2 = tr_agent.latent_vect['N']
     examine_equivariance(x1[0], x2[0], f1, f2, target_R[0])
 
+def random_choice_noreplace(l, n_sample, num_draw):
+    '''
+    l: 1-D array or list -> to choose from, e.g. range(N)
+    n_sample: sample size for each draw
+    num_draw: number of draws
+
+    Intuition: Randomly generate numbers,
+    get the index of the smallest n_sample number for each row.
+    '''
+    l = np.array(l)
+    return l[np.argpartition(np.random.rand(num_draw, len(l)),
+                             n_sample - 1,
+                             axis=-1)[:, :n_sample]]
+
+
+# def ransac_fit_r(batch_dr, max_iter=100, thres=1.0):
+#     # B, 3, 3
+#     best_score = 0
+#     nb = batch_dr.shape[0]
+#     with torch.no_grad():
+#         for i in range(max_iter):
+#             sample_idx = random_choice_noreplace(torch.tensor(np.arange(nb)), 5, 16)
+#             r_samples = batch_dr[sample_idx]
+#             r_hyp     = so3_mean(r_samples)
+#             err = mean_angular_error(r_hyp.unsqueeze(0), batch_dr)
+#             i
+#     return None
+
+def ransac_fit_r(batch_dr, batch_dt, delta_r):
+    return None
+
 @hydra.main(config_path="config/completion.yaml")
 def main(cfg):
     OmegaConf.set_struct(cfg, False)  # This allows getattr and hasattr methods to function correctly
@@ -137,35 +168,44 @@ def main(cfg):
 
     if cfg.eval_mini or cfg.eval:
         if cfg.pre_compute_delta:
-            all_deltas = []
+            set_dr = []
+
+            set_dt = []
             for num, data in enumerate(train_loader):
                 if num > 4000:
                     break
                 torch.cuda.empty_cache()
                 tr_agent.eval_func(data)
-                all_deltas.append(tr_agent.pose_info['delta_r'])
-            valid_deltas = torch.cat(all_deltas, dim=0)
-            # valid_deltas = valid_deltas[valid_deltas[:, 0, 1]>0] # partial airplane
-            if cfg.exp_num == '0.86':
-                valid_deltas = valid_deltas[valid_deltas[:, 0, 0]>0.65]
-                valid_deltas = valid_deltas[valid_deltas[:, 1, 0]<0]
-            elif cfg.exp_num == '0.861' or cfg.exp_num == '0.862':
-                valid_deltas = valid_deltas[valid_deltas[:, 0, 0]>0]
-                valid_deltas = valid_deltas[valid_deltas[:, 1, 0]<0]
-                valid_deltas = valid_deltas[valid_deltas[:, 0, 1]<0]
-            elif cfg.exp_num == '0.863':
-                valid_deltas = valid_deltas[valid_deltas[:, 0, 1]>0]
-                valid_deltas = valid_deltas[valid_deltas[:, 1, 0]<0]
-            elif cfg.exp_num == '0.845':
-                valid_deltas = valid_deltas[valid_deltas[:, 0, 0]<0]
-                valid_deltas = valid_deltas[valid_deltas[:, 0, 1]<0]
-                valid_deltas = valid_deltas[valid_deltas[:, 1, 0]>0]
-            elif cfg.exp_num == '0.8451':
-                valid_deltas = valid_deltas[valid_deltas[:, 0, 0]>0]
-                valid_deltas = valid_deltas[valid_deltas[:, 0, 1]>0]
-                valid_deltas = valid_deltas[valid_deltas[:, 1, 0]>0]
-            delta_R = so3_mean(valid_deltas.unsqueeze(0))
-            print(cfg.target_category, ': ', delta_R.cpu())
+                set_dr.append(tr_agent.pose_info['delta_r'])
+                if cfg.pred_t:
+                    set_dt.append(tr_agent.pose_info['delta_t'])
+            # delta_r = ransac_fit_r(torch.cat(set_dr, dim=0))
+            # if cfg.pred_t:
+            #     delta_t = ransac_fit_t(torch.cat(set_dt, dim=0))
+
+            # valid_deltas = torch.cat(all_deltas, dim=0)
+            # # valid_deltas = valid_deltas[valid_deltas[:, 0, 1]>0] # partial airplane
+            # if cfg.exp_num == '0.86':
+            #     valid_deltas = valid_deltas[valid_deltas[:, 0, 0]>0.65]
+            #     valid_deltas = valid_deltas[valid_deltas[:, 1, 0]<0]
+            # elif cfg.exp_num == '0.861' or cfg.exp_num == '0.862':
+            #     valid_deltas = valid_deltas[valid_deltas[:, 0, 0]>0]
+            #     valid_deltas = valid_deltas[valid_deltas[:, 1, 0]<0]
+            #     valid_deltas = valid_deltas[valid_deltas[:, 0, 1]<0]
+            # elif cfg.exp_num == '0.863':
+            #     valid_deltas = valid_deltas[valid_deltas[:, 0, 1]>0]
+            #     valid_deltas = valid_deltas[valid_deltas[:, 1, 0]<0]
+            # elif cfg.exp_num == '0.845':
+            #     valid_deltas = valid_deltas[valid_deltas[:, 0, 0]<0]
+            #     valid_deltas = valid_deltas[valid_deltas[:, 0, 1]<0]
+            #     valid_deltas = valid_deltas[valid_deltas[:, 1, 0]>0]
+            # elif cfg.exp_num == '0.8451':
+            #     valid_deltas = valid_deltas[valid_deltas[:, 0, 0]>0]
+            #     valid_deltas = valid_deltas[valid_deltas[:, 0, 1]>0]
+            #     valid_deltas = valid_deltas[valid_deltas[:, 1, 0]>0]
+            # delta_R = so3_mean(valid_deltas.unsqueeze(0))
+            print(cfg.target_category, ': ', delta_r.cpu(), delta_t.cpu())
+            # how to save
             return
 
         # main evaluation scripts

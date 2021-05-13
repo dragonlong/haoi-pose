@@ -6,6 +6,7 @@ from abc import abstractmethod
 from tensorboardX import SummaryWriter
 from common.train_utils import TrainClock
 from utils.extensions.chamfer_dist import ChamferDistance
+from utils.p2i_utils import ComputeDepthMaps
 from vgtk.loss import CrossEntropyLoss
 import wandb
 def bp():
@@ -38,6 +39,9 @@ class BaseAgent(object):
         self.train_tb = SummaryWriter(os.path.join(self.log_dir, 'tb/train'))
         self.val_tb   = SummaryWriter(os.path.join(self.log_dir, 'tb/val'))
 
+        # setup render
+        self.render = ComputeDepthMaps(projection="perspective", eyepos_scale=1, image_size=256).float()
+
     @abstractmethod
     def build_net(self, config):
         raise NotImplementedError
@@ -49,6 +53,8 @@ class BaseAgent(object):
             self.chamfer_dist = ChamferDistance()
         if 'ssl' in self.config.task or 'so3' in self.config.encoder_type:
             self.classifier = CrossEntropyLoss()
+        if self.config.pred_t:
+            self.render_loss = torch.nn.L1Loss()
 
     @abstractmethod
     def collect_loss(self):
