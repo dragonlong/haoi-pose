@@ -334,6 +334,7 @@ def main(cfg):
                         if 'rdiff' in test_infos:
                             track_dict['rdiff'].append(test_infos['rdiff'].float().cpu().numpy().mean())
                     if 'completion' in cfg.task:
+                        test_infos = tr_agent.infos
                         track_dict['chamferL1'].append(tr_agent.recon_loss.cpu().numpy().mean())
                         if 'classification_acc' in test_infos:
                             track_dict['class_acc'].append(test_infos['classification_acc'].float().cpu().numpy().mean())

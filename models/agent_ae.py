@@ -8,7 +8,7 @@ from models.ae_gan import get_network
 from models.base import BaseAgent
 # from utils.emd import earth_mover_distance
 from utils.extensions.chamfer_dist import ChamferDistance
-from utils.p2i_utils import look_at
+# from utils.p2i_utils import look_at
 from models.losses import loss_geodesic, loss_vectors, compute_vect_loss, compute_1vN_nocs_loss, compute_miou_loss
 from common.d3_utils import compute_rotation_matrix_from_euler, compute_euler_angles_from_rotation_matrices, compute_rotation_matrix_from_ortho6d, mean_angular_error
 from common.yj_pose import compute_pose_diff, rot_diff_degree
@@ -436,27 +436,22 @@ class PointAEPoseAgent(BaseAgent):
             if 'ycb' in self.config.task:
                 self.output_pts = data['full'].permute(0, 2, 1).to(self.latent_vect['R'].device).float()  # [B, N, 3] -> [B, 3, N]
                 self.recon_canon_loss = 0
-                if self.instance is None:  # classify the object
+                if self.config.instance is None:  # classify the object
                     logits = self.latent_vect['class']  # [B, num_heads]
                     pred_labels = torch.argmax(logits, dim=-1)
                     gt_labels = data['class'].to(logits.device).long()
                     self.classification_loss = nn.CrossEntropyLoss()(logits, gt_labels)
-                    self.classification_acc = (pred_labels == gt_labels).mean()
+                    self.classification_acc = (pred_labels == gt_labels).float().mean()
                     self.infos['classification_loss'] = self.classification_loss
                     self.infos['classification_acc'] = self.classification_acc
 
                     chosen_class = pred_labels if self.is_testing else gt_labels
                     batch_idx = torch.arange(len(chosen_class)).to(chosen_class.device).long()
 
-                    for key, value in self.latent_vect.items():
-                        print(key, value.shape)
-
                     for key in ['1', 'R', 'T']:
                         self.latent_vect[key] = self.latent_vect[key][batch_idx, chosen_class]
                     self.output_T = self.latent_vect['T']
 
-                    for key, value in self.latent_vect.items():
-                        print(key, value.shape)
             else:
                 if isinstance(self.latent_vect, dict):
                     self.output_pts = self.net.decoder(self.latent_vect['0'])
@@ -533,6 +528,8 @@ class PointAEPoseAgent(BaseAgent):
                 self.infos['rdiff'] = mean_angular_error(select_R, r_gt).mean() * 180 / np.pi
             # GT
             if self.config.pred_t:
+                pass
+                """
                 gt_view_matrix = look_at(
                     eyes=torch.tensor([[0, 0, 0]], dtype=torch.float32).repeat(BS, 1).contiguous(), # can multiply 0.8 if the eye is too close?
                     centers=data['T'].squeeze(),
@@ -562,6 +559,7 @@ class PointAEPoseAgent(BaseAgent):
                 #             save_path = f"{self.config.log_dir}/depth/{ids[k]}_r{m}_depth_maps_pred.jpg"
                 #             torchvision.utils.save_image(self.pred_depth_map[k, m, :, :], save_path, pad_value=1)
                 #             print('---saving to ', save_path)
+                """
 
     # seems vector is more stable
     def collect_loss(self):
@@ -588,7 +586,7 @@ class PointAEPoseAgent(BaseAgent):
                 loss_dict['recon'] = self.recon_canon_loss
             else:
                 loss_dict['recon'] = self.recon_loss
-            if 'ycb' in self.config.task and self.instance is None:
+            if 'ycb' in self.config.task and self.config.instance is None:
                 loss_dict['classification'] = self.classification_loss * 0.01
             if self.config.use_symmetry_loss:
                 loss_dict['chirality'] = self.recon_chirality_loss

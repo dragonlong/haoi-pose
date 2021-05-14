@@ -6,7 +6,7 @@ from abc import abstractmethod
 from tensorboardX import SummaryWriter
 from common.train_utils import TrainClock
 from utils.extensions.chamfer_dist import ChamferDistance
-from utils.p2i_utils import ComputeDepthMaps
+# from utils.p2i_utils import ComputeDepthMaps
 from vgtk.loss import CrossEntropyLoss
 import wandb
 def bp():
@@ -40,7 +40,7 @@ class BaseAgent(object):
         self.val_tb   = SummaryWriter(os.path.join(self.log_dir, 'tb/val'))
 
         # setup render
-        self.render = ComputeDepthMaps(projection="perspective", eyepos_scale=1, image_size=256).float()
+        # self.render = ComputeDepthMaps(projection="perspective", eyepos_scale=1, image_size=256).float()
 
         self.is_testing = False  # e.g. use gt labels to choose during training, use predicted labels during testing
 
