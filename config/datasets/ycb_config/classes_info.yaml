@@ -1,0 +1,12 @@
+002_master_chef_can:
+  sym_type: continuous
+  axis: z
+
+003_cracker_box:
+  sym_type: discrete
+  symmetries: {'x': 2, 'y': 2, 'z': 2}
+
+035_power_drill:
+  sym_type: none
+
+

@@ -14,6 +14,7 @@ from common.d3_utils import compute_rotation_matrix_from_euler, compute_euler_an
 from common.yj_pose import compute_pose_diff, rot_diff_degree
 from os import makedirs, remove
 from os.path import exists, join
+from utils.ycb_eval_utils import Basic_Utils
 
 import vgtk.so3conv.functional as L
 from vgtk.functional import compute_rotation_matrix_from_quaternion, compute_rotation_matrix_from_ortho6d, so3_mean
@@ -69,7 +70,14 @@ class Net(nn.Module):
         x = self.fc3(x)
         return x
 
+
 class PointAEPoseAgent(BaseAgent):
+    def __init__(self, config):
+        super(PointAEPoseAgent, self).__init__(config)
+        if 'ycb' in self.config.task:
+            self.bs_utils = Basic_Utils(config=self.config, chamfer_dist=self.chamfer_dist)
+            self.ycb_last_pose_err = None
+
     def build_net(self, config):
         # customize your build_net function
         net = get_network(config, "pointAE")
@@ -560,6 +568,14 @@ class PointAEPoseAgent(BaseAgent):
                 #             torchvision.utils.save_image(self.pred_depth_map[k, m, :, :], save_path, pad_value=1)
                 #             print('---saving to ', save_path)
                 """
+
+            # self.r_pred, self.t_pred: [B, 3, 3] and [B, 3]
+            if 'ycb' in self.config.task:
+                pred_RT = torch.cat([self.r_pred, self.t_pred.unsqueeze(-1)], dim=-1)  # [B, 3, 1] -> [B, 3, 4]
+                gt_RT = torch.cat([data['R_gt'], data['T'].unsqueeze(-1)], dim=-1).to(pred_RT.device)
+                cls = int(self.config.instance)
+                self.ycb_last_pose_err = self.bs_utils.cal_full_error(pred_RT, gt_RT, cls)
+
 
     # seems vector is more stable
     def collect_loss(self):

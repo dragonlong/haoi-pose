@@ -169,114 +169,117 @@ def main(cfg):
     dp = valid_dataset.__getitem__(0)
 
     if cfg.eval_mini or cfg.eval:
-        if cfg.pre_compute_delta:
-            set_dr = []
-
-            set_dt = []
-            for num, data in enumerate(train_loader):
-                if num > 4000:
-                    break
-                torch.cuda.empty_cache()
-                tr_agent.eval_func(data)
-                set_dr.append(tr_agent.pose_info['delta_r'])
-                if cfg.pred_t:
-                    set_dt.append(tr_agent.pose_info['delta_t'])
-            # delta_r = ransac_fit_r(torch.cat(set_dr, dim=0))
-            # if cfg.pred_t:
-            #     delta_t = ransac_fit_t(torch.cat(set_dt, dim=0))
-
-            # valid_deltas = torch.cat(all_deltas, dim=0)
-            # # valid_deltas = valid_deltas[valid_deltas[:, 0, 1]>0] # partial airplane
-            # if cfg.exp_num == '0.86':
-            #     valid_deltas = valid_deltas[valid_deltas[:, 0, 0]>0.65]
-            #     valid_deltas = valid_deltas[valid_deltas[:, 1, 0]<0]
-            # elif cfg.exp_num == '0.861' or cfg.exp_num == '0.862':
-            #     valid_deltas = valid_deltas[valid_deltas[:, 0, 0]>0]
-            #     valid_deltas = valid_deltas[valid_deltas[:, 1, 0]<0]
-            #     valid_deltas = valid_deltas[valid_deltas[:, 0, 1]<0]
-            # elif cfg.exp_num == '0.863':
-            #     valid_deltas = valid_deltas[valid_deltas[:, 0, 1]>0]
-            #     valid_deltas = valid_deltas[valid_deltas[:, 1, 0]<0]
-            # elif cfg.exp_num == '0.845':
-            #     valid_deltas = valid_deltas[valid_deltas[:, 0, 0]<0]
-            #     valid_deltas = valid_deltas[valid_deltas[:, 0, 1]<0]
-            #     valid_deltas = valid_deltas[valid_deltas[:, 1, 0]>0]
-            # elif cfg.exp_num == '0.8451':
-            #     valid_deltas = valid_deltas[valid_deltas[:, 0, 0]>0]
-            #     valid_deltas = valid_deltas[valid_deltas[:, 0, 1]>0]
-            #     valid_deltas = valid_deltas[valid_deltas[:, 1, 0]>0]
-            # delta_R = so3_mean(valid_deltas.unsqueeze(0))
-            print(cfg.target_category, ': ', delta_r.cpu(), delta_t.cpu())
-            # how to save
-            return
-
-        # main evaluation scripts
-        all_rts, file_name, mean_err, r_raw_err, t_raw_err, s_raw_err = prepare_pose_eval(cfg.exp_num, cfg)
-        infos_dict = {'basename': [], 'in': [], 'r_raw': [],
-                      'r_gt': [], 't_gt': [], 's_gt': [],
-                      'r_pred': [], 't_pred': [], 's_pred': []}
-        track_dict = {'rdiff': [], 'tdiff': [], 'sdiff': [],
-                      '5deg': [], '5cm': [], '5deg5cm': [], 'chamferL1': [], 'r_acc': [], 'chirality': []}
-        num_iteration = 1
-        if 'partial' not in cfg.task:
-            num_iteration = 2
-        for iteration in range(num_iteration):
-            cfg.iteration = iteration
+        if 'ycb' in cfg.task:
+            track_dict = {key: [] for key in ['rdiff', 'tdiff', '5deg', '5cm', '5deg5cm',
+                                              'add', 'adds', 'chamferL1']}
             for num, data in enumerate(test_loader):
-                if num % 10 == 0:
-                    print('checking batch ', num)
-
-                BS = data['points'].shape[0]
-                idx = data['idx']
                 torch.cuda.empty_cache()
-                tr_agent.eval_func(data)
-
-                pose_diff = tr_agent.pose_err
-                if pose_diff is not None:
-                    for key in ['rdiff', 'tdiff', 'sdiff']:
-                        track_dict[key] += pose_diff[key].float().cpu().numpy().tolist()
-                    print(pose_diff['rdiff'])
-                    deg = pose_diff['rdiff'] <= 5.0
-                    cm = pose_diff['tdiff'] <= 0.05
-                    degcm = deg & cm
-                    for key, value in zip(['5deg', '5cm', '5deg5cm'], [deg, cm, degcm]):
-                        track_dict[key] += value.float().cpu().numpy().tolist()
-
-                if tr_agent.pose_info is not None:
-                    for key, value in tr_agent.pose_info.items():
-                        infos_dict[key] += value.float().cpu().numpy().tolist()
-                    if 'xyz' in data:
-                        input_pts  = data['xyz']
-                    else:
-                        input_pts  = data['G'].ndata['x'].view(BS, -1, 3).contiguous() # B, N, 3
-                    for m in range(BS):
-                        basename   = f'{cfg.iteration}_' + data['id'][m] + f'_' + data['class'][m]
-                        infos_dict['basename'].append(basename)
-                        infos_dict['in'].append(input_pts[m].cpu().numpy())
+                tr_agent.val_func(data)
+                pose_err = tr_agent.ycb_last_pose_err
+                for key, value in pose_err.items()
+                    track_dict[key] += pose_err[key].float().cpu().numpy().tolist()
+                deg = pose_err['rdiff'] <= 5.0
+                cm = pose_err['tdiff'] <= 0.05
+                degcm = deg & cm
+                for key, value in zip(['5deg', '5cm', '5deg5cm'], [deg, cm, degcm]):
+                    track_dict[key] += value.float().cpu().numpy().tolist()
 
                 if 'completion' in cfg.task:
                     track_dict['chamferL1'].append(torch.sqrt(tr_agent.recon_loss).cpu().numpy().tolist())
+
                 tr_agent.visualize_batch(data, "test")
-        for key, value in track_dict.items():
-            if len(value) < 1:
-                continue
-            print(key, ':', np.array(value).mean())
-            if key == 'rdiff':
-                print(key, '_mid:', np.median(np.array(value)))
-        print(f'experiment {cfg.exp_num} for {cfg.target_category}\n')
 
-        if cfg.save:
+            for key, value in track_dict.items():
+                if len(value) < 1:
+                    continue
+                print(key, ':', np.array(value).mean())
+                if key == 'rdiff':
+                    print(key, '_mid:', np.median(np.array(value)))
+
+                value = np.array(value)
+                plot_distribution(value.reshape(-1), labelx=key, labely='frequency', title_name=f'{key}',
+                                  sub_name=cfg.exp_num, save_fig=True)
+
+            for key in ['add', 'adds']:
+                auc = tr_agent.bs_utils.cal_auc(track_dict[key])
+                print(f'{key}_auc: {auc}')
+
+            file_name = os.path.join(os.path.dirname(__file__), 'results', 'test_pred', 'ycb',
+                                     str(cfg.instance), f'{cfg.exp_num}_test.npz')
             print('--saving to ', file_name)
-            np.save(file_name, arr={'info': infos_dict, 'err': track_dict})
+            np.savez_compressed(file_name, err=track_dict)
+            return
 
-        # visualize distribution
-        for key, value in track_dict.items():
-            if len(value) < 1:
-                continue
-            value = np.array(value)
-            plot_distribution(value.reshape(-1), labelx=key, labely='frequency', title_name=f'{key}', sub_name=cfg.exp_num, save_fig=True)
 
-        return
+        else:
+
+            # main evaluation scripts
+            all_rts, file_name, mean_err, r_raw_err, t_raw_err, s_raw_err = prepare_pose_eval(cfg.exp_num, cfg)
+            infos_dict = {'basename': [], 'in': [], 'r_raw': [],
+                          'r_gt': [], 't_gt': [], 's_gt': [],
+                          'r_pred': [], 't_pred': [], 's_pred': []}
+            track_dict = {'rdiff': [], 'tdiff': [], 'sdiff': [],
+                          '5deg': [], '5cm': [], '5deg5cm': [], 'chamferL1': [], 'r_acc': [], 'chirality': []}
+            num_iteration = 1
+            if 'partial' not in cfg.task:
+                num_iteration = 2
+            for iteration in range(num_iteration):
+                cfg.iteration = iteration
+                for num, data in enumerate(test_loader):
+                    if num % 10 == 0:
+                        print('checking batch ', num)
+
+                    BS = data['points'].shape[0]
+                    idx = data['idx']
+                    torch.cuda.empty_cache()
+                    tr_agent.eval_func(data)
+
+                    pose_diff = tr_agent.pose_err
+                    if pose_diff is not None:
+                        for key in ['rdiff', 'tdiff', 'sdiff']:
+                            track_dict[key] += pose_diff[key].float().cpu().numpy().tolist()
+                        print(pose_diff['rdiff'])
+                        deg = pose_diff['rdiff'] <= 5.0
+                        cm = pose_diff['tdiff'] <= 0.05
+                        degcm = deg & cm
+                        for key, value in zip(['5deg', '5cm', '5deg5cm'], [deg, cm, degcm]):
+                            track_dict[key] += value.float().cpu().numpy().tolist()
+
+                    if tr_agent.pose_info is not None:
+                        for key, value in tr_agent.pose_info.items():
+                            infos_dict[key] += value.float().cpu().numpy().tolist()
+                        if 'xyz' in data:
+                            input_pts  = data['xyz']
+                        else:
+                            input_pts  = data['G'].ndata['x'].view(BS, -1, 3).contiguous() # B, N, 3
+                        for m in range(BS):
+                            basename   = f'{cfg.iteration}_' + data['id'][m] + f'_' + data['class'][m]
+                            infos_dict['basename'].append(basename)
+                            infos_dict['in'].append(input_pts[m].cpu().numpy())
+
+                    if 'completion' in cfg.task:
+                        track_dict['chamferL1'].append(torch.sqrt(tr_agent.recon_loss).cpu().numpy().tolist())
+                    tr_agent.visualize_batch(data, "test")
+            for key, value in track_dict.items():
+                if len(value) < 1:
+                    continue
+                print(key, ':', np.array(value).mean())
+                if key == 'rdiff':
+                    print(key, '_mid:', np.median(np.array(value)))
+            print(f'experiment {cfg.exp_num} for {cfg.target_category}\n')
+
+            if cfg.save:
+                print('--saving to ', file_name)
+                np.save(file_name, arr={'info': infos_dict, 'err': track_dict})
+
+            # visualize distribution
+            for key, value in track_dict.items():
+                if len(value) < 1:
+                    continue
+                value = np.array(value)
+                plot_distribution(value.reshape(-1), labelx=key, labely='frequency', title_name=f'{key}', sub_name=cfg.exp_num, save_fig=True)
+
+            return
 
     # >>>>>>>>>>> main training
     clock = tr_agent.clock #
