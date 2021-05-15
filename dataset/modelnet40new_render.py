@@ -75,18 +75,23 @@ def proc_render(first, path_list, save_folder, render_num,
         meta_path = pjoin(save_folder, 'meta.pkl')
         with open(meta_path, 'wb') as f:
             pickle.dump({'near': near, 'far': far, 'projection': projection}, f)
-        
+
+
 def ndc_depth_to_buffer(z, near, far):  # z in [-1, 1]
     return 2 * near * far / (near + far - z * (far - near))
-    
+
+
 def buffer_depth_to_ndc(d, near, far):  # d in (0, +
     return ((near + far) - 2 * near * far / np.clip(d, a_min=1e-6, a_max=1e6)) / (far - near)  
+
 
 def linearize_img(d, near, far):  # for visualization only
     return 2 * near / (near + far - d * (far - near))
 
+
 def inv_linearize_img(d, near, far):  # for visualziation only
     return (near + far - 2 * near / d) / (far - near)
+
 
 def backproject(depth, projection, near, far, from_image=False, vis=False):
     proj_inv = np.linalg.inv(projection)

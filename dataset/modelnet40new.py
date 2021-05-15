@@ -1,0 +1,207 @@
+import numpy as np
+import hydra
+import random
+import os
+import glob
+import scipy.io as sio
+import torch
+import pickle
+import cv2
+import torch.utils.data as data
+from os.path import join as pjoin
+import matplotlib.pyplot as plt
+import __init__
+import vgtk.so3conv.functional as L
+from vgtk.functional import rotation_distance_np
+from dataset.modelnet40new_render import backproject
+
+
+def get_index(src_length, tgt_length):
+    idx = np.arange(0, src_length)
+    if src_length < tgt_length:
+        idx = np.pad(idx, (0, tgt_length - src_length), 'wrap')
+    idx = np.random.permutation(idx)[:tgt_length]
+    return idx
+
+
+def get_modelnet40_data(gt_path, meta, num_points):   # root_dset/render/airplane/train/0001/gt/001.npy
+    """
+    cloud_path = gt_path.replace('gt', 'cloud').replace('.npy', '.npz')   # precomputed partial cloud
+    if os.path.exists(cloud_path):
+        pts = np.load(cloud_path)['points']
+    else:
+    """
+    depth_path = gt_path.replace('gt', 'depth').replace('.npy', '.png')
+    depth = cv2.imread(depth_path, -1)
+    pts = backproject(depth, meta['projection'], meta['near'], meta['far'],
+                      from_image=True, vis=False)
+    idx = get_index(len(pts), num_points)
+    pts = pts[idx]
+    gt_pose = np.load(gt_path)  # 4x4 matrix
+    return pts, gt_pose
+
+
+class Dataloader_ModelNet40New(data.Dataset):
+    def __init__(self, cfg, mode=None):
+        super(Dataloader_ModelNet40New, self).__init__()
+        self.cfg = cfg
+        self.mode = cfg.mode if mode is None else mode
+        if 'val' in self.mode:
+            self.mode = 'test'
+
+        self.num_points = cfg.num_points
+        self.add_noise = cfg.DATASET.add_noise
+        self.noise_trans = cfg.DATASET.noise_trans
+
+        self.dataset_path = cfg.DATASET.dataset_path
+        self.render_path = pjoin(self.dataset_path, 'render', cfg.DATASET.target_category, self.mode)
+        self.points_path = pjoin(self.dataset_path, 'points', cfg.DATASET.target_category, self.mode)
+
+        with open(pjoin(self.render_path, 'meta.pkl'), 'rb') as f:
+            self.meta_dict = pickle.load(f)  # near, far, projection
+        self.instance_points, self.all_data = self.collect_data()
+
+        self.anchors = L.get_anchors()
+
+        print("[Dataloader] : Training dataset size:", len(self.all_data))
+
+    def collect_data(self):
+        data_list = []
+        instances = [f for f in os.listdir(self.render_path) if os.path.isdir(pjoin(self.render_path, f))]
+        instance_points = {}
+        for instance in instances:
+            cur_path = pjoin(self.render_path, instance, 'gt')
+            items = [pjoin(cur_path, f) for f in os.listdir(cur_path) if f.endswith('.npy')]
+            data_list += items
+            instance_points[instance] = np.load(pjoin(self.points_path, f'{instance}.npz'),
+                                                allow_pickle=True)['points']
+        return instance_points, data_list
+
+    def get_complete_cloud(self, instance):
+        pts = self.instance_points[instance]
+        idx = get_index(len(pts), self.num_points)
+        return pts[idx]
+
+    def __len__(self):
+        return len(self.all_data)
+
+    def __getitem__(self, index):
+        cloud, gt_pose = get_modelnet40_data(self.all_data[index], self.meta_dict, self.num_points)
+        target_r = gt_pose[:3, :3]
+        target_t = gt_pose[:3, 3]
+        add_t = np.array([random.uniform(-self.noise_trans, self.noise_trans) for i in range(3)])
+
+        canon_cloud = np.dot(cloud - target_t, target_r) + 0.5
+        if self.add_noise:
+            cloud = cloud + add_t.astype(cloud.dtype)
+
+        _, R_label, R0 = rotation_distance_np(target_r, self.anchors)
+
+        R_gt = torch.from_numpy(target_r.astype(np.float32))  # predict r
+        T = torch.from_numpy(target_t.astype(np.float32))
+
+        category, _, instance = self.all_data[index].split('/')[-5:-2]  # ../render/airplane/train/0001/gt/001.npy
+        model_points = self.get_complete_cloud(instance) + 0.5
+
+        """
+        target = np.dot(model_points, target_r.T)  # the complete point cloud corresponding to the observation
+        if self.add_noise:
+            target = np.add(target, target_t + add_t)  # include noise as well
+        else:
+            target = np.add(target, target_t)
+        """
+        data_dict = {
+            'xyz': cloud,  # point cloud in camera space
+            'points': canon_cloud,  # canonicalized xyz, in [0, 1]^3
+            'full': model_points,  # complete point cloud, in [0, 1]^3
+            'label': torch.from_numpy(np.array([1]).astype(np.float32)),  # useless
+            'R_gt': R_gt,
+            'R_label': R_label,
+            'R': R0,
+            'T': T,
+            'fn': self.all_data[index],
+            'id': instance,
+            'idx': index,
+            'class': category
+        }
+
+        return data_dict
+
+
+def check_data(data_dict):
+    print(f'path: {data_dict["fn"]}, class: {data_dict["class"]}, instance: {data_dict["id"]}')
+    cloud, canon_cloud, full = data_dict['xyz'], data_dict['points'], data_dict['full']
+    R, T = data_dict['R_gt'].numpy(), data_dict['T'].numpy()
+    posed_canon_cloud = np.dot(canon_cloud - 0.5, R.T) + T
+    posed_full_cloud = np.dot(full - 0.5, R.T) + T
+    num_plots = 3
+    plt.figure(figsize=(6 * num_plots, 6))
+
+    def plot(ax, pt_list, title):
+        all_pts = np.concatenate(pt_list, axis=0)
+        pmin, pmax = all_pts.min(axis=0), all_pts.max(axis=0)
+        center = (pmin + pmax) * 0.5
+        lim = max(pmax - pmin) * 0.5 + 0.2
+        for pts in pt_list:
+            ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2], alpha=0.8, s=1)
+        ax.set_xlim3d([center[0] - lim, center[0] + lim])
+        ax.set_ylim3d([center[1] - lim, center[1] + lim])
+        ax.set_zlim3d([center[2] - lim, center[2] + lim])
+        ax.set_xlabel('x')
+        ax.set_ylabel('y')
+        ax.set_zlabel('z')
+        ax.set_title(title)
+
+    for i, (name, pt_list) in enumerate(zip(
+            ['partial', 'canon_partial_and_complete', 'posed_canon_partial_and_complete'],
+            [[cloud], [canon_cloud, full], [posed_canon_cloud, posed_full_cloud]])):
+        ax = plt.subplot(1, num_plots, i + 1, projection='3d')
+        plot(ax, pt_list, name)
+
+    plt.show()
+
+
+@hydra.main(config_path="../config/completion.yaml")
+def main(cfg):
+    dataset = Dataloader_ModelNet40New(cfg, 'test')
+    print('length', len(dataset))
+    for i in range(len(dataset)):
+        data = dataset[i]
+        check_data(data)
+
+
+if __name__ == '__main__':
+    main()
+
+"""
+download modelnet_points.tar(complete object point clouds) and modelnet_render.tar (depth & gt pose)
+modelnet40new/
+    render/
+         airplane/
+            train/
+                meta.pkl  # camera info
+                0001/
+                    depth/
+                        000.png
+                        001.png
+                    gt/
+                        000.npy
+                        001.npy
+    points/
+        airplane/
+            train/
+                0001.npz
+            test/
+    
+Pose and size: 
+- all models are of unit size 
+- the input data 'xyz' is NOT normalized -> still contains a big translation
+
+Sampling:
+- random sample from backprojected depth points
+
+Caching:
+- not implemented
+
+
+"""
