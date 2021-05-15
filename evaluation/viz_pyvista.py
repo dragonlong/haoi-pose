@@ -90,12 +90,12 @@ if __name__ == '__main__':
     pv.set_plot_theme("document")
     off_screen = False
     color      = 'gold' #'deepskyblue'
-    exp_num    = 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
-    window_shape = (1,3)
+    exp_num    = 0.81 #0.81 # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
+    window_shape = (1,4)
     k = 1.3
     k1 = 1.05
     font_size    = 18
-    query_keys   = ['canon', 'target', 'input', 'pred']
+    query_keys   = ['canon', 'target', 'input', 'pred', 'icp']
     fpath   = f'/home/dragon/Documents/ICML2021/results/preds/{exp_num}/generation/' # generation/generation
     ###############################################################################
     # Another approach is to load the vectors directly to the mesh object and then
@@ -170,6 +170,16 @@ if __name__ == '__main__':
         p.add_mesh(points['input'], color='r', point_size=15, render_points_as_spheres=True)
         p.add_legend([['pred', 'g'], ['input', 'r']], bcolor=(1.0, 1.0, 1.0))
         p.add_title('pose estimation', font_size=font_size)
+        p.show_grid()
+
+        p.subplot(0,3)
+        sphere = pv.Sphere(radius=0.1)
+        p.add_mesh(sphere,  color='b')
+
+        p.add_mesh(points['icp'],  color='g', point_size=15, render_points_as_spheres=True)
+        p.add_mesh(points['input'], color='r', point_size=15, render_points_as_spheres=True)
+        p.add_legend([['icp', 'g'], ['input', 'r']], bcolor=(1.0, 1.0, 1.0))
+        p.add_title('icp estimation', font_size=font_size)
         p.show_grid()
         cpos = p.show(screenshot='test.png', window_size=(1980, 920))
         print(cpos)

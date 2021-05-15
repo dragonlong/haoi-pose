@@ -8,6 +8,97 @@ from mpl_toolkits.mplot3d import Axes3D
 from pylab import *
 from sklearn.externals import joblib
 
+def non_uniform_sampling_occlusion(viewDir, points, inNumPoints, normals=None, inFeatures=None, inLabels=None, numPoints=0, screenResolution=128):
+    """Method to non-uniformly sample a point cloud using the occlusion protocol. A point is selected
+    if it is visible from the view direction.
+    Args:
+        viewDir (3 np.array): View vector used to compute the visibility of each point.
+        points (nx3 np.array): List of points.
+        normals (nx3 np.array): List of point normals.
+        inNumPoints (int): Number of points in the list.
+        inFeatures (nxm np.array): List of point features.
+        inLabels (nxl np.array): List of point labels.
+        numPoints (int): Number of points to sample. If 0, all the points are selected.
+    Returns:
+        sampledPts (nx3 np.array): List of sampled points.
+        sampledFeatures (nxm np.array): List of the features of the sampled points.
+        sampledLabels (nxl np.array): List of the labels of the sampled points.
+    """
+
+    # Compute the screen plane.
+    xVec = np.cross(viewDir, np.array([0.0, 1.0, 0.0]))
+    xVec = xVec / np.linalg.norm(xVec)
+    yVec = np.cross(xVec, viewDir)
+    yVec = yVec / np.linalg.norm(yVec)
+
+    # Compute the bounding box.
+    coordMax = np.amax(points, axis=0)
+    coordMin = np.amin(points, axis=0)
+    diagonal = np.linalg.norm(coordMax - coordMin)*0.5
+    center = (coordMax + coordMin)*0.5
+
+    # Create the screen pixels
+    screenSize = screenResolution
+    pixelSize = diagonal/(float(screenSize)*0.5)
+    screenPos = center - viewDir*diagonal - xVec*diagonal - yVec*diagonal
+    screenZBuff = np.full([screenSize, screenSize], -1.0)
+
+    # Compute the z value and pixel id in which each point is projected.
+    pixelIds = [[-1, -1] for i in range(inNumPoints)]
+    zVals = [1.0 for i in range(inNumPoints)]
+    for i in range(inNumPoints):
+        # # If the point is facing the camera.
+        # if np.dot(normals[i], viewDir) < 0.0:
+        # Compute the z value of the pixel.
+        transPt = points[i] - screenPos
+        transPt = np.array([
+            np.dot(transPt, xVec),
+            np.dot(transPt, yVec),
+            np.dot(transPt, viewDir)/(diagonal*2.0)])
+        zVals[i] = transPt[2]
+
+        # Compute the pixel id in which the point is projected.
+        transPt = transPt / pixelSize
+        pixelIds[i][0] = int(np.floor(transPt[0]))
+        pixelIds[i][1] = int(np.floor(transPt[1]))
+
+        # Update the z-buffer.
+        if screenZBuff[pixelIds[i][0]][pixelIds[i][1]] > zVals[i] or screenZBuff[pixelIds[i][0]][pixelIds[i][1]] < 0.0:
+            screenZBuff[pixelIds[i][0]][pixelIds[i][1]] = zVals[i]
+
+    auxOutPts = []
+    auxOutInFeatures = []
+    auxOutInLabels = []
+    exitVar = False
+    numAddedPts = 0
+    # Iterate over the points until we have the desired number of output points.
+    while not exitVar:
+        # Iterate over the points.
+        for i in range(inNumPoints):
+            # Determine if the point is occluded.
+            if (zVals[i] - screenZBuff[pixelIds[i][0]][pixelIds[i][1]]) < 0.01:
+                # Store the point in the output buffers.
+                auxOutPts.append(points[i])
+                if not(inFeatures is None):
+                    auxOutInFeatures.append(inFeatures[i])
+                if not(inLabels is None):
+                    auxOutInLabels.append(inLabels[i])
+                numAddedPts += 1
+                if (numPoints > 0) and (numAddedPts >= numPoints):
+                    exitVar = True
+                    break
+
+        if numPoints == 0:
+            exitVar = True
+
+    npOutPts = np.array(auxOutPts)
+    npOutInFeatures = None
+    if not(inFeatures is None):
+        npOutInFeatures = np.array(auxOutInFeatures)
+    npOutInLabels = None
+    if not(inLabels is None):
+        npOutInLabels = np.array(auxOutInLabels)
+    return npOutPts, npOutInFeatures, npOutInLabels
 
 def rotate_about_axis(theta, axis='x'):
     if axis == 'x':

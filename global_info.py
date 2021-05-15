@@ -5,6 +5,10 @@ import os
 import sys
 import platform
 import numpy as np
+import glob
+
+def bp():
+    import pdb;pdb.set_trace()
 
 class setting():
     def __init__(self):
@@ -462,6 +466,7 @@ class global_info(object):
         self.sym_type = sym_type
 
         delta_R = {}
+        delta_T = {}
         delta_R['modelnet40aligned_airplane'] =  np.array([[[ 0.2543,  0.4519,  0.8551], \
                  [ 0.8555, -0.5174,  0.0190], \
                  [ 0.4510,  0.7267, -0.5182]]])
@@ -527,7 +532,18 @@ class global_info(object):
         delta_R['0.863_nocs_synthetic_laptop'] =  np.array([[[-0.0354,  0.3212, -0.9464],
                  [-0.5487,  0.7852,  0.2871],
                  [ 0.8353,  0.5294,  0.1484]]])
+
+
+        # find all pre-computed delta_R, delta_T
+        rt_files = glob.glob(f'{project_path}/haoi-pose/evaluation/infos/*.npy')
+        for rt_file in rt_files:
+            exp_num, name_dset, target_category = rt_file.split('/')[-1].split('.npy')[0].split('_')[:3]
+            rt_dict = np.load(rt_file, allow_pickle=True).item()
+            delta_R[f'{exp_num}_{name_dset}_{target_category}'] = rt_dict['delta_r']
+            if 'delta_t' in rt_dict:
+                delta_T[f'{exp_num}_{name_dset}_{target_category}'] = rt_dict['delta_t'].reshape(1, 3)
         self.delta_R = delta_R
+        self.delta_T = delta_T
 
         # bottle 33278
         # mug 0

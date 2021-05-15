@@ -20,7 +20,7 @@ from se3net import equivariance_test
 from common.debugger import *
 from evaluation.pred_check import post_summary, prepare_pose_eval
 from common.algorithms import compute_pose_ransac
-from common.d3_utils import axis_diff_degree, rot_diff_rad
+from common.d3_utils import axis_diff_degree, rot_diff_rad, mean_angular_error
 from common.vis_utils import plot_distribution
 from vgtk.functional import so3_mean
 from global_info import global_info
@@ -34,8 +34,6 @@ categories      = infos.categories
 whole_obj = infos.whole_obj
 part_obj  = infos.part_obj
 obj_urdf  = infos.obj_urdf
-categories_id = infos.categories_id
-project_path  = infos.project_path
 
 def set_feat(G, R, num_features=1):
     G.edata['d'] = G.edata['d'] @ R
@@ -85,21 +83,44 @@ def random_choice_noreplace(l, n_sample, num_draw):
                              axis=-1)[:, :n_sample]]
 
 
-# def ransac_fit_r(batch_dr, max_iter=100, thres=1.0):
-#     # B, 3, 3
-#     best_score = 0
-#     nb = batch_dr.shape[0]
-#     with torch.no_grad():
-#         for i in range(max_iter):
-#             sample_idx = random_choice_noreplace(torch.tensor(np.arange(nb)), 5, 16)
-#             r_samples = batch_dr[sample_idx]
-#             r_hyp     = so3_mean(r_samples)
-#             err = mean_angular_error(r_hyp.unsqueeze(0), batch_dr)
-#             i
-#     return None
+def ransac_fit_r(batch_dr, max_iter=100, thres=1.0):
+    # B, 3, 3
+    best_score = 0
+    chosen_hyp = None
+    nb = batch_dr.shape[0]
+    with torch.no_grad():
+        for i in range(max_iter):
+            sample_idx = random_choice_noreplace(torch.tensor(np.arange(nb)), 5, 1).squeeze()
+            r_samples = batch_dr[sample_idx]
+            r_hyp     = so3_mean(r_samples.unsqueeze(0))
+            err = mean_angular_error(r_hyp, batch_dr) * 180 /np.pi
+            inliers = (err < thres) * 1.0
+            curr_score = inliers.mean()
+            if curr_score > best_score:
+                best_score = curr_score
+                chosen_hyp = r_hyp
 
-def ransac_fit_r(batch_dr, batch_dt, delta_r):
-    return None
+    return chosen_hyp, best_score
+
+def ransac_fit_t(batch_dt, batch_dr, delta_r, max_iter=100, thres=0.025):
+    # B, 3, 3
+    best_score = 0
+    chosen_hyp = None
+    nb = batch_dt.shape[0]
+    dt_candidates = torch.matmul(-batch_dt, delta_r)
+    with torch.no_grad():
+        for i in range(max_iter):
+            sample_idx = random_choice_noreplace(torch.tensor(np.arange(nb)), 5, 1).squeeze()
+            t_samples = dt_candidates[sample_idx]
+            t_hyp     = t_samples.mean(dim=0, keepdim=True)
+            err       = torch.norm(torch.matmul(t_hyp, delta_r.permute(1, 0).contiguous()) + batch_dt, dim=-1)
+            inliers   = (err < thres) * 1.0
+            curr_score = inliers.mean()
+            if curr_score > best_score:
+                best_score = curr_score
+                chosen_hyp = t_hyp
+
+    return chosen_hyp, best_score
 
 @hydra.main(config_path="config/completion.yaml")
 def main(cfg):
@@ -169,19 +190,19 @@ def main(cfg):
     if cfg.eval_mini or cfg.eval:
         if cfg.pre_compute_delta:
             set_dr = []
-
             set_dt = []
             for num, data in enumerate(train_loader):
-                if num > 4000:
+                if num > 4096:
                     break
                 torch.cuda.empty_cache()
                 tr_agent.eval_func(data)
                 set_dr.append(tr_agent.pose_info['delta_r'])
                 if cfg.pred_t:
                     set_dt.append(tr_agent.pose_info['delta_t'])
-            # delta_r = ransac_fit_r(torch.cat(set_dr, dim=0))
-            # if cfg.pred_t:
-            #     delta_t = ransac_fit_t(torch.cat(set_dt, dim=0))
+
+            delta_r, r_score = ransac_fit_r(torch.cat(set_dr, dim=0))
+            if cfg.pred_t:
+                delta_t, t_score = ransac_fit_t(torch.cat(set_dt, dim=0), torch.cat(set_dr, dim=0), delta_r.squeeze() )
 
             # valid_deltas = torch.cat(all_deltas, dim=0)
             # # valid_deltas = valid_deltas[valid_deltas[:, 0, 1]>0] # partial airplane
@@ -204,8 +225,15 @@ def main(cfg):
             #     valid_deltas = valid_deltas[valid_deltas[:, 0, 1]>0]
             #     valid_deltas = valid_deltas[valid_deltas[:, 1, 0]>0]
             # delta_R = so3_mean(valid_deltas.unsqueeze(0))
-            print(cfg.target_category, ': ', delta_r.cpu(), delta_t.cpu())
-            # how to save
+            print(cfg.target_category, '\n with r_score: ', r_score, delta_r.cpu())
+
+            save_dict = {'delta_r': delta_r.cpu().numpy()}
+            if cfg.pred_t:
+                save_dict['delta_t'] = delta_t.cpu().numpy()
+                print(' with t_score: ', t_score, delta_t.cpu())
+            save_name = f'{project_path}/haoi-pose/evaluation/infos/{cfg.exp_num}_{cfg.name_dset}_{cfg.target_category}.npy'
+            print('saving to ', save_name)
+            np.save(save_name, arr=save_dict)
             return
 
         # main evaluation scripts
@@ -233,7 +261,7 @@ def main(cfg):
                 if pose_diff is not None:
                     for key in ['rdiff', 'tdiff', 'sdiff']:
                         track_dict[key] += pose_diff[key].float().cpu().numpy().tolist()
-                    print(pose_diff['rdiff'])
+                    print(pose_diff['rdiff'], pose_diff['tdiff'])
                     deg = pose_diff['rdiff'] <= 5.0
                     cm = pose_diff['tdiff'] <= 0.05
                     degcm = deg & cm
@@ -255,14 +283,13 @@ def main(cfg):
                 if 'completion' in cfg.task:
                     track_dict['chamferL1'].append(torch.sqrt(tr_agent.recon_loss).cpu().numpy().tolist())
                 tr_agent.visualize_batch(data, "test")
+        print(f'# >>>>>>>> Exp: {cfg.exp_num} for {cfg.target_category} <<<<<<<<<<<<<<<<<<')
         for key, value in track_dict.items():
             if len(value) < 1:
                 continue
             print(key, ':', np.array(value).mean())
             if key == 'rdiff':
                 print(key, '_mid:', np.median(np.array(value)))
-        print(f'experiment {cfg.exp_num} for {cfg.target_category}\n')
-
         if cfg.save:
             print('--saving to ', file_name)
             np.save(file_name, arr={'info': infos_dict, 'err': track_dict})

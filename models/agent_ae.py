@@ -22,6 +22,7 @@ from global_info import global_info
 infos           = global_info()
 my_dir          = infos.base_path
 delta_R         = infos.delta_R
+delta_T         = infos.delta_T
 def bp():
     import pdb;pdb.set_trace()
 
@@ -111,7 +112,6 @@ class PointAEPoseAgent(BaseAgent):
             self.eval_nocs(data)
         else:
             if self.config.pre_compute_delta:
-                delta_R = so3_mean(self.r_pred.unsqueeze(0))
                 self.pose_err = None
                 self.pose_info = {'delta_r': self.r_pred, 'delta_t': self.t_pred}
             else:
@@ -124,17 +124,26 @@ class PointAEPoseAgent(BaseAgent):
         M  = self.config.num_modes_R
 
         if 'ssl' in self.config.task:
+            # r
             if f'{self.config.exp_num}_{self.config.name_dset}_{self.config.target_category}' in delta_R:
-                self.delta_R = torch.from_numpy(delta_R[f'{self.config.exp_num}_{self.config.name_dset}_{self.config.target_category}']).cuda()
+                self.delta_r = torch.from_numpy(delta_R[f'{self.config.exp_num}_{self.config.name_dset}_{self.config.target_category}']).cuda()
             elif f'{self.config.name_dset}_{self.config.target_category}' in delta_R:
-                self.delta_R = torch.from_numpy(delta_R[f'{self.config.name_dset}_{self.config.target_category}']).cuda()
+                self.delta_r = torch.from_numpy(delta_R[f'{self.config.name_dset}_{self.config.target_category}']).cuda()
             else:
-                self.delta_R= torch.eye(3).reshape((1, 3, 3)).repeat(BS, 1, 1).cuda()
+                self.delta_r= torch.eye(3).reshape((1, 3, 3)).repeat(BS, 1, 1).cuda()
+            # t
+            if f'{self.config.exp_num}_{self.config.name_dset}_{self.config.target_category}' in delta_T:
+                self.delta_t = torch.from_numpy(delta_T[f'{self.config.exp_num}_{self.config.name_dset}_{self.config.target_category}']).cuda()
+            elif f'{self.config.name_dset}_{self.config.target_category}' in delta_T:
+                self.delta_t = torch.from_numpy(delta_R[f'{self.config.name_dset}_{self.config.target_category}']).cuda()
+            else:
+                self.delta_t= torch.zeros(1, 3).cuda()
         else:
-            self.delta_R= torch.eye(3).reshape((1, 3, 3)).cuda()
+            self.delta_r= torch.eye(3).reshape((1, 3, 3)).cuda()
+            self.delta_t= torch.zeros(1, 3).cuda()
 
-        # self.delta_R
-        pred_rot    = torch.matmul(self.r_pred, self.delta_R.float().permute(0, 2, 1).contiguous())
+        # self.delta_r
+        pred_rot    = torch.matmul(self.r_pred, self.delta_r.float().permute(0, 2, 1).contiguous())
         gt_rot      = data['R_gt'].cuda()  # [B, 3, 3]
         rot_err     = rot_diff_degree(gt_rot, pred_rot, chosen_axis=None)  # [B, M]
 
@@ -144,9 +153,9 @@ class PointAEPoseAgent(BaseAgent):
             input_pts  = data['G'].ndata['x'].view(BS, -1, 3).contiguous().cuda() # B, N, 3
 
         if self.config.pred_t:
-            pred_center= torch.matmul(self.r_pred, self.t_pred.unsqueeze(-1)) + input_pts.mean(dim=-1, keepdim=True) # local center, plus offsets
+            pred_center= self.t_pred.unsqueeze(-1) +  torch.matmul(self.r_pred, self.delta_t.unsqueeze(-1))
             gt_center  = data['T'].cuda() # B, 3 # from original to
-            trans_err = torch.norm(pred_center[:, :, 0] - gt_center[:, 0, :], dim=-1)
+            trans_err  = torch.norm(pred_center[:, :, 0] - gt_center[:, 0, :], dim=-1)
         else:
             trans_err = torch.zeros(BS).cuda()
             gt_center  = torch.zeros(BS, 1, 3).cuda()
@@ -187,7 +196,7 @@ class PointAEPoseAgent(BaseAgent):
         trans_err = torch.norm(mean_pred_c - gt_center[:, 0, :], dim=1) #
 
         scale_err = torch.Tensor([0, 0]) #
-        scale = torch.Tensor([1.0, 1.0])
+        scale = torch.Tensor([1.0, 1.0]) #
         self.pose_err  = {'rdiff': rot_err, 'tdiff': trans_err, 'sdiff': scale_err}
         self.pose_info = {'r_gt': gt_rot, 't_gt': gt_center.mean(dim=1), 's_gt': scale, 'r_pred': pred_rot, 'r_raw': self.output_R, 't_pred': pred_center.mean(dim=1), 's_pred': scale}
         return
@@ -487,6 +496,10 @@ class PointAEPoseAgent(BaseAgent):
             self.transformed_pts = transformed_pts[torch.arange(0, BS), min_indices] + shift_dis
             self.r_pred = pred_R[torch.arange(0, BS), min_indices].detach().clone() # correct R by searching
             self.r_pred.requires_grad = False
+            self.infos["recon"] = self.recon_loss
+            if self.config.eval:
+                print('chamferL1', torch.sqrt(self.recon_loss))
+
             if self.config.pred_t:
                 self.t_pred = pred_T.squeeze(-1)[torch.arange(0, BS), min_indices] + shift_dis.squeeze()
             else:
@@ -576,7 +589,7 @@ class PointAEPoseAgent(BaseAgent):
 
     def visualize_batch(self, data, mode, **kwargs):
         tb = self.train_tb if mode == 'train' else self.val_tb
-        num = min(data['points'].shape[0], 2)
+        num = min(data['points'].shape[0], 12)
         target_pts = data['points'].detach().cpu().numpy() # canonical space
         if 'xyz' in data:
             input_pts = data['xyz'].detach().cpu().numpy()

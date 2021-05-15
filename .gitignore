@@ -13,3 +13,4 @@ wandb
 /results
 .npy
 .png
+.pcd
