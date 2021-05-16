@@ -6,11 +6,10 @@ import torchvision
 import __init__
 from models.ae_gan import get_network
 from models.base import BaseAgent
-# from utils.emd import earth_mover_distance
 from utils.extensions.chamfer_dist import ChamferDistance
 from utils.p2i_utils import look_at
 from models.losses import loss_geodesic, loss_vectors, compute_vect_loss, compute_1vN_nocs_loss, compute_miou_loss
-from common.d3_utils import compute_rotation_matrix_from_euler, compute_euler_angles_from_rotation_matrices, compute_rotation_matrix_from_ortho6d, mean_angular_error
+from common.d3_utils import compute_rotation_matrix_from_euler, compute_euler_angles_from_rotation_matrices, compute_rotation_matrix_from_ortho6d, mean_angular_error, angle_from_R
 from common.yj_pose import compute_pose_diff, rot_diff_degree
 from os import makedirs, remove
 from os.path import exists, join
@@ -81,6 +80,13 @@ class PointAEPoseAgent(BaseAgent):
         net = net.cuda()
         return net
 
+    def synchronize_input(self, data):
+        device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+        target_keys = ['xyz', 'points', 'C', 'T', 'R_gt', 'R', 'R_label']
+        for key in target_keys:
+            if key in data:
+                data[key] = data[key].to(device)
+
     def forward(self, data, verbose=False):
         """
         1. forwarding;
@@ -88,17 +94,379 @@ class PointAEPoseAgent(BaseAgent):
         3. extra losses;
         """
         self.infos    = {}
+        self.synchronize_input(data) #
         if 'se3' in self.config.encoder_type:
             self.predict_se3(data)
         else:
             self.predict_pnet2(data)
 
+        # for general loss
         if self.config.pred_6d:
             self.compute_and_eval_6d(data)
         if self.config.pred_axis:
             self.compute_and_eval_axis(data)
-
+        if 'so3' in self.config.encoder_type or self.config.use_head_assemble:
+            self.compute_and_eval_so3(data)
+        #
         self.compute_loss(data)
+
+    def predict_se3(self, data):
+        BS = data['points'].shape[0]
+        N  = data['points'].shape[1] # B, N, 3
+        M  = self.config.num_modes_R
+        CS = self.config.MODEL.num_channels_R
+        device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+        self.latent_vect = self.net.encoder(data['G'].to(device))
+        if self.config.pred_nocs:
+            self.output_N = self.net.regressor_nocs(self.latent_vect['N'].squeeze(-1).view(BS, -1, self.latent_vect['N'].shape[1]).contiguous().permute(0, 2, 1).contiguous()) # assume to be B*N, 128? --> 3 channel
+        self.output_T = self.latent_vect['T'].permute(0, 2, 1).contiguous().squeeze(-1).view(BS, -1, 3).contiguous().permute(0, 2, 1).contiguous()# [B, 3, N]
+
+        if self.config.pred_6d:
+            self.output_R = compute_rotation_matrix_from_ortho6d(self.latent_vect['R'].view(-1, 6).contiguous())
+            self.output_R_pooled = compute_rotation_matrix_from_ortho6d(self.latent_vect['1'].view(-1, 6).contiguous()) # dense by default!!! B, 2*C, 3
+
+        if self.config.pred_seg:
+            self.output_C = self.net.classifier_seg(self.latent_vect['N'].squeeze(-1).view(BS, -1, self.latent_vect['N'].shape[1]).contiguous().permute(0, 2, 1).contiguous())
+
+        if self.config.pred_mode: # map 4 to 2
+            self.output_M = self.net.classifier_mode(self.latent_vect['R0']).squeeze(-1) # [BS * N, M, 1]-->[BS * N, M] --> [BS, M, N]
+
+        if 'completion' in self.config.task:
+            if isinstance(self.latent_vect, dict):
+                self.output_pts = self.net.decoder(self.latent_vect['0'])
+            else:
+                self.output_pts = self.net.decoder(self.latent_vect)
+
+    def predict_pnet2(self, data):
+        BS = data['points'].shape[0]
+        N  = data['points'].shape[1] # B, N, 3
+        M  = self.config.num_modes_R
+        CS = self.config.MODEL.num_channels_R
+        # B, 3, N
+        if 'xyz' in data:
+            input_pts = data['xyz'].permute(0, 2, 1).contiguous()
+        else:
+            input_pts    = data['G'].ndata['x'].view(BS, -1, 3).contiguous().permute(0, 2, 1).contiguous() #
+        input_pts        = input_pts - input_pts.mean(dim=-1, keepdim=True)
+        if self.config.use_rgb:
+            rgb_feat = data['G'].ndata['f'].view(BS, -1, 3).contiguous().permute(0, 2, 1).contiguous() #
+            feat = torch.cat([input_pts, rgb_feat], dim=1)
+        else:
+            feat = input_pts
+
+        self.latent_vect = self.net.encoder(feat) # double
+        self.output_T    = self.latent_vect['T']  # 3, N, no activation
+        if self.config.pred_nocs:
+            self.output_N = self.latent_vect['N']
+        if self.config.pred_6d:
+            if M > 1:
+                self.output_R = self.latent_vect['R'].view(BS, -1, 3, N).contiguous().view(BS, M, 2, 3, N).contiguous() # B, 6, N
+                self.output_R = self.output_R/(torch.norm(self.output_R, dim=3, keepdim=True) + epsilon)
+                self.output_R = self.output_R.permute(0, 1, 4, 2, 3).contiguous().view(-1, 2, 3).contiguous().view(-1, 6).contiguous() # -1, 6
+                self.output_R = compute_rotation_matrix_from_ortho6d(self.output_R)
+            else:
+                self.output_R = self.latent_vect['R'].view(BS, 2, 3, N).contiguous() # B, 6, N
+                self.output_R = self.output_R/(torch.norm(self.output_R, dim=2, keepdim=True) + epsilon)
+                self.output_R = self.output_R.permute(0, 3, 1, 2).contiguous().view(-1, 2, 3).contiguous().view(-1, 6).contiguous()
+                self.output_R = compute_rotation_matrix_from_ortho6d(self.output_R)
+
+        if self.config.pred_seg:
+            self.output_C = self.latent_vect['C']
+
+        if self.config.pred_mode: # B, M, N
+            self.output_M = self.latent_vect['M'].permute(0, 2, 1).contiguous().view(-1, M).contiguous() # BS*N, M
+
+        if 'completion' in self.config.task:
+            if isinstance(self.latent_vect, dict):
+                self.output_pts = self.net.decoder(self.latent_vect['0'])
+            else:
+                self.output_pts = self.net.decoder(self.latent_vect)
+
+    def compute_and_eval_6d(self, data):
+        input_pts  = data['xyz'] # 'points'
+        BS = data['points'].shape[0]
+        N  = data['points'].shape[1] # B, N, 3
+        M  = self.config.num_modes_R
+        CS = self.config.MODEL.num_channels_R
+        target_R   = data['R']
+        if 'C' in data:
+            mask = data['C'] # B, N
+        else:
+            mask = torch.ones(BS, N, device=target_R.device)
+
+        target_R_tiled  = target_R.unsqueeze(1).contiguous().repeat(1, N * M, 1, 1).contiguous()
+        geodesic_loss   = loss_geodesic(self.output_R, target_R_tiled.view(-1, 3, 3).contiguous().float())  # BS*N* C/2
+
+        self.degree_err_full = geodesic_loss.view(BS, M, N).contiguous()   # BS, N
+        self.output_R_full   = self.output_R.view(BS, M, N, 3, 3).contiguous() # BS, N, 3, 3
+        self.output_R   = self.output_R_full
+
+        # BS, N*M
+        self.norm_err   = torch.norm(self.output_R.view(BS, N*M, 9).contiguous() - target_R_tiled.view(BS, N*M, 9).contiguous(), dim=-1)
+
+        if self.config.check_consistency: # BS, M, N, 3, 3
+            mean_R   = torch.mean(self.output_R_full, dim=2, keepdim=True).view(BS, M, 1, -1).contiguous()
+            variance = torch.norm(self.output_R.view(BS, M, N, -1).contiguous() - mean_R, dim=-1).mean()
+            self.consistency_loss = variance * self.config.consistency_loss_multiplier
+            self.infos['consistency'] = self.consistency_loss
+        else:
+            self.consistency_loss = 0.0
+
+        if M > 1: # multi-mode dense
+            self.norm_err = self.norm_err.view(BS, M, N).contiguous()
+            if self.config.use_adaptive_mode:
+                min_loss, min_indices = torch.min(self.norm_err, dim=1) # B, M, N
+                self.regressionR_loss = min_loss.mean(dim=1)
+                self.output_R         = self.output_R[torch.arange(BS).reshape(-1, 1), min_indices, torch.arange(N).reshape(1, -1)].contiguous()
+                self.degree_err       = self.degree_err_full[torch.arange(BS).reshape(-1, 1), min_indices, torch.arange(N).reshape(1, -1)].contiguous()
+            else:
+                min_loss, min_indices = torch.min(self.norm_err.mean(dim=-1), dim=-1) # we only allow one mode to be True
+                self.regressionR_loss = min_loss
+                self.degree_err = self.degree_err_full[torch.arange(BS), :, min_indices] # degree err is raw GT mode prediction
+        else:
+            self.regressionR_loss = torch.sum(self.norm_err * mask, dim=1)/(torch.sum(mask, dim=1) + epsilon)
+            self.degree_err = self.degree_err_full.squeeze() * mask
+            self.output_R = self.output_R.squeeze()
+
+        self.regressionR_loss = self.regressionR_loss.mean()
+
+        if self.config.use_objective_T:
+            self.regressionT_loss = compute_vect_loss(self.output_T, target_T, confidence=mask).mean() # TYPE_LOSS='SOFT_L1'
+
+        correctness_mask = torch.zeros((self.degree_err.shape[0], self.degree_err.shape[1]), device=self.output_R.device) # B, N
+        correctness_mask[self.degree_err<THRESHOLD_GOOD] = 1.0
+        correctness_mask[mask<1] = 0.0
+        good_pred_ratio   = torch.sum(correctness_mask, dim=1)/(torch.sum(mask, dim=1) + epsilon) # B
+        degree_err_masked = torch.sum(self.degree_err, dim=1)/(torch.sum(mask, dim=1) + epsilon)
+        self.infos.update({'5deg': good_pred_ratio.mean(), 'rdiff': degree_err_masked.mean()})
+
+    def compute_and_eval_axis(self, data):
+        target_R   = data['R']
+        target_R   = target_R.permute(0, 2, 1).contiguous() # B, 3, 1
+        if self.config.MODEL.num_channels_R > 1:
+            BS, CS = target_R.shape[0], self.latent_vect['R'].shape[-2]     # [BS*N, C, 3] -> [Bs, N, C, 3] -> [Bs, 3, N, C]
+            self.output_R  = self.latent_vect['R'].view(BS, -1, CS, 3).contiguous().permute(0, 3, 1, 2).contiguous()
+            self.output_R = self.output_R/(torch.norm(self.output_R, dim=1, keepdim=True) + epsilon)
+            self.output_R_full = self.output_R
+            self.degree_err = torch.acos( torch.sum(self.output_R*target_R.unsqueeze(-1), dim=1)) * 180 / np.pi
+        else:
+            self.output_R = self.latent_vect['R'].view(target_R.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous() # B, 3, N
+            self.output_R = self.output_R/(torch.norm(self.output_R, dim=1, keepdim=True) + epsilon)
+            self.degree_err = torch.acos( torch.sum(self.output_R*target_R, dim=1)) * 180 / np.pi
+
+        self.output_R_pooled = self.output_R.mean(dim=2) #
+        self.output_R_pooled = self.output_R_pooled/(torch.norm(self.output_R_pooled, dim=1, keepdim=True) + epsilon)
+
+        confidence = target_C
+        if self.config.check_consistency: # on all points, all modes
+            mean_R = torch.mean(self.output_R, dim=2, keepdim=True)
+            variance = torch.norm(self.output_R - mean_R, dim=1).mean()
+            self.consistency_loss = variance * self.config.consistency_loss_multiplier
+            self.infos['consistency'] = self.consistency_loss
+        else:
+            self.consistency_loss = 0.0
+
+        if self.config.MODEL.num_channels_R > 1: # apply to all, add
+            # add per-mode minimum calculation, using the symmetry type, when we have symmetry on z, x axis
+            if self.config.rotation_use_dense:
+                regressionR_loss = compute_vect_loss(self.output_R, target_R.unsqueeze(-1), target_category=self.config.target_category, use_one2many=self.config.use_one2many)
+            else:
+                regressionR_loss = compute_vect_loss(self.output_R_pooled.unsqueeze(2), target_R.unsqueeze(2), target_category=self.config.target_category, use_one2many=self.config.use_one2many) # [2, 3, 2], [2, 3, 1]
+            min_loss, min_indices = torch.min(regressionR_loss, dim=-1)
+            self.regressionR_loss = min_loss
+            # update the output_R here
+            self.output_R   =  self.output_R_full[torch.arange(target_R.shape[0]), :, :, min_indices[:]]
+            self.degree_err =  self.degree_err[torch.arange(target_R.shape[0]), :, min_indices[:]] # B, N, C
+        else: # we have confidence for hand points
+            if self.config.rotation_use_dense:
+                self.regressionR_loss = compute_vect_loss(self.output_R, target_R, confidence=confidence, target_category=self.config.target_category, use_one2many=self.config.use_one2many) # B
+            else:
+                self.regressionR_loss = compute_vect_loss(self.output_R_pooled.unsqueeze(-1), target_R, target_category=self.config.target_category, use_one2many=self.config.use_one2many) # B, 3, N
+            self.infos['regressionR'] = self.regressionR_loss.mean()
+
+        self.regressionR_loss = self.regressionR_loss.mean()
+        if self.config.use_objective_T:
+            self.regressionT_loss = compute_vect_loss(self.output_T, target_T, confidence=mask).mean() # TYPE_LOSS='SOFT_L1'
+
+        correctness_mask = torch.zeros((self.degree_err.shape[0], self.degree_err.shape[1]), device=self.output_R.device) # B, N
+        correctness_mask[self.degree_err<THRESHOLD_GOOD] = 1.0
+        good_pred_ratio = torch.mean(correctness_mask, dim=1) # TODO
+        self.infos['good_pred_ratio'] = good_pred_ratio.mean() # scalar
+
+        if self.config.pred_mode and self.config.MODEL.num_channels_R > 1:
+            self.target_M       = min_indices.unsqueeze(1).repeat(1, self.output_R.shape[-1]).contiguous().view(-1).contiguous()
+            self.classifyM_loss = compute_miou_loss(self.output_M, min_indices.unsqueeze(1).repeat(1, self.output_R.shape[-1]).contiguous().view(-1).contiguous(), loss_type='xentropy')
+            self.output_M_label = torch.argmax(self.output_M, dim=-1)  # [B * N] in [0...M-1]
+            self.classifyM_acc = (self.output_M_label == min_indices.unsqueeze(1).repeat(1, self.output_R.shape[-1]).contiguous().view(-1).contiguous()).float().mean()
+            # [B, 3, N, M]
+            self.output_R_chosen = self.output_R_full[torch.arange(BS).reshape(-1, 1), :,
+                                   torch.arange(N).reshape(1, -1), self.output_M_label.reshape(BS, N)].permute(0, 2, 1)  # [B, N, 3]
+            self.degree_err_chosen = torch.acos(torch.sum(self.output_R_chosen * target_R, dim=1)) * 180 / np.pi
+
+    def compute_and_eval_so3(self, data):
+        input_pts      = data['xyz']
+        shift_dis      = input_pts.mean(dim=1, keepdim=True)
+        target_pts     = data['points']
+        target_T       = data['T'].permute(0, 2, 1).contiguous() # B, 3, N
+
+        BS, N = target_pts.shape[0:2]
+        self.threshold = 1.0
+        nb, nr, na = self.latent_vect['R'].shape  #
+        r_gt        = data['R_gt'].float() # GT R,torch.Size([2, 3, 3])
+        rlabel_gt   = data['R_label'].view(-1).contiguous()   # GT R label, torch.Size([2])
+        ranchor_gt   = data['R'].float() # GT relative R, torch.Size([2, 60, 3, 3])
+
+        anchors = self.anchors
+        rlabel_pred = self.latent_vect['1']
+        rotation_mapping = compute_rotation_matrix_from_quaternion if nr == 4 else compute_rotation_matrix_from_ortho6d
+        ranchor_pred = rotation_mapping(self.latent_vect['R'].transpose(1,2).contiguous().view(-1,nr)).view(nb,-1,3,3)
+        pred_R = torch.matmul(anchors, ranchor_pred) # [60, 3, 3], [nb, 60, 3, 3] --> [nb, 60, 3, 3]
+
+        if self.config.pred_t:
+            if self.config.t_method_type == -1:
+                pred_T          = self.output_T.permute(0, 2, 1).contiguous().unsqueeze(-1).contiguous()
+                pred_T          = torch.matmul(pred_R, pred_T) # nb, na, 3, 1,
+            elif self.config.t_method_type == 0:
+                pred_T          = self.output_T.permute(0, 2, 1).contiguous().unsqueeze(-1).contiguous()
+                pred_T          = torch.matmul(anchors, pred_T) # nb, na, 3, 1,
+            else: # type 1, 2, 3
+                pred_T          = self.output_T.permute(0, 2, 1).contiguous().unsqueeze(-1).contiguous() # nb, na, 3, 1
+
+        if 'ssl' in self.config.task:
+            np_out = self.output_pts.shape[-1]
+            if self.config.pred_t:
+                transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5) + pred_T
+                transformed_pts = transformed_pts.permute(0, 1, 3, 2).contiguous() # nb, na, np, 3
+                shift_dis       = input_pts.mean(dim=1, keepdim=True)
+                dist1, dist2 = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), (input_pts - shift_dis).unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
+            else:
+                transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5).permute(0, 1, 3, 2).contiguous() #
+                dist1, dist2 = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), input_pts.unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
+
+            if 'partial' in self.config.task:
+                all_dist = (dist2).mean(-1).view(nb, -1).contiguous()
+            else:
+                all_dist = (dist1.mean(-1) + dist2.mean(-1)).view(nb, -1).contiguous()
+
+            min_loss, min_indices = torch.min(all_dist, dim=-1) # we only allow one mode to be True
+            self.recon_loss   = min_loss.mean()
+            self.rlabel_pred  = min_indices.detach().clone()
+            self.rlabel_pred.requires_grad = False
+            self.transformed_pts = transformed_pts[torch.arange(0, BS), min_indices] + shift_dis
+            self.r_pred = pred_R[torch.arange(0, BS), min_indices].detach().clone() # correct R by searching
+            self.r_pred.requires_grad = False
+            self.infos["recon"] = self.recon_loss
+            if self.config.eval:
+                print('chamferL1', torch.sqrt(self.recon_loss))
+
+            if self.config.pred_t:
+                self.t_pred = pred_T.squeeze(-1)[torch.arange(0, BS), min_indices] + shift_dis.squeeze()
+            else:
+                self.t_pred = None
+
+            if self.config.pred_t:
+                gt_view_matrix = look_at(
+                    eyes=torch.tensor([[0, 0, 0]], dtype=torch.float32).repeat(BS, 1).contiguous(), # can multiply 0.8 if the eye is too close?
+                    centers=data['T'].cpu().squeeze(),
+                    ups=torch.tensor([[0, 0, 1]], dtype=torch.float32).repeat(BS, 1).contiguous(),
+                )
+                gt_pre_matrix = self.render.projection_matrix @ gt_view_matrix
+                self.gt_depth_map = self.render(input_pts, view_id=0, radius_list=[15.0, 20.0], pre_matrix=gt_pre_matrix)
+
+                # pred
+                pred_view_matrix =look_at(
+                    eyes=torch.tensor([[0, 0, 0]], dtype=torch.float32).repeat(BS, 1).contiguous(), # can multiply 0.8 if the eye is too close?
+                    centers=self.t_pred.cpu(),
+                    ups=torch.tensor([[0, 0, 1]], dtype=torch.float32).repeat(BS, 1).contiguous(),
+                )
+                pred_pre_matrix = self.render.projection_matrix @ pred_view_matrix
+                self.pred_depth_map = self.render(self.transformed_pts, view_id=0, radius_list=[20.0, 25.0], pre_matrix=pred_pre_matrix)
+                self.projection_loss   = 0.1 * self.render_loss(self.pred_depth_map, self.gt_depth_map.detach())
+                self.infos['projection'] = self.projection_loss
+                if self.config.use_objective_P and self.config.eval:
+                    ids = data['idx']
+                    if not exists(f'{self.config.log_dir}/depth/'):
+                        makedirs(f'{self.config.log_dir}/depth/')
+                    for k in range(BS):
+                        for m in range(self.gt_depth_map.shape[1]):
+                            save_path = f"{self.config.log_dir}/depth/{ids[k]}_r{m}_depth_maps_gt.jpg"
+                            torchvision.utils.save_image(self.gt_depth_map[k, m, :, :], save_path, pad_value=1)
+                            save_path = f"{self.config.log_dir}/depth/{ids[k]}_r{m}_depth_maps_pred.jpg"
+                            torchvision.utils.save_image(self.pred_depth_map[k, m, :, :], save_path, pad_value=1)
+                            print('---saving to ', save_path)
+        else: # 60 anchors estimation
+            rlabel_pred = rlabel_pred.view(nb,-1) # b
+            if na == 1:
+                r_acc    = torch.zeros(1) + 1
+                self.classifyM_loss   = torch.zeros(1).cuda()
+                self.regressionR_loss = torch.pow(ranchor_pred.squeeze() - r_gt,2).mean()
+                self.r_pred = ranchor_pred.squeeze()
+                self.ranchor_pred = ranchor_pred.squeeze()
+                self.ranchor_gt   = r_gt
+                if self.config.pred_t:
+                    self.t_pred = self.output_T.squeeze() + shift_dis.squeeze()
+                    self.regressionT_loss = torch.norm(self.t_pred- target_T.squeeze(), dim=1).mean()
+                else:
+                    self.t_pred = None
+            else:
+                cls_loss, r_acc = self.classifier(rlabel_pred, rlabel_gt.view(-1).contiguous())
+                self.classifyM_loss = cls_loss.mean()
+                gt_bias = angle_from_R(ranchor_gt.view(-1,3,3)).view(nb,-1)
+                mask = (gt_bias < self.threshold)[:,:,None,None].float()
+                # self.regressionR_loss = 10.0 * torch.pow(ranchor_gt * mask - ranchor_pred * mask,2).mean() # so big???
+                self.regressionR_loss = torch.pow(ranchor_gt * mask - ranchor_pred * mask,2).sum()
+
+                # [4, 60, 3, 1024]  [nb, na, 3, np] -->  [nb, na, np, 3]
+                self.rlabel_pred  = torch.argmax(rlabel_pred, 1).detach().clone()
+                self.rlabel_pred.requires_grad = False
+                # self.transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5).permute(0, 1, 3, 2).contiguous() #
+                self.r_pred = L.batched_index_select(pred_R, 1, self.rlabel_pred.long().view(nb,-1)).view(nb,3,3)
+                self.ranchor_pred = L.batched_index_select(ranchor_pred, 1, self.rlabel_pred.long().view(nb,-1)).view(nb,3,3)
+                self.ranchor_gt   = L.batched_index_select(ranchor_gt, 1, rlabel_gt.long().view(nb,-1)).view(nb,3,3)
+                if self.config.pred_t:
+                    regressionT_loss = torch.norm(pred_T+shift_dis.unsqueeze(-1) - target_T.unsqueeze(1).contiguous(), dim=2).squeeze() # TYPE_LOSS='SOFT_L1'
+                    regressionT_loss = torch.sum(regressionT_loss * mask.squeeze(), dim=1) / mask.squeeze().sum(dim=1)
+                    self.regressionT_loss = regressionT_loss.mean()
+                    self.t_pred = L.batched_index_select(pred_T, 1, self.rlabel_pred.long().view(nb,-1)).squeeze() + shift_dis.squeeze()
+                else:
+                    self.t_pred = None
+
+            self.infos['r_acc'] = r_acc
+            self.infos['rdiff'] = mean_angular_error(self.r_pred, r_gt).mean() * 180 / np.pi   # final r error
+            self.infos['tdiff'] = torch.norm(self.t_pred- target_T.squeeze(), dim=1).mean()
+            self.infos['rdiff_anchor'] = mean_angular_error(self.ranchor_pred, self.ranchor_gt).mean() * 180 / np.pi # final r error
+
+    def compute_loss(self, data):
+        """
+        check all other losses
+        """
+        input_pts      = data['xyz']
+        shift_dis      = input_pts.mean(dim=1, keepdim=True)
+        target_pts     = data['points']
+        target_T       = data['T'].permute(0, 2, 1).contiguous() # B, 3, N
+        BS, N = target_pts.shape[0:2]
+
+        if 'C' in data:
+            mask = data['C'] # B, N
+        else:
+            mask = torch.ones(BS, N, device=target_T.device)
+
+        if self.config.pred_seg:
+            self.seg_loss = compute_miou_loss(self.output_C, mask).mean()
+
+        if self.config.pred_nocs:
+            shift_dis     = input_pts.mean(dim=1, keepdim=True)
+            self.nocs_err = torch.norm(self.output_N - target_pts.permute(0, 2, 1).contiguous(), dim=1)
+            self.nocs_loss= compute_1vN_nocs_loss(self.output_N, target_pts.permute(0, 2, 1).contiguous(), target_category=self.config.target_category, num_parts=1, confidence=mask)
+            self.nocs_loss= self.nocs_loss.mean()
+
+        if 'completion' in self.config.task:
+            dist1_canon, dist2_canon = self.chamfer_dist(self.output_pts.permute(0, 2, 1).contiguous(), target_pts, return_raw=True)
+            if 'partial' in self.config.task:
+                self.recon_canon_loss = (dist2_canon).mean()
+            else:
+                self.recon_canon_loss = dist1_canon.mean() + dist2_canon.mean()
+            self.infos["recon_canon"] = self.recon_canon_loss
 
     def eval_func(self, data):
         self.net.eval()
@@ -115,9 +483,9 @@ class PointAEPoseAgent(BaseAgent):
                 self.pose_err = None
                 self.pose_info = {'delta_r': self.r_pred, 'delta_t': self.t_pred}
             else:
-                self.eval_ssl(data)
+                self.eval_so3(data)
 
-    def eval_ssl(self, data):
+    def eval_so3(self, data):
         # all you need to get a reasonable evalution during test stage, for unseen and seen data
         BS = data['points'].shape[0]
         N  = data['points'].shape[1]
@@ -175,7 +543,7 @@ class PointAEPoseAgent(BaseAgent):
         if 'C' in data:
             mask = data['C'].cuda() # B, N
         else:
-            mask = torch.ones(BS, N, device=data['points'].cuda().device)
+            mask = torch.ones(BS, N, device=data['points'].device)
         flatten_r    = self.output_R.view(BS, N, -1).contiguous()
         pairwise_dis = torch.norm(flatten_r.unsqueeze(2) - flatten_r.unsqueeze(1), dim=-1) # [2, 512, 512]
         inliers_mask = torch.zeros_like(pairwise_dis)
@@ -233,322 +601,6 @@ class PointAEPoseAgent(BaseAgent):
             self.pose_err, self.pose_info = compute_pose_diff(nocs_gt=gt_nocs[0:1].transpose(-1, -2)[mask[0:1]>0],
                     nocs_pred=pred_nocs[0:1].transpose(-1, -2)[mask[0:1]>0], target=input_pts[0:1].transpose(-1, -2)[mask[0:1]>0],
                                               category=self.config.target_category)
-
-    def predict_se3(self, data):
-        BS = data['points'].shape[0]
-        N  = data['points'].shape[1] # B, N, 3
-        M  = self.config.num_modes_R
-        CS = self.config.MODEL.num_channels_R
-        device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
-        self.latent_vect = self.net.encoder(data['G'].to(device))
-        if self.config.pred_nocs:
-            self.output_N = self.net.regressor_nocs(self.latent_vect['N'].squeeze(-1).view(BS, -1, self.latent_vect['N'].shape[1]).contiguous().permute(0, 2, 1).contiguous()) # assume to be B*N, 128? --> 3 channel
-        self.output_T = self.latent_vect['T'].permute(0, 2, 1).contiguous().squeeze(-1).view(BS, -1, 3).contiguous().permute(0, 2, 1).contiguous()# [B, 3, N]
-
-        if self.config.pred_6d:
-            self.output_R = compute_rotation_matrix_from_ortho6d(self.latent_vect['R'].view(-1, 6).contiguous())
-            self.output_R_pooled = compute_rotation_matrix_from_ortho6d(self.latent_vect['1'].view(-1, 6).contiguous()) # dense by default!!! B, 2*C, 3
-
-        if self.config.pred_seg:
-            self.output_C = self.net.classifier_seg(self.latent_vect['N'].squeeze(-1).view(BS, -1, self.latent_vect['N'].shape[1]).contiguous().permute(0, 2, 1).contiguous())
-
-        if self.config.pred_mode: # map 4 to 2
-            self.output_M = self.net.classifier_mode(self.latent_vect['R0']).squeeze(-1) # [BS * N, M, 1]-->[BS * N, M] --> [BS, M, N]
-
-    def predict_pnet2(self, data):
-        BS = data['points'].shape[0]
-        N  = data['points'].shape[1] # B, N, 3
-        M  = self.config.num_modes_R
-        CS = self.config.MODEL.num_channels_R
-        # B, 3, N
-        if 'xyz' in data:
-            input_pts = data['xyz'].permute(0, 2, 1).contiguous().cuda()
-        else:
-            input_pts    = data['G'].ndata['x'].view(BS, -1, 3).contiguous().permute(0, 2, 1).contiguous().cuda() #
-        input_pts        = input_pts - input_pts.mean(dim=-1, keepdim=True)
-        if self.config.use_rgb:
-            rgb_feat = data['G'].ndata['f'].view(BS, -1, 3).contiguous().permute(0, 2, 1).contiguous().cuda() #
-            feat = torch.cat([input_pts, rgb_feat], dim=1)
-        else:
-            feat = input_pts
-
-        self.latent_vect = self.net.encoder(feat) # double
-        self.output_T    = self.latent_vect['T']  # 3, N, no activation
-        if self.config.pred_nocs:
-            self.output_N = self.latent_vect['N']
-        if self.config.pred_6d:
-            if M > 1:
-                self.output_R = self.latent_vect['R'].view(BS, -1, 3, N).contiguous().view(BS, M, 2, 3, N).contiguous() # B, 6, N
-                self.output_R = self.output_R/(torch.norm(self.output_R, dim=3, keepdim=True) + epsilon)
-                self.output_R = self.output_R.permute(0, 1, 4, 2, 3).contiguous().view(-1, 2, 3).contiguous().view(-1, 6).contiguous() # -1, 6
-                self.output_R = compute_rotation_matrix_from_ortho6d(self.output_R)
-            else:
-                self.output_R = self.latent_vect['R'].view(BS, 2, 3, N).contiguous() # B, 6, N
-                self.output_R = self.output_R/(torch.norm(self.output_R, dim=2, keepdim=True) + epsilon)
-                self.output_R = self.output_R.permute(0, 3, 1, 2).contiguous().view(-1, 2, 3).contiguous().view(-1, 6).contiguous()
-                self.output_R = compute_rotation_matrix_from_ortho6d(self.output_R)
-
-        if self.config.pred_seg:
-            self.output_C = self.latent_vect['C']
-
-        if self.config.pred_mode: # B, M, N
-            self.output_M = self.latent_vect['M'].permute(0, 2, 1).contiguous().view(-1, M).contiguous() # BS*N, M
-
-    def compute_and_eval_6d(self, data):
-        input_pts  = data['points']
-        BS = data['points'].shape[0]
-        N  = data['points'].shape[1] # B, N, 3
-        M  = self.config.num_modes_R
-        CS = self.config.MODEL.num_channels_R
-        target_R   = data['R'].cuda()
-        if 'C' in data:
-            mask = data['C'].cuda() # B, N
-        else:
-            mask = torch.ones(BS, N, device=target_R.device)
-
-        target_R_tiled  = target_R.unsqueeze(1).contiguous().repeat(1, N * M, 1, 1).contiguous()
-        geodesic_loss   = loss_geodesic(self.output_R, target_R_tiled.view(-1, 3, 3).contiguous().float())  # BS*N* C/2
-
-        self.degree_err_full = geodesic_loss.view(BS, M, N).contiguous()   # BS, N
-        self.output_R_full   = self.output_R.view(BS, M, N, 3, 3).contiguous() # BS, N, 3, 3
-        self.output_R   = self.output_R_full
-
-        # BS, N*M
-        self.norm_err   = torch.norm(self.output_R.view(BS, N*M, 9).contiguous() - target_R_tiled.view(BS, N*M, 9).contiguous(), dim=-1)
-
-        if self.config.check_consistency: # BS, M, N, 3, 3
-            mean_R   = torch.mean(self.output_R_full, dim=2, keepdim=True).view(BS, M, 1, -1).contiguous()
-            variance = torch.norm(self.output_R.view(BS, M, N, -1).contiguous() - mean_R, dim=-1).mean()
-            self.consistency_loss = variance * self.config.consistency_loss_multiplier
-            self.infos['consistency'] = self.consistency_loss
-        else:
-            self.consistency_loss = 0.0
-
-        if M > 1: # multi-mode dense
-            self.norm_err = self.norm_err.view(BS, M, N).contiguous()
-            if self.config.use_adaptive_mode:
-                min_loss, min_indices = torch.min(self.norm_err, dim=1) # B, M, N
-                self.regressionR_loss = min_loss.mean(dim=1)
-                self.output_R         = self.output_R[torch.arange(BS).reshape(-1, 1), min_indices, torch.arange(N).reshape(1, -1)].contiguous()
-                self.degree_err       = self.degree_err_full[torch.arange(BS).reshape(-1, 1), min_indices, torch.arange(N).reshape(1, -1)].contiguous()
-            else:
-                min_loss, min_indices = torch.min(self.norm_err.mean(dim=-1), dim=-1) # we only allow one mode to be True
-                self.regressionR_loss = min_loss
-                self.degree_err = self.degree_err_full[torch.arange(BS), :, min_indices] # degree err is raw GT mode prediction
-        else:
-            self.regressionR_loss = torch.sum(self.norm_err * mask, dim=1)/(torch.sum(mask, dim=1) + epsilon)
-            self.degree_err = self.degree_err_full.squeeze() * mask
-            self.output_R = self.output_R.squeeze()
-
-        self.regressionR_loss = self.regressionR_loss.mean()
-        correctness_mask = torch.zeros((self.degree_err.shape[0], self.degree_err.shape[1]), device=self.output_R.device) # B, N
-        correctness_mask[self.degree_err<THRESHOLD_GOOD] = 1.0
-        correctness_mask[mask<1] = 0.0
-        good_pred_ratio   = torch.sum(correctness_mask, dim=1)/(torch.sum(mask, dim=1) + epsilon) # B
-        degree_err_masked = torch.sum(self.degree_err, dim=1)/(torch.sum(mask, dim=1) + epsilon)
-        self.infos.update({'5deg': good_pred_ratio.mean(), 'rdiff': degree_err_masked.mean()})
-
-    def compute_and_eval_axis(self, data):
-        target_R   = data['R'].cuda()
-        target_R = target_R.permute(0, 2, 1).contiguous() # B, 3, 1
-        if self.config.MODEL.num_channels_R > 1:
-            BS, CS = target_R.shape[0], self.latent_vect['R'].shape[-2]     # [BS*N, C, 3] -> [Bs, N, C, 3] -> [Bs, 3, N, C]
-            self.output_R  = self.latent_vect['R'].view(BS, -1, CS, 3).contiguous().permute(0, 3, 1, 2).contiguous()
-            self.output_R = self.output_R/(torch.norm(self.output_R, dim=1, keepdim=True) + epsilon)
-            self.output_R_full = self.output_R
-            self.degree_err = torch.acos( torch.sum(self.output_R*target_R.unsqueeze(-1), dim=1)) * 180 / np.pi
-        else:
-            self.output_R = self.latent_vect['R'].view(target_R.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous() # B, 3, N
-            self.output_R = self.output_R/(torch.norm(self.output_R, dim=1, keepdim=True) + epsilon)
-            self.degree_err = torch.acos( torch.sum(self.output_R*target_R, dim=1)) * 180 / np.pi
-
-        self.output_R_pooled = self.output_R.mean(dim=2) #
-        self.output_R_pooled = self.output_R_pooled/(torch.norm(self.output_R_pooled, dim=1, keepdim=True) + epsilon)
-
-        confidence = target_C
-        if self.config.check_consistency: # on all points, all modes
-            mean_R = torch.mean(self.output_R, dim=2, keepdim=True)
-            variance = torch.norm(self.output_R - mean_R, dim=1).mean()
-            self.consistency_loss = variance * self.config.consistency_loss_multiplier
-            self.infos['consistency'] = self.consistency_loss
-        else:
-            self.consistency_loss = 0.0
-
-        if self.config.MODEL.num_channels_R > 1: # apply to all, add
-            # add per-mode minimum calculation, using the symmetry type, when we have symmetry on z, x axis
-            if self.config.rotation_use_dense:
-                regressionR_loss = compute_vect_loss(self.output_R, target_R.unsqueeze(-1), target_category=self.config.target_category, use_one2many=self.config.use_one2many)
-            else:
-                regressionR_loss = compute_vect_loss(self.output_R_pooled.unsqueeze(2), target_R.unsqueeze(2), target_category=self.config.target_category, use_one2many=self.config.use_one2many) # [2, 3, 2], [2, 3, 1]
-            min_loss, min_indices = torch.min(regressionR_loss, dim=-1)
-            self.regressionR_loss = min_loss
-            # update the output_R here
-            self.output_R   =  self.output_R_full[torch.arange(target_R.shape[0]), :, :, min_indices[:]]
-            self.degree_err =  self.degree_err[torch.arange(target_R.shape[0]), :, min_indices[:]] # B, N, C
-        else: # we have confidence for hand points
-            if self.config.rotation_use_dense:
-                self.regressionR_loss = compute_vect_loss(self.output_R, target_R, confidence=confidence, target_category=self.config.target_category, use_one2many=self.config.use_one2many) # B
-            else:
-                self.regressionR_loss = compute_vect_loss(self.output_R_pooled.unsqueeze(-1), target_R, target_category=self.config.target_category, use_one2many=self.config.use_one2many) # B, 3, N
-            self.infos['regressionR'] = self.regressionR_loss.mean()
-
-        self.regressionR_loss = self.regressionR_loss.mean()
-
-        correctness_mask = torch.zeros((self.degree_err.shape[0], self.degree_err.shape[1]), device=self.output_R.device) # B, N
-        correctness_mask[self.degree_err<THRESHOLD_GOOD] = 1.0
-        good_pred_ratio = torch.mean(correctness_mask, dim=1) # TODO
-        self.infos['good_pred_ratio'] = good_pred_ratio.mean() # scalar
-
-        if self.config.pred_mode and self.config.MODEL.num_channels_R > 1:
-            self.target_M       = min_indices.unsqueeze(1).repeat(1, self.output_R.shape[-1]).contiguous().view(-1).contiguous()
-            self.classifyM_loss = compute_miou_loss(self.output_M, min_indices.unsqueeze(1).repeat(1, self.output_R.shape[-1]).contiguous().view(-1).contiguous(), loss_type='xentropy')
-            self.output_M_label = torch.argmax(self.output_M, dim=-1)  # [B * N] in [0...M-1]
-            self.classifyM_acc = (self.output_M_label == min_indices.unsqueeze(1).repeat(1, self.output_R.shape[-1]).contiguous().view(-1).contiguous()).float().mean()
-            # [B, 3, N, M]
-            self.output_R_chosen = self.output_R_full[torch.arange(BS).reshape(-1, 1), :,
-                                   torch.arange(N).reshape(1, -1), self.output_M_label.reshape(BS, N)].permute(0, 2, 1)  # [B, N, 3]
-            self.degree_err_chosen = torch.acos(torch.sum(self.output_R_chosen * target_R, dim=1)) * 180 / np.pi
-
-    def compute_loss(self, data):
-        target_pts = data['points'].cuda()
-        target_T   = data['T'].cuda().permute(0, 2, 1).contiguous() # B, 3, N
-        if 'xyz' in data:
-            input_pts = data['xyz'].cuda()
-        else:
-            input_pts  = data['G'].ndata['x'].view(BS, -1, 3).contiguous().cuda()
-        shift_dis      = input_pts.mean(dim=1, keepdim=True)
-        BS = data['points'].shape[0]
-        N  = data['points'].shape[1] # B, N, 3
-        if 'C' in data:
-            mask = data['C'].cuda() # B, N
-        else:
-            mask = torch.ones(BS, N, device=target_T.device)
-        #>>>>>>>>>>>>>>>>>> 2. computing loss <<<<<<<<<<<<<<<<<<<#
-        if self.config.pred_seg:
-            self.seg_loss = compute_miou_loss(self.output_C, mask).mean()
-
-        if self.config.pred_nocs:
-            if self.output_N.shape[-1] < N:
-                reduced_pts      = self.latent_vect['xyz']
-                target_pts       = torch.matmul(data['R'].cuda(), reduced_pts + shift_dis - target_T) / data['S'].cuda().unsqueeze(-1) + 0.5
-                target_pts       = target_pts.permute(0, 2, 1).contiguous()
-                mask = torch.ones(BS, self.output_N.shape[-1], device=target_T.device)
-            self.nocs_err = torch.norm(self.output_N - target_pts.permute(0, 2, 1).contiguous(), dim=1)
-            self.nocs_loss= compute_1vN_nocs_loss(self.output_N, target_pts.permute(0, 2, 1).contiguous(), target_category=self.config.target_category, num_parts=1, confidence=mask)
-            self.nocs_loss= self.nocs_loss.mean()
-
-        if self.config.use_objective_T:
-            self.regressionT_loss = compute_vect_loss(self.output_T, target_T, confidence=mask).mean() # TYPE_LOSS='SOFT_L1'
-
-        if 'completion' in self.config.task:
-            if isinstance(self.latent_vect, dict):
-                self.output_pts = self.net.decoder(self.latent_vect['0'])
-            else:
-                self.output_pts = self.net.decoder(self.latent_vect)
-            # in nocs space
-            dist1_canon, dist2_canon = self.chamfer_dist(self.output_pts.permute(0, 2, 1).contiguous(), target_pts, return_raw=True)
-            if 'partial' in self.config.task:
-                self.recon_canon_loss = (dist2_canon).mean()
-            else:
-                self.recon_canon_loss = dist1_canon.mean() + dist2_canon.mean()
-            self.infos["recon_canon"] = self.recon_canon_loss
-
-            # get rotated R, Option 1:
-            nb, nr, na = self.latent_vect['R'].shape #
-            np_out = self.output_pts.shape[-1]
-            rotation_mapping = compute_rotation_matrix_from_quaternion if nr == 4 else compute_rotation_matrix_from_ortho6d
-            pred_RAnchor = rotation_mapping(self.latent_vect['R'].transpose(1,2).contiguous().view(-1,nr)).view(nb,-1,3,3)
-
-            anchors = torch.from_numpy(L.get_anchors(self.config.model.kanchor)).to(self.output_pts)
-            select_r= False
-
-            # The actual prediction is the classified anchor rotation @ regressed rotation
-            preds  = torch.argmax(self.latent_vect['1'], 1)
-            pred_R = torch.matmul(anchors, pred_RAnchor) # [60, 3, 3], [nb, 60, 3, 3] --> [nb, 60, 3, 3]
-
-            # [4, 60, 3, 1024]  [nb, na, 3, np] -->  [nb, na, np, 3]
-            if self.config.pred_t:
-                if self.config.t_method_type == -1:
-                    pred_T          = self.output_T.permute(0, 2, 1).contiguous().unsqueeze(-1).contiguous()
-                    pred_T          = torch.matmul(pred_R, pred_T) # nb, na, 3, 1,
-                elif self.config.t_method_type == 0:
-                    pred_T          = self.output_T.permute(0, 2, 1).contiguous().unsqueeze(-1).contiguous()
-                    pred_T          = torch.matmul(anchors, pred_T) # nb, na, 3, 1,
-                else: # type 1, 2, 3
-                    pred_T          = self.output_T.permute(0, 2, 1).contiguous().unsqueeze(-1).contiguous() # nb, na, 3, 1
-                transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5) + pred_T
-                transformed_pts = transformed_pts.permute(0, 1, 3, 2).contiguous() # nb, na, np, 3
-                shift_dis       = input_pts.mean(dim=1, keepdim=True)
-                dist1, dist2 = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), (input_pts - shift_dis).unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
-            else:
-                transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5).permute(0, 1, 3, 2).contiguous() #
-                dist1, dist2 = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), input_pts.unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
-
-            if 'partial' in self.config.task:
-                all_dist = (dist2).mean(-1).view(nb, -1).contiguous()
-            else:
-                all_dist = (dist1.mean(-1) + dist2.mean(-1)).view(nb, -1).contiguous()
-
-            min_loss, min_indices = torch.min(all_dist, dim=-1) # we only allow one mode to be True
-            self.recon_loss   = min_loss.mean()
-            self.rlabel_pred  = min_indices.detach().clone()
-            self.rlabel_pred.requires_grad = False
-            self.transformed_pts = transformed_pts[torch.arange(0, BS), min_indices] + shift_dis
-            self.r_pred = pred_R[torch.arange(0, BS), min_indices].detach().clone() # correct R by searching
-            self.r_pred.requires_grad = False
-            self.infos["recon"] = self.recon_loss
-            if self.config.eval:
-                print('chamferL1', torch.sqrt(self.recon_loss))
-
-            if self.config.pred_t:
-                self.t_pred = pred_T.squeeze(-1)[torch.arange(0, BS), min_indices] + shift_dis.squeeze()
-            else:
-                self.t_pred = None
-            # jointly train is fine, no necessary pretraining;
-            rlabel_pred = self.latent_vect['1']
-            if 'so3' in self.config.encoder_type:
-                if 'ssl' in self.config.task:
-                    rlabel_gt = self.rlabel_pred
-                    r_gt      = self.r_pred
-                else:
-                    rlabel_gt = data['R_label'].cuda()
-                    r_gt      = data['R_gt'].cuda()
-                select_R = pred_R[torch.arange(0, BS), preds]
-                cls_loss, r_acc = self.classifier(rlabel_pred, rlabel_gt.view(-1).contiguous())
-                self.classifyM_loss = self.config.modecls_loss_multiplier * cls_loss.mean()
-                self.infos['r_acc'] = r_acc
-                self.infos['rdiff'] = mean_angular_error(select_R, r_gt).mean() * 180 / np.pi
-            # GT
-            if self.config.pred_t:
-                gt_view_matrix = look_at(
-                    eyes=torch.tensor([[0, 0, 0]], dtype=torch.float32).repeat(BS, 1).contiguous(), # can multiply 0.8 if the eye is too close?
-                    centers=data['T'].squeeze(),
-                    ups=torch.tensor([[0, 0, 1]], dtype=torch.float32).repeat(BS, 1).contiguous(),
-                )
-                gt_pre_matrix = self.render.projection_matrix @ gt_view_matrix
-                self.gt_depth_map = self.render(input_pts, view_id=0, radius_list=[15.0, 20.0], pre_matrix=gt_pre_matrix)
-
-                # pred
-                pred_view_matrix =look_at(
-                    eyes=torch.tensor([[0, 0, 0]], dtype=torch.float32).repeat(BS, 1).contiguous(), # can multiply 0.8 if the eye is too close?
-                    centers=self.t_pred.cpu(),
-                    ups=torch.tensor([[0, 0, 1]], dtype=torch.float32).repeat(BS, 1).contiguous(),
-                )
-                pred_pre_matrix = self.render.projection_matrix @ pred_view_matrix
-                self.pred_depth_map = self.render(self.transformed_pts, view_id=0, radius_list=[15.0, 20.0], pre_matrix=pred_pre_matrix)
-                self.projection_loss = 0.1 * self.render_loss(self.pred_depth_map, self.gt_depth_map.detach())
-                self.infos['projection'] = self.projection_loss
-                # if self.config.vis and self.config.use_objective_P and self.config.eval:
-                #     ids = data['idx']
-                #     if not exists(f'{self.config.log_dir}/depth/'):
-                #         makedirs(f'{self.config.log_dir}/depth/')
-                #     for k in range(BS):
-                #         for m in range(self.gt_depth_map.shape[1]):
-                #             save_path = f"{self.config.log_dir}/depth/{ids[k]}_r{m}_depth_maps_gt.jpg"
-                #             torchvision.utils.save_image(self.gt_depth_map[k, m, :, :], save_path, pad_value=1)
-                #             save_path = f"{self.config.log_dir}/depth/{ids[k]}_r{m}_depth_maps_pred.jpg"
-                #             torchvision.utils.save_image(self.pred_depth_map[k, m, :, :], save_path, pad_value=1)
-                #             print('---saving to ', save_path)
 
     # seems vector is more stable
     def collect_loss(self):
@@ -659,6 +711,7 @@ class PointAEPoseAgent(BaseAgent):
                 # camera space
                 pts = np.concatenate([input_pts[0], transformed_pts[0]], axis=0)
                 wandb.log({"camera_space": [wandb.Object3D(pts)], 'step': self.clock.step})
+
             # canon shape, camera shape, input shape
             for k in range(num): # batch
                 save_name = f'{save_path}/{mode}_{self.clock.step}_{ids[k]}_input.txt'

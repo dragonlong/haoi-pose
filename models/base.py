@@ -7,7 +7,10 @@ from tensorboardX import SummaryWriter
 from common.train_utils import TrainClock
 from utils.extensions.chamfer_dist import ChamferDistance
 from utils.p2i_utils import ComputeDepthMaps
+
+import vgtk
 from vgtk.loss import CrossEntropyLoss
+import vgtk.so3conv.functional as L
 import wandb
 def bp():
     import pdb;pdb.set_trace()
@@ -53,8 +56,21 @@ class BaseAgent(object):
             self.chamfer_dist = ChamferDistance()
         if 'ssl' in self.config.task or 'so3' in self.config.encoder_type:
             self.classifier = CrossEntropyLoss()
+            self.anchors = torch.from_numpy(L.get_anchors(self.config.model.kanchor)).cuda()
         if self.config.pred_t:
             self.render_loss = torch.nn.L1Loss()
+
+    def _setup_metric(self):
+        # regressor + classifier
+        anchors = torch.from_numpy(L.get_anchors(self.config.model.kanchor)).cuda()
+        if self.config.model.representation == 'quat':
+            out_channel = 4
+        elif self.config.model.representation == 'ortho6d':
+            out_channel = 6
+        else:
+            raise KeyError("Unrecognized representation of rotation: %s"%self.config.model.representation)
+        print('---setting up metric!!!')
+        self.metric = vgtk.MultiTaskDetectionLoss(anchors, nr=out_channel)
 
     @abstractmethod
     def collect_loss(self):
@@ -160,7 +176,6 @@ class BaseAgent(object):
         self.net.train()
 
         self.forward(data)
-
         losses = self.collect_loss()
         infos  = self.collect_info()
         self.update_network(losses)

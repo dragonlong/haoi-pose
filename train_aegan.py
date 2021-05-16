@@ -319,8 +319,10 @@ def main(cfg):
                 tr_agent.visualize_batch(data, "train")
 
             pbar.set_description("EPOCH[{}][{}]".format(e, b))
-            losses = tr_agent.collect_loss()
-            pbar.set_postfix(OrderedDict({k: v.item() for k, v in losses.items()}))
+            infos = tr_agent.collect_loss()
+            if 'r_acc' in tr_agent.infos:
+                infos['r_acc'] = tr_agent.infos['r_acc']
+            pbar.set_postfix(OrderedDict({k: v.item() for k, v in infos.items()}))
 
             # validation step
             if clock.step % cfg.val_frequency == 0:
@@ -351,12 +353,10 @@ def main(cfg):
                         degcm = deg & cm
                         for key, value in zip(['5deg', '5cm', '5deg5cm'], [deg, cm, degcm]):
                             track_dict[key].append(value.float().cpu().numpy().mean())
-                    elif 'so3' in cfg.encoder_type:
+                    if 'so3' in cfg.encoder_type:
                         test_infos = tr_agent.infos
                         if 'r_acc' in test_infos:
                             track_dict['r_acc'].append(test_infos['r_acc'].float().cpu().numpy().mean())
-                        if 'rdiff' in test_infos:
-                            track_dict['rdiff'].append(test_infos['rdiff'].float().cpu().numpy().mean())
                     if 'completion' in cfg.task:
                         track_dict['chamferL1'].append(tr_agent.recon_loss.cpu().numpy().mean())
                 if cfg.use_wandb:
