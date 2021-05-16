@@ -1,7 +1,7 @@
 # @package _global_
 DATASET:
-  # dataset_path: '/home/dragon/Documents/ICML2021/data/modelnet40new/'
-  dataset_path: '/groups/arcadm/xiaolong/modelnet40new/'
+  dataset_path: '/home/dragon/Documents/ICML2021/data/modelnet40new/'
+  # dataset_path: '/groups/arcadm/xiaolong/modelnet40new/'
   add_noise: False
   noise_trans: 0.04
   workers: 8

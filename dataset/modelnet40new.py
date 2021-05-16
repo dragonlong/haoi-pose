@@ -11,7 +11,10 @@ import torch.utils.data as data
 from os.path import join as pjoin
 import matplotlib.pyplot as plt
 import __init__
-import vgtk.so3conv.functional as L
+try:
+    import vgtk.so3conv.functional as L
+except:
+    pass
 from dataset.modelnet40new_render import backproject
 
 def bp():
@@ -82,8 +85,10 @@ class Dataloader_ModelNet40New(data.Dataset):
         with open(pjoin(self.render_path, 'meta.pkl'), 'rb') as f:
             self.meta_dict = pickle.load(f)  # near, far, projection
         self.instance_points, self.all_data = self.collect_data()
-
-        self.anchors = L.get_anchors()
+        try:
+            self.anchors = L.get_anchors()
+        except:
+            self.anchors = np.random.rand(60, 3, 3)
         print(f"[Dataloader] : {self.mode} dataset size:", len(self.all_data))
 
     def collect_data(self):
@@ -131,6 +136,11 @@ class Dataloader_ModelNet40New(data.Dataset):
         else:
             target = np.add(target, target_t)
         """
+        if self.cfg.eval and self.cfg.pre_compute_delta:
+            cloud = canon_cloud - 0.5
+            R_gt  = torch.from_numpy(np.eye(3).astype(np.float32))
+            T     = torch.from_numpy(np.zeros((1, 3)).astype(np.float32))
+
         data_dict = {
             'xyz': torch.from_numpy(cloud.astype(np.float32)),  # point cloud in camera space
             'points': torch.from_numpy(canon_cloud.astype(np.float32)),  # canonicalized xyz, in [0, 1]^3
@@ -164,7 +174,7 @@ def check_data(data_dict):
         center = (pmin + pmax) * 0.5
         lim = max(pmax - pmin) * 0.5 + 0.2
         for pts in pt_list:
-            ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2], alpha=0.8, s=1)
+            ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2], alpha=0.8, s=3**2)
         ax.set_xlim3d([center[0] - lim, center[0] + lim])
         ax.set_ylim3d([center[1] - lim, center[1] + lim])
         ax.set_zlim3d([center[2] - lim, center[2] + lim])

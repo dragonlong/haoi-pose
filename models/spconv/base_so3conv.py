@@ -719,12 +719,23 @@ class SO3OutBlockR(nn.Module):
         c_in = params['dim_in']
         mlp = params['mlp']
         na = params['kanchor']
+        rp = params['representation']
 
         self.linear = nn.ModuleList()
         self.temperature = params['temperature']
         self.representation = params['representation']
         self.feat_mode_num = feat_mode_num
-        # self.attention_layer = nn.Conv2d(mlp[-1], 1, (1,1))
+
+        if rp == 'up_axis':
+            self.out_channel = 3
+            print('---SO3OutBlockR output up axis')
+        elif rp == 'quat':
+            self.out_channel = 4
+        elif rp == 'ortho6d':
+            self.out_channel = 6
+        else:
+            raise KeyError("Unrecognized representation of rotation: %s"%rp)
+
         if norm is not None:
             self.norm = nn.ModuleList()
         else:
@@ -734,10 +745,7 @@ class SO3OutBlockR(nn.Module):
             self.pointnet = sptk.PointnetSO3Conv(mlp[-1],mlp[-1], na)
 
         self.attention_layer = nn.Conv1d(mlp[-1], 1, (1))
-        if self.feat_mode_num < 2:
-            self.regressor_layer = nn.Conv1d(mlp[-1],4,(1))
-        else:
-            self.regressor_layer = nn.Conv1d(mlp[-1],4,(1))
+        self.regressor_layer = nn.Conv1d(mlp[-1],self.out_channel,(1))
 
         self.pred_t = pred_t
         if pred_t:

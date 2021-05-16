@@ -45,33 +45,22 @@ eval=True save=True pre_compute_delta=True \
 use_pretrain=True
 use_wandb=True
 
-0.851: # car, ca202
-python train_aegan.py task='ssl_pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True nr_epochs=1000 save_frequency=20 \
-models=epn exp_num='0.851' model.model='enc_so3net' model.pooling_method='max' \
+torch.matmul(rot1[0], torch.Tensor([[0, 0, 1]]).permute(1, 0).cuda())
+0.85a: # supervised training, ca205, 0
+python train_aegan.py task='pcloud_pose' training=ae_gan name_model=ae vis=True save_frequency=10 nr_epochs=500 \
+models=epn exp_num='0.85a' model.model='enc_so3net' encoder_type=enc_so3net model.pooling_method='max' \
 datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='car' dataset_class=AE \
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
-augment=True MODEL.num_in_channels=1 \
-eval=True save=True pre_compute_delta=True
-use_pretrain=True \
+augment=True MODEL.num_in_channels=1 use_objective_R=True use_objective_M=True \
 use_wandb=True
 
-
-0.85a: # supervision in camera space, random R, pointnet, 60 modes
-python train_aegan.py task='ssl_pcloud_pose_completion' training=ae_gan name_model=ae exp_num='0.85a' save_frequency=10 vis=True \
-models=pointnet encoder_type=pointnet_so3 use_head_assemble=True \
+0.85b: # supervised training, ca227, 0
+python train_aegan.py task='pcloud_pose' training=ae_gan name_model=ae vis=True save_frequency=10 nr_epochs=500 \
+models=epn exp_num='0.85b' model.model='enc_so3net' encoder_type=enc_so3net model.pooling_method='max' \
 datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='car' dataset_class=AE \
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
-augment=True MODEL.num_in_channels=0 \
-eval=True save=True pre_compute_delta=True
+augment=True MODEL.num_in_channels=1 use_objective_R=True model.kpconv=True \
 use_wandb=True
-
-# 0.81b: # supervision in camera space, random R, kpconv, single mode
-# python train_aegan.py task='ssl_pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True \
-# models=epn exp_num='0.81b' model.model='enc_so3net' model.pooling_method='max' \
-# datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='airplane' dataset_class=AE \
-# TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
-# augment=True MODEL.num_in_channels=1 model.kpconv=True \
-# use_wandb=True
 
 0.85c: # supervision in camera space, random R, pointnet++, 60 modes
 python train_aegan.py task='ssl_pcloud_pose_completion' training=ae_gan name_model=ae exp_num='0.85c' save_frequency=10 vis=True \
@@ -92,37 +81,7 @@ eval=True save=True pre_compute_delta=True
 use_wandb=True
 
 
-0.852: # sofa, ca228
-python train_aegan.py task='pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True nr_epochs=1000 save_frequency=20 \
-models=epn exp_num='0.852' model.model='enc_so3net' model.pooling_method='max' \
-datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='sofa' dataset_class=AE \
-TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
-augment=True MODEL.num_in_channels=1 \
-eval=True save=True pre_compute_delta=True
-use_pretrain=True \
-use_wandb=True
-
-0.853(wrong!!!): # table,  ca204,
-python train_aegan.py task='pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True nr_epochs=1000 save_frequency=20 \
-models=epn exp_num='0.853' model.model='enc_so3net' model.pooling_method='max' \
-datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='table' dataset_class=AE \
-TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
-augment=True MODEL.num_in_channels=1 \
-eval=True save=True pre_compute_delta=True
-use_pretrain=True \
-use_wandb=True
-
-0.854:(wrong!!!) # laptop, ca234
-python train_aegan.py task='pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True nr_epochs=1000 save_frequency=20 \
-models=epn exp_num='0.854' model.model='enc_so3net' model.pooling_method='max' \
-datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='laptop' dataset_class=AE \
-TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
-augment=True MODEL.num_in_channels=1 \
-eval=True save=True pre_compute_delta=True
-use_pretrain=True \
-use_wandb=True
-
-0.855:(check!!) # bowl, ca230
+0.855:# bowl, ca230
 python train_aegan.py task='pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True nr_epochs=1000 save_frequency=20 \
 models=epn exp_num='0.855' model.model='enc_so3net' model.pooling_method='max' \
 datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='bowl' dataset_class=AE \
@@ -132,22 +91,21 @@ eval=True save=True pre_compute_delta=True
 use_pretrain=True \
 use_wandb=True
 
-0.855a: # supervision in camera space, random R, pointnet, 60 modes
-python train_aegan.py task='ssl_pcloud_pose_completion' training=ae_gan name_model=ae exp_num='0.855a' save_frequency=10 vis=True \
-models=pointnet encoder_type=pointnet_so3 use_head_assemble=True \
+0.855a: # supervised training, ca205, 0, pred_axis, eval axis
+python train_aegan.py task='pcloud_pose' training=ae_gan name_model=ae vis=True save_frequency=10 nr_epochs=500 \
+models=epn exp_num='0.855a' model.model='enc_so3net' encoder_type=enc_so3net model.pooling_method='max' \
 datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='bowl' dataset_class=AE \
-TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
-augment=True MODEL.num_in_channels=0 \
-eval=True save=True pre_compute_delta=True
+TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 model.representation='up_axis' \
+augment=True MODEL.num_in_channels=1 use_objective_R=True use_objective_M=True \
 use_wandb=True
 
-# 0.81b: # supervision in camera space, random R, kpconv, single mode
-# python train_aegan.py task='ssl_pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True \
-# models=epn exp_num='0.81b' model.model='enc_so3net' model.pooling_method='max' \
-# datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='airplane' dataset_class=AE \
-# TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
-# augment=True MODEL.num_in_channels=1 model.kpconv=True \
-# use_wandb=True
+0.855b: # supervised training, ca227, 0, pred_axis, eval axis
+python train_aegan.py task='pcloud_pose' training=ae_gan name_model=ae vis=True save_frequency=10 nr_epochs=500 \
+models=epn exp_num='0.855b' model.model='enc_so3net' encoder_type=enc_so3net model.pooling_method='max' \
+datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='bowl' dataset_class=AE \
+TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
+augment=True MODEL.num_in_channels=1 use_objective_R=True model.kpconv=True \
+use_wandb=True
 
 0.855c: # supervision in camera space, random R, pointnet++, 60 modes
 python train_aegan.py task='ssl_pcloud_pose_completion' training=ae_gan name_model=ae exp_num='0.855c' save_frequency=10 vis=True \
@@ -166,7 +124,7 @@ augment=True MODEL.num_in_channels=0 model.kpconv=True \
 use_wandb=True
 
 
-0.856: (wrong!!!) # bottle, ca221
+0.856: # bottle, ca221
 python train_aegan.py task='pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True nr_epochs=1000 save_frequency=20 \
 models=epn exp_num='0.856' model.model='enc_so3net' model.pooling_method='max' \
 datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='bottle' dataset_class=AE \
@@ -176,14 +134,21 @@ eval=True save=True pre_compute_delta=True
 use_pretrain=True \
 use_wandb=True
 
-0.856a: # supervision in camera space, random R, pointnet, 60 modes
-python train_aegan.py task='ssl_pcloud_pose_completion' training=ae_gan name_model=ae exp_num='0.856a' save_frequency=10 vis=True \
-models=pointnet encoder_type=pointnet_so3 use_head_assemble=True \
+0.856a: # supervised training, ca205, 0, pred_axis, eval axis
+python train_aegan.py task='pcloud_pose' training=ae_gan name_model=ae vis=True save_frequency=10 nr_epochs=500 \
+models=epn exp_num='0.856a' model.model='enc_so3net' encoder_type=enc_so3net model.pooling_method='max' \
 datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='bottle' dataset_class=AE \
-TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
-augment=True MODEL.num_in_channels=0 \
+TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 model.representation='up_axis' \
+augment=True MODEL.num_in_channels=1 use_objective_R=True use_objective_M=True \
 use_wandb=True
 
+0.856b: # supervised training, ca227, 0, pred_axis, eval axis
+python train_aegan.py task='pcloud_pose' training=ae_gan name_model=ae vis=True save_frequency=10 nr_epochs=500 \
+models=epn exp_num='0.856b' model.model='enc_so3net' encoder_type=enc_so3net model.pooling_method='max' \
+datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='bowl' dataset_class=AE \
+TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
+augment=True MODEL.num_in_channels=1 use_objective_R=True model.kpconv=True \
+use_wandb=True
 0.856c: # supervision in camera space, random R, pointnet++, 60 modes
 python train_aegan.py task='ssl_pcloud_pose_completion' training=ae_gan name_model=ae exp_num='0.856c' save_frequency=10 vis=True \
 models=pnet2 encoder_type=pnet2plusplus_so3 use_head_assemble=True \
@@ -200,15 +165,6 @@ TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 augment=True MODEL.num_in_channels=0 model.kpconv=True \
 use_wandb=True
 
-0.857: (check!!)  # cup, ca223
-python train_aegan.py task='pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True nr_epochs=1000 save_frequency=20 \
-models=epn exp_num='0.857' model.model='enc_so3net' model.pooling_method='max' \
-datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='cup' dataset_class=AE \
-TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
-augment=True MODEL.num_in_channels=1 \
-eval=True pre_compute_delta=True
-use_pretrain=True \
-use_wandb=True
 
 
 
@@ -230,6 +186,7 @@ models=epn exp_num='0.91' model.model='enc_so3net' model.pooling_method='max' \
 datasets=modelnet40new item=modelnet40new name_dset=modelnet40new target_category='airplane' dataset_class=AE \
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 augment=True MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
+eval=True save=True pre_compute_delta=True
 use_wandb=True
 
 0.911: # supervision in camera space, random R, airplane, but add T estimation, dense per-point voting, R0
@@ -238,6 +195,7 @@ models=epn exp_num='0.911' model.model='enc_so3net' model.pooling_method='max' \
 datasets=modelnet40new item=modelnet40new name_dset=modelnet40new target_category='airplane' dataset_class=AE \
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 augment=True MODEL.num_in_channels=1 pred_t=True t_method_type=0 use_objective_P=True \
+eval=True save=True pre_compute_delta=True
 use_wandb=True
 
 0.91a: # random R, airplane, but add T estimation, dense per-point voting, R0
@@ -266,6 +224,7 @@ models=epn exp_num='0.92' model.model='enc_so3net' model.pooling_method='max' \
 datasets=modelnet40new item=modelnet40new name_dset=modelnet40new target_category='car' dataset_class=AE \
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 augment=True MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
+eval=True save=True pre_compute_delta=True
 use_wandb=True
 
 0.921: # supervision in camera space, random R, airplane, but add T estimation, dense per-point voting, R0, ca201 0
@@ -274,6 +233,7 @@ models=epn exp_num='0.921' model.model='enc_so3net' model.pooling_method='max' \
 datasets=modelnet40new item=modelnet40new name_dset=modelnet40new target_category='car' dataset_class=AE \
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 augment=True MODEL.num_in_channels=1 pred_t=True t_method_type=0 use_objective_P=True \
+eval=True save=True pre_compute_delta=True
 use_wandb=True
 #
 0.92a: # random R, airplane, but add T estimation, dense per-point voting, R0, ca201 1
@@ -311,7 +271,7 @@ use_wandb=True
 # TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 # augment=True MODEL.num_in_channels=1 pred_t=True t_method_type=0 use_objective_P=True \
 # use_wandb=True
-#
+
 # 0.91a: # random R, airplane, but add T estimation, dense per-point voting, R0
 # python train_aegan.py task='partial_pcloud_pose' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
 # models=epn exp_num='0.91a' model.model='enc_so3net' model.pooling_method='max' \
@@ -320,7 +280,7 @@ use_wandb=True
 # augment=True MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
 # use_objective_R=True use_objective_M=True use_objective_T=True \
 # use_wandb=True
-#
+
 # 0.91b: # random R, airplane, but add T estimation, dense per-point voting, R0
 # python train_aegan.py task='partial_pcloud_pose' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
 # models=epn exp_num='0.91b' model.model='enc_so3net' model.pooling_method='max' model.kpconv=True \
@@ -329,7 +289,6 @@ use_wandb=True
 # augment=True MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
 # use_objective_R=True use_objective_M=True use_objective_T=True \
 # use_wandb=True
-
 
 # >>>> 0.94, ca207 1
 0.94: # supervision in camera space, random R, airplane, but add T estimation, dense per-point voting, R0

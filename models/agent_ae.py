@@ -3,6 +3,7 @@ import torch.nn as nn
 import numpy as np
 import wandb
 import torchvision
+import torch.nn.functional as F
 import __init__
 from models.ae_gan import get_network
 from models.base import BaseAgent
@@ -10,7 +11,7 @@ from utils.extensions.chamfer_dist import ChamferDistance
 from utils.p2i_utils import look_at
 from models.losses import loss_geodesic, loss_vectors, compute_vect_loss, compute_1vN_nocs_loss, compute_miou_loss
 from common.d3_utils import compute_rotation_matrix_from_euler, compute_euler_angles_from_rotation_matrices, compute_rotation_matrix_from_ortho6d, mean_angular_error, angle_from_R
-from common.yj_pose import compute_pose_diff, rot_diff_degree
+from common.yj_pose import compute_pose_diff, rot_diff_degree, rot_diff_rad
 from os import makedirs, remove
 from os.path import exists, join
 
@@ -314,12 +315,15 @@ class PointAEPoseAgent(BaseAgent):
         nb, nr, na = self.latent_vect['R'].shape  #
         r_gt        = data['R_gt'].float() # GT R,torch.Size([2, 3, 3])
         rlabel_gt   = data['R_label'].view(-1).contiguous()   # GT R label, torch.Size([2])
-        ranchor_gt   = data['R'].float() # GT relative R, torch.Size([2, 60, 3, 3])
+        ranchor_gt  = data['R'].float() # GT relative R, torch.Size([2, 60, 3, 3])
 
         anchors = self.anchors
         rlabel_pred = self.latent_vect['1']
-        rotation_mapping = compute_rotation_matrix_from_quaternion if nr == 4 else compute_rotation_matrix_from_ortho6d
-        ranchor_pred = rotation_mapping(self.latent_vect['R'].transpose(1,2).contiguous().view(-1,nr)).view(nb,-1,3,3)
+        if nr>3:
+            rotation_mapping = compute_rotation_matrix_from_quaternion if nr == 4 else compute_rotation_matrix_from_ortho6d
+            ranchor_pred = rotation_mapping(self.latent_vect['R'].transpose(1,2).contiguous().view(-1,nr)).view(nb,-1,3,3)
+        else:
+            ranchor_pred = F.normalize(self.latent_vect['R'], p=2, dim=1).permute(0, 2, 1).contiguous().unsqueeze(-1) # b, 3, na --> b, na, 3, 1
         pred_R = torch.matmul(anchors, ranchor_pred) # [60, 3, 3], [nb, 60, 3, 3] --> [nb, 60, 3, 3]
 
         if self.config.pred_t:
@@ -383,17 +387,17 @@ class PointAEPoseAgent(BaseAgent):
                 self.pred_depth_map = self.render(self.transformed_pts, view_id=0, radius_list=[20.0, 25.0], pre_matrix=pred_pre_matrix)
                 self.projection_loss   = 0.1 * self.render_loss(self.pred_depth_map, self.gt_depth_map.detach())
                 self.infos['projection'] = self.projection_loss
-                if self.config.use_objective_P and self.config.eval:
-                    ids = data['idx']
-                    if not exists(f'{self.config.log_dir}/depth/'):
-                        makedirs(f'{self.config.log_dir}/depth/')
-                    for k in range(BS):
-                        for m in range(self.gt_depth_map.shape[1]):
-                            save_path = f"{self.config.log_dir}/depth/{ids[k]}_r{m}_depth_maps_gt.jpg"
-                            torchvision.utils.save_image(self.gt_depth_map[k, m, :, :], save_path, pad_value=1)
-                            save_path = f"{self.config.log_dir}/depth/{ids[k]}_r{m}_depth_maps_pred.jpg"
-                            torchvision.utils.save_image(self.pred_depth_map[k, m, :, :], save_path, pad_value=1)
-                            print('---saving to ', save_path)
+                # if self.config.use_objective_P and self.config.eval:
+                #     ids = data['idx']
+                #     if not exists(f'{self.config.log_dir}/depth/'):
+                #         makedirs(f'{self.config.log_dir}/depth/')
+                #     for k in range(BS):
+                #         for m in range(self.gt_depth_map.shape[1]):
+                #             save_path = f"{self.config.log_dir}/depth/{ids[k]}_r{m}_depth_maps_gt.jpg"
+                #             torchvision.utils.save_image(self.gt_depth_map[k, m, :, :], save_path, pad_value=1)
+                #             save_path = f"{self.config.log_dir}/depth/{ids[k]}_r{m}_depth_maps_pred.jpg"
+                #             torchvision.utils.save_image(self.pred_depth_map[k, m, :, :], save_path, pad_value=1)
+                #             print('---saving to ', save_path)
         else: # 60 anchors estimation
             rlabel_pred = rlabel_pred.view(nb,-1) # b
             if na == 1:
@@ -411,18 +415,30 @@ class PointAEPoseAgent(BaseAgent):
             else:
                 cls_loss, r_acc = self.classifier(rlabel_pred, rlabel_gt.view(-1).contiguous())
                 self.classifyM_loss = cls_loss.mean()
-                gt_bias = angle_from_R(ranchor_gt.view(-1,3,3)).view(nb,-1)
-                mask = (gt_bias < self.threshold)[:,:,None,None].float()
-                # self.regressionR_loss = 10.0 * torch.pow(ranchor_gt * mask - ranchor_pred * mask,2).mean() # so big???
-                self.regressionR_loss = torch.pow(ranchor_gt * mask - ranchor_pred * mask,2).sum()
+
+                if nr > 3:
+                    gt_bias = angle_from_R(ranchor_gt.view(-1,3,3)).view(nb,-1)
+                    mask = (gt_bias < self.threshold)[:,:,None,None].float()
+                    # self.regressionR_loss = 10.0 * torch.pow(ranchor_gt * mask - ranchor_pred * mask,2).mean() # so big???
+                    self.regressionR_loss = torch.pow(ranchor_gt * mask - ranchor_pred * mask,2).sum()
+                else:
+                    gt_bias = rot_diff_rad(ranchor_gt.view(-1,3,3), torch.eye(3).cuda().unsqueeze(0), chosen_axis='z').view(nb, -1)
+                    mask = (gt_bias < self.threshold)[:,:,None,None].float()
+                    self.regressionR_loss = torch.pow(ranchor_gt[:, :, :, -2:-1] * mask - ranchor_pred * mask,2).sum()
 
                 # [4, 60, 3, 1024]  [nb, na, 3, np] -->  [nb, na, np, 3]
                 self.rlabel_pred  = torch.argmax(rlabel_pred, 1).detach().clone()
                 self.rlabel_pred.requires_grad = False
                 # self.transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5).permute(0, 1, 3, 2).contiguous() #
-                self.r_pred = L.batched_index_select(pred_R, 1, self.rlabel_pred.long().view(nb,-1)).view(nb,3,3)
-                self.ranchor_pred = L.batched_index_select(ranchor_pred, 1, self.rlabel_pred.long().view(nb,-1)).view(nb,3,3)
-                self.ranchor_gt   = L.batched_index_select(ranchor_gt, 1, rlabel_gt.long().view(nb,-1)).view(nb,3,3)
+                if nr > 3:
+                    self.r_pred = L.batched_index_select(pred_R, 1, self.rlabel_pred.long().view(nb,-1)).view(nb,3,3)
+                    self.ranchor_pred = L.batched_index_select(ranchor_pred, 1, self.rlabel_pred.long().view(nb,-1)).view(nb,3,3)
+                    self.ranchor_gt   = L.batched_index_select(ranchor_gt, 1, rlabel_gt.long().view(nb,-1)).view(nb,3,3)
+                else:
+                    self.r_pred = L.batched_index_select(pred_R, 1, self.rlabel_pred.long().view(nb,-1)).view(nb,3,1)
+                    self.ranchor_pred = L.batched_index_select(ranchor_pred, 1, self.rlabel_pred.long().view(nb,-1)).view(nb,3,1)
+                    self.ranchor_gt   = L.batched_index_select(ranchor_gt, 1, rlabel_gt.long().view(nb,-1)).view(nb,3,3)
+
                 if self.config.pred_t:
                     regressionT_loss = torch.norm(pred_T+shift_dis.unsqueeze(-1) - target_T.unsqueeze(1).contiguous(), dim=2).squeeze() # TYPE_LOSS='SOFT_L1'
                     regressionT_loss = torch.sum(regressionT_loss * mask.squeeze(), dim=1) / mask.squeeze().sum(dim=1)
@@ -432,9 +448,15 @@ class PointAEPoseAgent(BaseAgent):
                     self.t_pred = None
 
             self.infos['r_acc'] = r_acc
-            self.infos['rdiff'] = mean_angular_error(self.r_pred, r_gt).mean() * 180 / np.pi   # final r error
-            self.infos['tdiff'] = torch.norm(self.t_pred- target_T.squeeze(), dim=1).mean()
-            self.infos['rdiff_anchor'] = mean_angular_error(self.ranchor_pred, self.ranchor_gt).mean() * 180 / np.pi # final r error
+            if nr > 3:
+                self.infos['rdiff'] = mean_angular_error(self.r_pred, r_gt).mean() * 180 / np.pi   # final r error
+                self.infos['rdiff_anchor'] = mean_angular_error(self.ranchor_pred, self.ranchor_gt).mean() * 180 / np.pi # final r error
+            else:
+                self.infos['rdiff']        = rot_diff_degree(self.r_pred.repeat(1, 1, 3).contiguous(), r_gt, chosen_axis='z').view(nb, -1).mean()
+                self.infos['rdiff_anchor'] = rot_diff_degree(self.ranchor_pred.repeat(1, 1, 3).contiguous(), self.ranchor_gt, chosen_axis='z').view(nb, -1).mean()
+            if self.config.pred_t:
+                self.infos['tdiff'] = torch.norm(self.t_pred- target_T.squeeze(), dim=1).mean()
+
 
     def compute_loss(self, data):
         """
@@ -511,9 +533,14 @@ class PointAEPoseAgent(BaseAgent):
             self.delta_t= torch.zeros(1, 3).cuda()
 
         # self.delta_r
-        pred_rot    = torch.matmul(self.r_pred, self.delta_r.float().permute(0, 2, 1).contiguous())
-        gt_rot      = data['R_gt'].cuda()  # [B, 3, 3]
-        rot_err     = rot_diff_degree(gt_rot, pred_rot, chosen_axis=None)  # [B, M]
+        if self.r_pred.shape[-1] < 3:
+            pred_rot = self.r_pred
+            gt_rot      = data['R_gt'].cuda()  # [B, 3, 3]
+            rot_err     = rot_diff_degree(self.r_pred.repeat(1, 1, 3).contiguous(), gt_rot, chosen_axis='z')
+        else:
+            pred_rot    = torch.matmul(self.r_pred, self.delta_r.float().permute(0, 2, 1).contiguous())
+            gt_rot      = data['R_gt'].cuda()  # [B, 3, 3]
+            rot_err     = rot_diff_degree(gt_rot, pred_rot, chosen_axis=None)  # [B, M]
 
         if 'xyz' in data:
             input_pts  = data['xyz'].permute(0, 2, 1).contiguous().cuda()
@@ -521,7 +548,11 @@ class PointAEPoseAgent(BaseAgent):
             input_pts  = data['G'].ndata['x'].view(BS, -1, 3).contiguous().cuda() # B, N, 3
 
         if self.config.pred_t:
-            pred_center= self.t_pred.unsqueeze(-1) +  torch.matmul(self.r_pred, self.delta_t.unsqueeze(-1))
+            # if
+            if self.r_pred.shape[-1] < 3:
+                pred_center= self.t_pred.unsqueeze(-1)
+            else:
+                pred_center= self.t_pred.unsqueeze(-1) +  torch.matmul(self.r_pred, self.delta_t.unsqueeze(-1))
             gt_center  = data['T'].cuda() # B, 3 # from original to
             trans_err  = torch.norm(pred_center[:, :, 0] - gt_center[:, 0, :], dim=-1)
         else:

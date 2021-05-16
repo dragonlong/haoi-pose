@@ -35,4 +35,4 @@ python nocs_synthetic_simple.py datasets=nocs_synthetic target_category='laptop'
 
 python shapenetaligned.py datasets=shapenetaligned target_category='laptop'
 
-python modelnet40new.py datasets=modelnet40new target_category='airplane'
+python modelnet40new.py datasets=modelnet40new target_category='bowl'
