@@ -23,10 +23,13 @@ def VOCap(rec, prec):
     return ap
 
 
-def chamfer_cpu(a, b):  # [B, N, 3], only consider symmetrical cases
+def chamfer_cpu(a, b, return_raw=False):  # [B, N, 3], only consider symmetrical cases
     dis = torch.norm(a.unsqueeze(1) - b.unsqueeze(2), dim=-1)  # [B, 1, N, 3] - [B, N, 1, 3] = [B, N, N, 3]
     mdis = torch.min(dis, dim=-1)[0]  # [B, N, N -> ()] -> [B, N]
-    return mdis, mdis
+    if return_raw:
+        return mdis, mdis
+    else:
+        return mdis.min()[0], mdis.min()[0]
 
 
 class Basic_Utils():
@@ -125,8 +128,8 @@ class Basic_Utils():
     ):
         cls = self.get_cls_name(cls)
         p3ds = self.ycb_cls_ptsxyz_cuda_dict[cls]
-        pred_p3ds = torch.mm(p3ds, pred_RT[:, :3].transpose(1, 0)) + pred_RT[:, 3]
-        gt_p3ds = torch.mm(p3ds, gt_RT[:, :3].transpose(1, 0)) + gt_RT[:, 3]
+        pred_p3ds = torch.matmul(p3ds, pred_RT[:, :3].transpose(1, 0)) + pred_RT[:, 3]
+        gt_p3ds = torch.matmul(p3ds, gt_RT[:, :3].transpose(1, 0)) + gt_RT[:, 3]
         dis = torch.norm(pred_p3ds - gt_p3ds, dim=1)
         return torch.mean(dis)
 
@@ -136,9 +139,9 @@ class Basic_Utils():
         cls = self.get_cls_name(cls)
         p3ds = self.ycb_cls_ptsxyz_cuda_dict[cls]
         N, _ = p3ds.size()
-        pd = torch.mm(p3ds, pred_RT[:, :3].transpose(1, 0)) + pred_RT[:, 3]
+        pd = torch.matmul(p3ds, pred_RT[:, :3].transpose(1, 0)) + pred_RT[:, 3]
         pd = pd.view(1, N, 3).repeat(N, 1, 1)
-        gt = torch.mm(p3ds, gt_RT[:, :3].transpose(1, 0)) + gt_RT[:, 3]
+        gt = torch.matmul(p3ds, gt_RT[:, :3].transpose(1, 0)) + gt_RT[:, 3]
         gt = gt.view(N, 1, 3).repeat(1, N, 1)
         dis = torch.norm(pd - gt, dim=2)
         mdis = torch.min(dis, dim=1)[0]
@@ -147,10 +150,10 @@ class Basic_Utils():
     def cal_add_and_adds_batch(self, pred_RT, gt_RT, cls): # [B, 3, 4]
         cls = self.get_cls_name(cls)
         p3ds = self.ycb_cls_ptsxyz_cuda_dict[cls].unsqueeze(0)  # [1, N, 3]
-        pred_p3ds = torch.mm(p3ds, pred_RT[..., :3].permute(0, 2, 1)) + pred_RT[..., 3:4].permute(0, 2, 1)
-        gt_p3ds = torch.mm(p3ds, gt_RT[..., :3].permute(0, 2, 1)) + gt_RT[..., 3:4].permute(0, 2, 1)
+        pred_p3ds = torch.matmul(p3ds, pred_RT[..., :3].permute(0, 2, 1)) + pred_RT[..., 3:4].permute(0, 2, 1)
+        gt_p3ds = torch.matmul(p3ds, gt_RT[..., :3].permute(0, 2, 1)) + gt_RT[..., 3:4].permute(0, 2, 1)
         dis = torch.norm(pred_p3ds - gt_p3ds, dim=-1).mean(dim=-1)  # [B, N, 3] -> [B]
-        mdis, _ = self.chamfer_dist(pred_p3ds, gt_p3ds) # [B, N]
+        mdis, _ = self.chamfer_dist(pred_p3ds, gt_p3ds, return_raw=True) # [B, N]
         mdis = mdis.mean(dim=-1)  # [B]
         return dis, mdis
 
@@ -162,28 +165,31 @@ class Basic_Utils():
         pred_rot, gt_rot = pred_RT[..., :3], gt_RT[..., :3]
 
         all_rmats = [np.eye(3)]
-        chosen_axis = None if sym_info['sym_type'] not in ['continuous'] else sym_info['axis']
+        chosen_axis = None
 
-        if sym_info['sym_type'] == 'discrete':
-            for key, M in sym_info['symmetries'].items():
-                next_rmats = []
-                for k in range(M):
-                    rmat = rotate_about_axis(2 * np.pi * k / M, axis=key)
-                    for old_rmat in all_rmats:
-                        next_rmats.append(np.matmul(rmat, old_rmat))
-                all_rmats = next_rmats
+        for key, M in sym_info.items():
+            if M > 10:
+                chosen_axis = key
+                continue
+            next_rmats = []
+            for k in range(M):
+                rmat = rotate_about_axis(2 * np.pi * k / M, axis=key)
+                for old_rmat in all_rmats:
+                    next_rmats.append(np.matmul(rmat, old_rmat))
+            all_rmats = next_rmats
 
         rmats = torch.from_numpy(np.array(all_rmats).astype(np.float32)).to(pred_rot.device)  # [M, 3, 3]
         gt_rots = torch.matmul(gt_rot.unsqueeze(1), rmats.unsqueeze(0))  # [B, M, 3, 3]
         rot_err = rot_diff_degree(gt_rots, pred_rot.unsqueeze(1), chosen_axis=chosen_axis)  # [B, M]
         rot_err, rot_idx = torch.min(rot_err, dim=-1)  # [B], [B]
         gt_rot = gt_rots[torch.tensor(np.arange(len(gt_rots))).to(rot_idx.device), rot_idx]  # [B, 3, 3]
+        new_gt_RT = torch.cat([gt_rot, gt_RT[..., 3:4]], dim=-1)  # [B, 3, 4]
 
-        return rot_err, t_err
+        return rot_err, t_err, new_gt_RT
 
     def cal_full_error(self, pred_RT, gt_RT, cls):
-        add, adds = self.cal_add_and_adds_batch(pred_RT, gt_RT, cls)
-        r_err, t_err = self.cal_pose_error(pred_RT, gt_RT, cls)
+        r_err, t_err, new_gt_RT = self.cal_pose_error(pred_RT, gt_RT, cls)
+        add, adds = self.cal_add_and_adds_batch(pred_RT, new_gt_RT, cls)
 
         return {'add': add, 'adds': adds, 'rdiff': r_err, 'tdiff': t_err}  # all of shape [B]
 

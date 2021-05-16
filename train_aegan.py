@@ -172,11 +172,11 @@ def main(cfg):
         if 'ycb' in cfg.task:
             track_dict = {key: [] for key in ['rdiff', 'tdiff', '5deg', '5cm', '5deg5cm',
                                               'add', 'adds', 'chamferL1']}
-            for num, data in enumerate(test_loader):
+            for num, data in tqdm(enumerate(test_loader), total=len(test_loader)):
                 torch.cuda.empty_cache()
                 tr_agent.val_func(data)
                 pose_err = tr_agent.ycb_last_pose_err
-                for key, value in pose_err.items()
+                for key, value in pose_err.items():
                     track_dict[key] += pose_err[key].float().cpu().numpy().tolist()
                 deg = pose_err['rdiff'] <= 5.0
                 cm = pose_err['tdiff'] <= 0.05
@@ -206,6 +206,7 @@ def main(cfg):
 
             file_name = os.path.join(os.path.dirname(__file__), 'results', 'test_pred', 'ycb',
                                      str(cfg.instance), f'{cfg.exp_num}_test.npz')
+            os.makedirs(os.path.dirname(file_name), exist_ok=True)
             print('--saving to ', file_name)
             np.savez_compressed(file_name, err=track_dict)
             return

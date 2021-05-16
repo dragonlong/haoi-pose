@@ -572,7 +572,7 @@ class PointAEPoseAgent(BaseAgent):
             # self.r_pred, self.t_pred: [B, 3, 3] and [B, 3]
             if 'ycb' in self.config.task:
                 pred_RT = torch.cat([self.r_pred, self.t_pred.unsqueeze(-1)], dim=-1)  # [B, 3, 1] -> [B, 3, 4]
-                gt_RT = torch.cat([data['R_gt'], data['T'].unsqueeze(-1)], dim=-1).to(pred_RT.device)
+                gt_RT = torch.cat([data['R_gt'], data['T'].transpose(-1, -2)], dim=-1).to(pred_RT.device)
                 cls = int(self.config.instance)
                 self.ycb_last_pose_err = self.bs_utils.cal_full_error(pred_RT, gt_RT, cls)
 
