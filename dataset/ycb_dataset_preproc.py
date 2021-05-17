@@ -229,9 +229,9 @@ def get_per_instance_pc(mode, root, instance, num_pt=2048, minimum_num_pt=50):
         os.makedirs(cur_output_path, exist_ok=True)
         np.savez_compressed(pjoin(cur_output_path, f'{output_name}.npz'), points=cloud)
 
-        with open(data_list_path, 'w') as f:
-            for filename in valid_list:
-                print(filename, file=f)
+    with open(data_list_path, 'w') as f:
+        for filename in valid_list:
+            print(filename, file=f)
 
 
 @hydra.main(config_path="../config/completion.yaml")
