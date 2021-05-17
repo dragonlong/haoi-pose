@@ -153,8 +153,9 @@ class YCBDataset(data.Dataset):
 
         if self.so3_augment:
             target_r = trimesh.transformations.random_rotation_matrix()[:3, :3]
-            target_t = np.random.rand(3)  # same as modelnet40aligned.py, uniform in [0, 1)
+            target_t = np.random.rand(3).reshape(target_t.shape)  # same as modelnet40aligned.py, uniform in [0, 1)
             cloud = np.dot(canon_cloud - 0.5, target_r.T) + target_t
+            cloud = cloud.astype(np.float32)
 
         _, R_label, R0 = rotation_distance_np(target_r, self.anchors)
         R_gt = torch.from_numpy(target_r.astype(np.float32))  # predict r

@@ -168,7 +168,8 @@ def get_per_instance_pc(mode, root, instance, num_pt=2048, minimum_num_pt=50):
 
     cur_path = os.path.abspath(os.path.dirname(__file__))
     config_path = '/'.join(cur_path.split('/')[:-1] + ['config/datasets/ycb_config'])
-    data_list_path = pjoin(config_path, f'{mode}_data_list.txt')
+    # data_list_path = pjoin(config_path, f'{mode}_data_list.txt')
+    data_list_path = pjoin(config_path, 'back_up', f'per_instance_{mode}_list', f'{instance}.txt')
     input_file = open(data_list_path)
     list = [line for line in [line.strip() for line in input_file.readlines()] if len(line)]
     input_file.close()
@@ -200,7 +201,7 @@ def get_per_instance_pc(mode, root, instance, num_pt=2048, minimum_num_pt=50):
         ins_idx = ins_idx[0]
 
         mask_depth = ma.getmaskarray(ma.masked_not_equal(depth, 0))
-        mask_label = ma.getmaskarray(ma.masked_equal(label, ins_idx))
+        mask_label = ma.getmaskarray(ma.masked_equal(label, instance))
         mask = mask_label * mask_depth
         if len(mask.nonzero()[0]) < minimum_num_pt:
             continue
