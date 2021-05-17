@@ -75,7 +75,7 @@ class PointAEPoseAgent(BaseAgent):
     def __init__(self, config):
         super(PointAEPoseAgent, self).__init__(config)
         if 'ycb' in self.config.task:
-            self.bs_utils = Basic_Utils(config=self.config, chamfer_dist=self.chamfer_dist)
+            self.bs_utils = Basic_Utils(config=self.config) #, chamfer_dist=self.chamfer_dist)
             self.ycb_last_pose_err = None
 
     def build_net(self, config):
