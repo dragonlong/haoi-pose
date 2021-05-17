@@ -168,7 +168,7 @@ def get_per_instance_pc(mode, root, instance, num_pt=2048, minimum_num_pt=50):
 
     cur_path = os.path.abspath(os.path.dirname(__file__))
     config_path = '/'.join(cur_path.split('/')[:-1] + ['config/datasets/ycb_config'])
-    data_list_path = pjoin(config_path, f'per_instance_{mode}_list', f'{instance}.txt')
+    data_list_path = pjoin(config_path, f'{mode}_data_list.txt')
     input_file = open(data_list_path)
     list = [line for line in [line.strip() for line in input_file.readlines()] if len(line)]
     input_file.close()
@@ -195,6 +195,9 @@ def get_per_instance_pc(mode, root, instance, num_pt=2048, minimum_num_pt=50):
         meta = scio.loadmat('{0}/{1}-meta.mat'.format(root, filename))
         obj = meta['cls_indexes'].flatten().astype(np.int32)
         ins_idx = [idx for idx in range(len(obj)) if obj[idx] == instance]
+        if len(ins_idx) == 0:
+            continue
+        ins_idx = ins_idx[0]
 
         mask_depth = ma.getmaskarray(ma.masked_not_equal(depth, 0))
         mask_label = ma.getmaskarray(ma.masked_equal(label, ins_idx))
@@ -229,6 +232,7 @@ def get_per_instance_pc(mode, root, instance, num_pt=2048, minimum_num_pt=50):
         os.makedirs(cur_output_path, exist_ok=True)
         np.savez_compressed(pjoin(cur_output_path, f'{output_name}.npz'), points=cloud)
 
+    data_list_path = pjoin(config_path, f'per_instance_{mode}_list', f'{instance}.txt')
     with open(data_list_path, 'w') as f:
         for filename in valid_list:
             print(filename, file=f)
