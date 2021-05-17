@@ -6,4 +6,5 @@ DATASET:
   use_rgb: False
   num_classes: 21
   workers: 8
+  so3_augment: False
 instance:
