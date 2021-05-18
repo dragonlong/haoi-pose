@@ -24,12 +24,13 @@ def VOCap(rec, prec):
 
 
 def chamfer_cpu(a, b, return_raw=False):  # [B, N, 3], only consider symmetrical cases
-    dis = torch.norm(a.unsqueeze(1) - b.unsqueeze(2), dim=-1)  # [B, 1, N, 3] - [B, N, 1, 3] = [B, N, N, 3]
-    mdis = torch.min(dis, dim=-1)[0]  # [B, N, N -> ()] -> [B, N]
+    dis = torch.norm(a.unsqueeze(1) - b.unsqueeze(2), dim=-1)  # [B, 1, N, 3] - [B, M, 1, 3] = [B, M, N, 3]
+    mdis_a = torch.min(dis, dim=-2)[0]  # [B, M -> (), N] -> [B, N]
+    mdis_b = torch.min(dis, dim=-1)[0]
     if return_raw:
-        return mdis, mdis
+        return mdis_a, mdis_b
     else:
-        return mdis.min()[0], mdis.min()[0]
+        return torch.mean(mdis_a) + torch.mean(mdis_b)
 
 
 class Basic_Utils():

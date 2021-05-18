@@ -12,6 +12,30 @@ import argparse
 import torch
 sys.path.insert(0, '/orion/u/yijiaw/projects/haoi/code/haoi-pose')
 from models.pointnet_lib.pointnet2_modules import farthest_point_sample
+from utils.extensions.chamfer_dist import ChamferDistance
+from utils.ycb_eval_utils import chamfer_cpu
+CUDA = torch.cuda.is_available()
+chamfer_gpu_func = None if not CUDA else ChamferDistance()
+
+
+def chamfer_gpu(a, b, return_raw=False):
+    result = chamfer_gpu_func(a, b, return_raw=return_raw)
+    if return_raw:
+        dist_a, dist_b = result
+        return torch.sqrt(dist_a), torch.sqrt(dist_b)
+    else:
+        return torch.sqrt(result)   # not the real distance -> here we take the average of squares first
+
+
+def chamfer(a, b, return_raw=False):  # [B, N, 3]
+    if isinstance(a, np.ndarray):
+        a = torch.from_numpy(a)
+        b = torch.from_numpy(b)
+    if CUDA:
+        return chamfer_gpu(a.cuda(), b.cuda(), return_raw=return_raw)
+    else:
+        return chamfer_cpu(a, b, return_raw=return_raw)
+
 
 border_list = [-1, 40, 80, 120, 160, 200, 240, 280, 320, 360, 400, 440, 480, 520, 560, 600, 640, 680]
 img_width = 480
@@ -171,15 +195,26 @@ def get_per_instance_pc(mode, root, instance, num_pt=2048, minimum_num_pt=50):
     # data_list_path = pjoin(config_path, f'{mode}_data_list.txt')
     data_list_path = pjoin(config_path, 'back_up', f'per_instance_{mode}_list', f'{instance}.txt')
     input_file = open(data_list_path)
-    list = [line for line in [line.strip() for line in input_file.readlines()] if len(line)]
+    file_list = [line for line in [line.strip() for line in input_file.readlines()] if len(line)]
     input_file.close()
+
+    with open(pjoin(config_path, 'classes.txt'), 'r') as f:
+        class_names = [line for line in [line.strip() for line in f.readlines()] if len(line)]
+    class_name = class_names[instance - 1]
+    with open(pjoin(f'{root}', 'models', class_name, 'points.xyz'), 'r') as f:
+        lines = [line for line in [line.strip() for line in f.readlines()] if len(line)]
+    full_points = [list(map(float, line.split())) for line in lines]
+    full_points = np.array(full_points)
+
+    diag = np.max(full_points, axis=0) - np.min(full_points, axis=0)
+    scale = np.sqrt(np.sum(diag ** 2))
 
     valid_list = []
 
     output_path = pjoin(root, 'cloud', f'{instance}')
     os.makedirs(output_path, exist_ok=True)
 
-    for filename in tqdm(list):
+    for filename in tqdm(file_list):
         if filename[:8] != 'data_syn' and int(filename[5:9]) >= 60:
             cam_cx = cam_cx_2
             cam_cy = cam_cy_2
@@ -199,6 +234,9 @@ def get_per_instance_pc(mode, root, instance, num_pt=2048, minimum_num_pt=50):
         if len(ins_idx) == 0:
             continue
         ins_idx = ins_idx[0]
+
+        target_r = meta['poses'][:, :, ins_idx][:, 0:3]
+        target_t = np.array([meta['poses'][:, :, ins_idx][:, 3:4].flatten()])
 
         mask_depth = ma.getmaskarray(ma.masked_not_equal(depth, 0))
         mask_label = ma.getmaskarray(ma.masked_equal(label, instance))
@@ -221,6 +259,14 @@ def get_per_instance_pc(mode, root, instance, num_pt=2048, minimum_num_pt=50):
         pt0 = (ymap_masked - cam_cx) * pt2 / cam_fx
         pt1 = (xmap_masked - cam_cy) * pt2 / cam_fy
         cloud = np.concatenate((pt0, pt1, pt2), axis=1)
+
+        posed_full_point = np.dot(full_points, target_r.T) + target_t
+
+        dist_to_full, _ = chamfer(np.expand_dims(cloud, 0), np.expand_dims(posed_full_point, 0),
+                                  return_raw=True)   # [B, N]
+        dist_to_full = dist_to_full.cpu().numpy()[0]  # [N]
+        choose = np.where(dist_to_full < 0.05 * scale)[0]
+        cloud = cloud[choose]
 
         if len(cloud) > num_pt:
             torch_cloud = torch.from_numpy(cloud).float().to(device).unsqueeze(0)  # [1, N, 3]
