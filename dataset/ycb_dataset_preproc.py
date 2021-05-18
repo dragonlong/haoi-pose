@@ -29,8 +29,8 @@ def chamfer_gpu(a, b, return_raw=False):
 
 def chamfer(a, b, return_raw=False):  # [B, N, 3]
     if isinstance(a, np.ndarray):
-        a = torch.from_numpy(a)
-        b = torch.from_numpy(b)
+        a = torch.from_numpy(a).float()
+        b = torch.from_numpy(b).float()
     if CUDA:
         return chamfer_gpu(a.cuda(), b.cuda(), return_raw=return_raw)
     else:
@@ -265,7 +265,11 @@ def get_per_instance_pc(mode, root, instance, num_pt=2048, minimum_num_pt=50):
         dist_to_full, _ = chamfer(np.expand_dims(cloud, 0), np.expand_dims(posed_full_point, 0),
                                   return_raw=True)   # [B, N]
         dist_to_full = dist_to_full.cpu().numpy()[0]  # [N]
+        
         choose = np.where(dist_to_full < 0.05 * scale)[0]
+        diff = len(cloud) - len(choose)
+        if diff > 10:
+            print('from', len(cloud), 'to', len(choose))
         cloud = cloud[choose]
 
         if len(cloud) > num_pt:

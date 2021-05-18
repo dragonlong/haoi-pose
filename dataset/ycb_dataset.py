@@ -41,7 +41,7 @@ class YCBDataset(data.Dataset):
         self.add_noise = cfg.DATASET.add_noise and split == 'train'
         self.noise_trans = cfg.DATASET.noise_trans
         self.use_rgb = cfg.DATASET.use_rgb
-        self.so3_augment = cfg.DATASET.so3_augment
+        self.so3_augment = cfg.DATASET.so3_augment and split == 'train'
         instance = cfg.instance
         if instance is not None:
             instance = int(instance)
