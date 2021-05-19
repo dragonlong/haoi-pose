@@ -375,9 +375,16 @@ class PointAEPoseAgent(BaseAgent):
             elif self.config.r_method_type == 1: # raw quaternion
                 if self.config.pred_t:
                     qw, qxyz = torch.split(self.latent_vect['R'].permute(0, 2, 1).contiguous(), [1, 3], dim=-1)
-                    theta_max= torch.Tensor([1.2]).cuda()
-                    qw       = torch.cos(theta_max) + (1- torch.cos(theta_max)) * F.sigmoid(qw)
+                    # angle = 2 * arccos(qw) <= 2 * arccos(qw_min) = theta_max / 2.0
+                    # qw_min = cos(theta_max / 4.0)
+                    theta_max= torch.Tensor([float(np.deg2rad(72.0))]).cuda().float()
+                    qw_min = torch.cos(theta_max / 4.0)
+                    qw = qw_min + (1 - qw_min) * F.sigmoid(qw)
                     constrained_quat = torch.cat([qw, qxyz], dim=-1)
+
+                    ranchor_pred = compute_rotation_matrix_from_quaternion(constrained_quat.view(-1, 4)).view(nb, -1, 3, 3)
+                    pred_R = torch.matmul(anchors, ranchor_pred)  # [60, 3, 3], [nb, 60, 3, 3] --> [nb, 60, 3, 3]
+
                     constrained_quat_tiled = constrained_quat.unsqueeze(2).contiguous().repeat(1, 1, np_out, 1).contiguous() # nb, na, np, 4
                     canon_pts= self.output_pts.permute(0, 2, 1).contiguous() - 0.5 # nb, np, 3
                     canon_pts_tiled= canon_pts.unsqueeze(1).contiguous().repeat(1, na, 1, 1).contiguous() # nb, na, np, 3
