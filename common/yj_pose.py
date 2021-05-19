@@ -3,8 +3,8 @@ import numpy as np
 import sys
 
 EPS = 1e-6
-
-
+def bp():
+    import pdb;pdb.set_trace()
 def rotate_pts_batch(source, target):  # src, tgt [B, P, H, N, 3]
     M = torch.matmul(target.transpose(-1, -2), source)  # [..., 3, N] * [..., N, 3] = [..., 3, 3]
     _M = M.cpu()

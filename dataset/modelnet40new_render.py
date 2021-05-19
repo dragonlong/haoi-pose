@@ -34,11 +34,11 @@ def create_partial(read_path, save_folder, ins_num, render_num,
     scene.add_node(node)
 
     camera_pose = np.eye(4)
-    camera = pyrender.PerspectiveCamera(yfov=yfov, aspectRatio=pw / ph, znear=near, zfar=far) 
-    projection = camera.get_projection_matrix() 
+    camera = pyrender.PerspectiveCamera(yfov=yfov, aspectRatio=pw / ph, znear=near, zfar=far)
+    projection = camera.get_projection_matrix()
     scene.add(camera, camera_pose)
     r = pyrender.OffscreenRenderer(pw, ph)
-    
+
     depth_path = pjoin(save_folder, ins_num, 'depth')
     os.makedirs(depth_path, exist_ok=True)
     gt_path = pjoin(save_folder, ins_num, 'gt')
@@ -59,7 +59,7 @@ def create_partial(read_path, save_folder, ins_num, render_num,
         cv2.imwrite(pjoin(depth_path, f'{i:03}.png'), depth_image)
         np.save(pjoin(gt_path, f'{i:03}.npy'), pose)
         # backproject(depth_image, projection, near, far, from_image=True, vis=True)
-        
+
     return projection, near, far
 
 
@@ -82,7 +82,7 @@ def ndc_depth_to_buffer(z, near, far):  # z in [-1, 1]
 
 
 def buffer_depth_to_ndc(d, near, far):  # d in (0, +
-    return ((near + far) - 2 * near * far / np.clip(d, a_min=1e-6, a_max=1e6)) / (far - near)  
+    return ((near + far) - 2 * near * far / np.clip(d, a_min=1e-6, a_max=1e6)) / (far - near)
 
 
 def linearize_img(d, near, far):  # for visualization only
@@ -100,29 +100,29 @@ def backproject(depth, projection, near, far, from_image=False, vis=False):
     idxs = np.where(non_zero_mask)
     depth_selected = depth[idxs[0], idxs[1]].astype(np.float32).reshape((1, -1))
     if from_image:
-        z = depth_selected / ((1 << 16) - 1)  # [0, 1] 
+        z = depth_selected / ((1 << 16) - 1)  # [0, 1]
         z = inv_linearize_img(z, near, far)  # [0, 1]
         z = z * 2 - 1.0  # [-1, 1]
         d = ndc_depth_to_buffer(z, near, far)
     else:
         d = depth_selected
         z = buffer_depth_to_ndc(d, near, far)
-   
+
     grid = np.array([idxs[1] / width * 2 - 1, 1 - idxs[0] / height * 2])  # ndc [-1, 1]
 
     ones = np.ones_like(z)
     pts = np.concatenate((grid, z, ones), axis=0) * d  # before dividing by w, w = -z_world = d
 
-    pts = proj_inv @ pts 
+    pts = proj_inv @ pts
     pts = np.transpose(pts)
 
     pts = pts[:, :3]
-    
+
     if vis:
         pmin, pmax = pts.min(axis=0), pts.max(axis=0)
         center = (pmin + pmax) * 0.5
         lim = max(pmax - pmin) * 0.5 + 0.2
-       
+
         plt.figure(figsize=(12, 6))
         plt.subplot(1, 2, 1)
         plt.axis('off')
@@ -154,8 +154,8 @@ def parse_args():
 
 
 if __name__ == "__main__":
-    args = parse_args() 
-    
+    args = parse_args()
+
     read_folder = pjoin(args.input, args.category, args.split)
     save_folder = pjoin(args.output, args.category, args.split)
     path_list = [pjoin(read_folder, i) for i in os.listdir(read_folder) if i.endswith('off')]
@@ -170,7 +170,7 @@ if __name__ == "__main__":
     }
     mean_pose = mean_pose_dict[args.category]
     std_pose = np.array([0.2, 0.2, 0.15])
-    
+
     mp.set_start_method('spawn')
     num_per_ins = (len(path_list) - 1) // args.num_proc + 1
     processes = []
@@ -183,7 +183,6 @@ if __name__ == "__main__":
                                                  np.deg2rad(60), 640, 480, 0.01, 10))
         processes.append(p)
         p.start()
-        
+
     for p in processes:
         p.join()
-

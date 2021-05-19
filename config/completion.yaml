@@ -73,6 +73,9 @@ use_symmetry_loss: False
 use_one2many: False
 use_head_assemble: False
 t_method_type: -1
+r_method_type: -1
+use_axis: False
+use_fps_points: False
 
 # data control
 subset_samples: False

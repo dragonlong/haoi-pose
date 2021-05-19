@@ -200,7 +200,7 @@ class NOCSDataset(data.Dataset):
                 'R_gt' : R_gt,
                 'R_label': R_label,
                 'R': R0,
-                'T': T,
+                'T': T/scale_normalize,
                 'fn': fn,
                 'id': instance_name,
                 'idx': idx,

@@ -92,7 +92,6 @@ class ShapeNetH5(data.Dataset):
         R = np.eye(3)
         R_label = 29
         t = np.random.rand(1, 3)
-        T = torch.from_numpy(t.astype(np.float32))
         if self.opt.augment and not self.opt.pre_compute_delta:
             if 'R' in data.keys() and self.mode != 'train':
                 pc, R = pctk.rotate_point_cloud(pc, data['R'])
@@ -102,20 +101,19 @@ class ShapeNetH5(data.Dataset):
         else:
             R_gt = np.copy(R)
         _, R_label, R0 = rotation_distance_np(R, self.anchors)
-        # s = np.random.rand(1) * 0.4 + 0.8
-        # pc = pc * s
-        if self.opt.pred_t:
+        T = torch.from_numpy(t.astype(np.float32))
+        if self.opt.pred_t and not self.opt.pre_compute_delta:
             pc = pc + t
         else:
             T = T * 0
-            
+
         return {'xyz': torch.from_numpy(pc.astype(np.float32)),
                 'points': torch.from_numpy(pc_canon.astype(np.float32)),
                 'label': torch.from_numpy(data['label'].flatten()).long(),
                 'R_gt' : torch.from_numpy(R_gt.astype(np.float32)),
                 'R_label': torch.Tensor([R_label]).long(),
                 'R': R0,
-                'T': torch.from_numpy(t.astype(np.float32)),
+                'T': T,
                 'fn': data['name'][0],
                 'id': str(index),
                 'idx': index,

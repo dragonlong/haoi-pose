@@ -32,6 +32,7 @@ from dataset.obman_aese3 import HandDatasetAEGraph
 from dataset.modelnet40 import ModelNetDataset
 from dataset.airplane3k import OracleDataset
 from dataset.modelnet40aligned import Dataloader_ModelNet40, Dataloader_ModelNet40Alignment
+from dataset.modelnet40new import Dataloader_ModelNet40New
 # nocs
 # from dataset.nocs_synthetic import NOCSDataset
 from dataset.nocs_synthetic_simple import NOCSDataset
@@ -65,6 +66,7 @@ add_datasets(ModelNetDataset)
 add_datasets(OracleDataset)
 add_datasets(NOCSDataset)
 add_datasets(Dataloader_ModelNet40)
+add_datasets(Dataloader_ModelNet40New)
 add_datasets(ShapeNetH5)
 #
 def load_dataset(name):
@@ -137,6 +139,10 @@ def get_dataset(cfg,
     elif name_dset == 'modelnet40aligned':
         print('using modelnet40 data ', split)
         return Dataloader_ModelNet40(opt=cfg, mode=split)
+
+    elif name_dset == 'modelnet40new':
+        print('using modelnet40 data, new ', split)
+        return Dataloader_ModelNet40New(cfg=cfg, mode=split)
 
     elif name_dset == 'nocs_synthetic':
         print('using nocs_synthetic data ', split)

@@ -59,6 +59,7 @@ class InvSO3ConvModel(nn.Module):
         self.na_in = params['na']
         self.invariance = True
         self.config = config
+        self.t_method_type = config.t_method_type
 
         if 'ycb' in config.task and config.instance is None:
             self.num_heads = config.DATASET.num_classes
@@ -68,8 +69,7 @@ class InvSO3ConvModel(nn.Module):
             self.classifier = None
         # per anchors R, T estimation
         if config.t_method_type == -1:    # 0.845, R_i * delta_T
-            self.outblockRT = M.SO3OutBlockR(params['outblock'], norm=1, pooling_method=config.model.pooling_method,
-                                             pred_t=config.pred_t, feat_mode_num=self.na_in, num_heads=self.num_heads)
+            self.outblockR = M.SO3OutBlockR(params['outblock'], norm=1, pooling_method=config.model.pooling_method, pred_t=config.pred_t, feat_mode_num=self.na_in)
         elif config.t_method_type == 0:   # 0.847, R_i0 * delta_T
             self.outblockRT = M.SO3OutBlockR(params['outblock'], norm=1, pooling_method=config.model.pooling_method,
                                              pred_t=config.pred_t, feat_mode_num=self.na_in, num_heads=self.num_heads)
@@ -96,14 +96,13 @@ class InvSO3ConvModel(nn.Module):
         for block_i, block in enumerate(self.backbone):
             x = block(x)
 
-        output = self.outblockRT(x, self.anchors) # 1, delta_R, deltaT
-        manifold_embed = self.outblockN(x)
-        output['0'] = manifold_embed  # [B, C]
-        output['xyz'] = x.xyz
-
-        if self.num_heads > 1:
-            output['class'] = self.classifier(manifold_embed)   # [B, num_heads]
-
+        if self.t_method_type < 0:
+            output = self.outblockR(x, self.anchors)
+        else:
+            output = self.outblockRT(x, self.anchors) # 1, delta_R, deltaT
+        manifold_embed    = self.outblockN(x)
+        output['0'] = manifold_embed
+        output['xyz']     = x.xyz
         return output
 
     def get_anchor(self):
@@ -114,7 +113,7 @@ def build_model(opt,
                 out_mlps=[128, 128],
                 strides=[2, 2, 2, 2],
                 initial_radius_ratio = 0.2,
-                sampling_ratio = 0.8, #0.4, 0.36
+                sampling_ratio = 0.8,
                 sampling_density = 0.5,
                 kernel_density = 1,
                 kernel_multiplier = 2,

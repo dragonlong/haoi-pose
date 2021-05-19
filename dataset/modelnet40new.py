@@ -11,10 +11,43 @@ import torch.utils.data as data
 from os.path import join as pjoin
 import matplotlib.pyplot as plt
 import __init__
+<<<<<<< HEAD
 import vgtk.so3conv.functional as L
 from vgtk.functional import rotation_distance_np
 from dataset.modelnet40new_render import backproject
 
+=======
+try:
+    import vgtk.so3conv.functional as L
+    import vgtk.pc as pctk
+except:
+    pass
+from dataset.modelnet40new_render import backproject
+
+def bp():
+    import pdb;pdb.set_trace()
+
+def rotation_distance_np(r0, r1):
+    '''
+    tip: r1 is usally the anchors
+    '''
+    if r0.ndim == 3:
+        bidx = np.zeros(r0.shape[0]).astype(np.int32)
+        traces = np.zeros([r0.shape[0], r1.shape[0]]).astype(np.int32)
+        for bi in range(r0.shape[0]):
+            diff_r = np.matmul(r1, r0[bi].T)
+            traces[bi] = np.einsum('bii->b', diff_r)
+            bidx[bi] = np.argmax(traces[bi])
+        return traces, bidx
+    else:
+        # diff_r = np.matmul(r0, r1.T)
+        # return np.einsum('ii', diff_r)
+
+        diff_r = np.matmul(np.transpose(r1,(0,2,1)), r0)
+        traces = np.einsum('bii->b', diff_r)
+
+        return traces, np.argmax(traces), diff_r
+>>>>>>> 1ac8811363cdbd63f352cad122f34fb70900bc30
 
 def get_index(src_length, tgt_length):
     idx = np.arange(0, src_length)
@@ -48,22 +81,26 @@ class Dataloader_ModelNet40New(data.Dataset):
         self.mode = cfg.mode if mode is None else mode
         if 'val' in self.mode:
             self.mode = 'test'
-
-        self.num_points = cfg.num_points
+        if cfg.use_fps_points:
+            self.num_points = 4 * cfg.num_points
+            print(f'---using {self.num_points} points as input')
+        else:
+            self.num_points = cfg.num_points
         self.add_noise = cfg.DATASET.add_noise
         self.noise_trans = cfg.DATASET.noise_trans
 
         self.dataset_path = cfg.DATASET.dataset_path
-        self.render_path = pjoin(self.dataset_path, 'render', cfg.DATASET.target_category, self.mode)
-        self.points_path = pjoin(self.dataset_path, 'points', cfg.DATASET.target_category, self.mode)
+        self.render_path = pjoin(self.dataset_path, 'render', cfg.target_category, self.mode)
+        self.points_path = pjoin(self.dataset_path, 'points', cfg.target_category, self.mode)
 
         with open(pjoin(self.render_path, 'meta.pkl'), 'rb') as f:
             self.meta_dict = pickle.load(f)  # near, far, projection
         self.instance_points, self.all_data = self.collect_data()
-
-        self.anchors = L.get_anchors()
-
-        print("[Dataloader] : Training dataset size:", len(self.all_data))
+        try:
+            self.anchors = L.get_anchors()
+        except:
+            self.anchors = np.random.rand(60, 3, 3)
+        print(f"[Dataloader] : {self.mode} dataset size:", len(self.all_data))
 
     def collect_data(self):
         data_list = []
@@ -90,15 +127,18 @@ class Dataloader_ModelNet40New(data.Dataset):
         target_r = gt_pose[:3, :3]
         target_t = gt_pose[:3, 3]
         add_t = np.array([random.uniform(-self.noise_trans, self.noise_trans) for i in range(3)])
-
         canon_cloud = np.dot(cloud - target_t, target_r) + 0.5
         if self.add_noise:
             cloud = cloud + add_t.astype(cloud.dtype)
 
+        if self.cfg.augment:
+            cloud, R = pctk.rotate_point_cloud(cloud)
+            target_r = np.matmul(R, target_r)
+
         _, R_label, R0 = rotation_distance_np(target_r, self.anchors)
 
         R_gt = torch.from_numpy(target_r.astype(np.float32))  # predict r
-        T = torch.from_numpy(target_t.astype(np.float32))
+        T = torch.from_numpy(target_t.reshape(1, 3).astype(np.float32))
 
         category, _, instance = self.all_data[index].split('/')[-5:-2]  # ../render/airplane/train/0001/gt/001.npy
         model_points = self.get_complete_cloud(instance) + 0.5
@@ -110,14 +150,20 @@ class Dataloader_ModelNet40New(data.Dataset):
         else:
             target = np.add(target, target_t)
         """
+
+        if self.cfg.eval and self.cfg.pre_compute_delta:
+            cloud = canon_cloud - 0.5
+            R_gt  = torch.from_numpy(np.eye(3).astype(np.float32))
+            T     = torch.from_numpy(np.zeros((1, 3)).astype(np.float32))
+
         data_dict = {
-            'xyz': cloud,  # point cloud in camera space
-            'points': canon_cloud,  # canonicalized xyz, in [0, 1]^3
-            'full': model_points,  # complete point cloud, in [0, 1]^3
+            'xyz': torch.from_numpy(cloud.astype(np.float32)),  # point cloud in camera space
+            'points': torch.from_numpy(canon_cloud.astype(np.float32)),  # canonicalized xyz, in [0, 1]^3
+            'full': torch.from_numpy(model_points.astype(np.float32)), # complete point cloud, in [0, 1]^3
             'label': torch.from_numpy(np.array([1]).astype(np.float32)),  # useless
             'R_gt': R_gt,
             'R_label': R_label,
-            'R': R0,
+            'R': torch.from_numpy(R0.astype(np.float32)),
             'T': T,
             'fn': self.all_data[index],
             'id': instance,
@@ -143,7 +189,7 @@ def check_data(data_dict):
         center = (pmin + pmax) * 0.5
         lim = max(pmax - pmin) * 0.5 + 0.2
         for pts in pt_list:
-            ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2], alpha=0.8, s=1)
+            ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2], alpha=0.8, s=3**2)
         ax.set_xlim3d([center[0] - lim, center[0] + lim])
         ax.set_ylim3d([center[1] - lim, center[1] + lim])
         ax.set_zlim3d([center[2] - lim, center[2] + lim])
@@ -192,9 +238,9 @@ modelnet40new/
             train/
                 0001.npz
             test/
-    
-Pose and size: 
-- all models are of unit size 
+
+Pose and size:
+- all models are of unit size
 - the input data 'xyz' is NOT normalized -> still contains a big translation
 
 Sampling:
@@ -202,6 +248,4 @@ Sampling:
 
 Caching:
 - not implemented
-
-
 """

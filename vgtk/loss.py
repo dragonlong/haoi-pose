@@ -28,8 +28,8 @@ class CrossEntropyLoss(torch.nn.Module):
         pred_label = pred_label.reshape(-1)
         label_flattened = label.reshape(-1)
         acc = (pred_label == label_flattened).sum().float() / float(label_flattened.shape[0])
-        return torch.zeros(label.shape[0]).cuda(), acc
-        # return self.metric(pred, label), acc
+        # return torch.zeros(label.shape[0]).cuda(), acc
+        return self.metric(pred, label), acc
 
 class AttentionCrossEntropyLoss(torch.nn.Module):
     def __init__(self, loss_type, loss_margin):
@@ -103,7 +103,7 @@ class MultiTaskDetectionLoss(torch.nn.Module):
         self.threshold = threshold
         self.iter_counter = 0
 
-    def forward(self, wts, label, y, gt_R, gt_T=None):
+    def forward(self, wts, label, y, gt_R, R_gt=None):
         ''' setting for alignment regression:
                 - label (nb, na):
                     label the targte anchor from the perspective of source anchor na
@@ -111,9 +111,9 @@ class MultiTaskDetectionLoss(torch.nn.Module):
                 - y (nb, nr, na_tgt, na_src) features
                 - gt_R (nb, na, 3, 3)
                     relative rotation to regress from the perspective of source anchor na
-                    Ra_tgti @ gt_R_i @ Ra_srci.T = gt_T for each i
-                - gt_T (nb, 3, 3)
-                    ground truth relative rotation: gt_T @ R_tgt = R_src
+                    Ra_tgti @ gt_R_i @ Ra_srci.T = R_gt for each i
+                - R_gt (nb, 3, 3)
+                    ground truth relative rotation: R_gt @ R_tgt = R_src
 
             setting for canonical regression:
                 - label (nb)
@@ -121,6 +121,7 @@ class MultiTaskDetectionLoss(torch.nn.Module):
                 - y (nb, nr, na) features to be mapped to 3x3 rotation matrices
                 - gt_R (nb, na, 3, 3) relative rotation between gtR and each anchor
         '''
+        mask = None
         nr = self.nr # 4 or 6
         if isinstance(wts, list):
             b = wts[0].shape[0]
@@ -129,7 +130,7 @@ class MultiTaskDetectionLoss(torch.nn.Module):
             b = wts.shape[0]
             na = wts.shape[1]
         rotation_mapping = compute_rotation_matrix_from_quaternion if nr == 4 else compute_rotation_matrix_from_ortho6d
-        true_R = gt_R[:,29] if gt_T is None else gt_T
+        true_R = gt_R[:,29] if R_gt is None else R_gt
         if na == 1:
             # single anchor regression problem
             target_R = true_R
@@ -139,7 +140,7 @@ class MultiTaskDetectionLoss(torch.nn.Module):
             pred_R = rotation_mapping(y.view(b,nr))
             l2_loss = torch.pow(pred_R - target_R,2).mean()
             loss = self.w * l2_loss
-        elif gt_T is not None and label.ndimension() == 2:
+        elif R_gt is not None and label.ndimension() == 2:
             # Alignment setting
             wts = wts.view(b,na,na)
             cls_loss, r_acc = self.classifier(wts, label)

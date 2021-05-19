@@ -94,7 +94,7 @@ class Trainer(vgtk.Trainer):
         self.iter_counter += 1
 
     def _optimize(self, data):
-        in_tensors = data['pc'].to(self.device)
+        in_tensors   = data['pc'].to(self.device)
         nb, npoint, _ = in_tensors.shape
         in_rot_label = data['R_label'].to(self.device).view(-1).contiguous()   # GT R label, torch.Size([2])
         in_R         = data['R'].to(self.device).float() # GT relative R, torch.Size([2, 60, 3, 3])

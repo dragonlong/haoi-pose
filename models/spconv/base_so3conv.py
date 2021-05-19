@@ -719,13 +719,22 @@ class SO3OutBlockR(nn.Module):
         c_in = params['dim_in']
         mlp = params['mlp']
         na = params['kanchor']
+        rp = params['representation']
 
         self.linear = nn.ModuleList()
         self.temperature = params['temperature']
         self.representation = params['representation']
         self.feat_mode_num = feat_mode_num
-        self.num_heads = num_heads
-        # self.attention_layer = nn.Conv2d(mlp[-1], 1, (1,1))
+        if rp == 'up_axis':
+            self.out_channel = 3
+            print('---SO3OutBlockR output up axis')
+        elif rp == 'quat':
+            self.out_channel = 4
+        elif rp == 'ortho6d':
+            self.out_channel = 6
+        else:
+            raise KeyError("Unrecognized representation of rotation: %s"%rp)
+
         if norm is not None:
             self.norm = nn.ModuleList()
         else:
@@ -734,11 +743,8 @@ class SO3OutBlockR(nn.Module):
         if self.pooling_method == 'pointnet':
             self.pointnet = sptk.PointnetSO3Conv(mlp[-1], mlp[-1], na)
 
-        self.attention_layer = nn.Conv1d(mlp[-1], 1 * num_heads, (1, ))
-        if self.feat_mode_num < 2:
-            self.regressor_layer = nn.Conv1d(mlp[-1], 4 * 60 * num_heads, (1, ))
-        else:
-            self.regressor_layer = nn.Conv1d(mlp[-1], 4 * num_heads, (1, ))
+        self.attention_layer = nn.Conv1d(mlp[-1], 1, (1))
+        self.regressor_layer = nn.Conv1d(mlp[-1],self.out_channel,(1))
 
         self.pred_t = pred_t
         if pred_t:
@@ -753,8 +759,8 @@ class SO3OutBlockR(nn.Module):
 
     def forward(self, x, anchors=None):
         x_out = x.feats
-        if x_out.shape[-1] == 1:
-            x_out = x_out.repeat(1, 1, 1, 60).contiguous()
+        # if x_out.shape[-1] == 1:
+        #     x_out = x_out.repeat(1, 1, 1, 60).contiguous()
         end = len(self.linear)
         for lid, linear in enumerate(self.linear):
             x_out = linear(x_out)
@@ -774,13 +780,12 @@ class SO3OutBlockR(nn.Module):
         confidence = F.softmax(attention_wts * self.temperature, dim=2)  # [B, num_heads, A]
         # regressor
         output = {}
-        batch_size = len(x.xyz)
-        if self.feat_mode_num < 2:
-            y = self.regressor_layer(x_out[:, :, 0:1]).squeeze(-1).view(batch_size, 4 * self.num_heads, -1).contiguous()
-        else:
-            y = self.regressor_layer(x_out)  # Bx(4 * num_heads)xA
-        output['1'] = confidence  # [B, num_heads, A]
-        output['R'] = y.reshape(batch_size, self.num_heads, 4, -1)  # [B, num_heads, 4, A]
+        # if self.feat_mode_num < 2:
+        #     y = self.regressor_layer(x_out[:, :, 0:1]).squeeze(-1).view(x.xyz.shape[0], 4, -1).contiguous()
+        # else:
+        y = self.regressor_layer(x_out) # Bx6xA
+        output['1'] = confidence #
+        output['R'] = y
         if self.pred_t:
             y_t = self.regressor_t_layer(x_out).reshape(batch_size, self.num_heads, 3, -1)  # [B, 3 * num_heads, A]
             output['T'] = y_t
@@ -822,7 +827,7 @@ class SO3OutBlockRT(nn.Module):
 
         self.attention_layer = nn.Conv1d(mlp[-1], 1 * num_heads, (1))
         if self.feat_mode_num < 2:
-            self.regressor_layer = nn.Conv1d(mlp[-1], 4 * 60 * num_heads, (1))
+            self.regressor_layer = nn.Conv1d(mlp[-1],4,(1))
         else:
             self.regressor_layer = nn.Conv1d(mlp[-1], 4 * num_heads, (1))
         self.regressor_scalar_layer = nn.Conv1d(mlp[-1], 1 * num_heads, (1)) # [B, C, A] --> [B, 1, A] scalar, local
@@ -842,9 +847,8 @@ class SO3OutBlockRT(nn.Module):
 
     def forward(self, x, anchors=None):
         x_out = x.feats         # nb, nc, np, na -> nb, nc, na
-        if x_out.shape[-1] == 1:
-            x_out = x_out.repeat(1, 1, 1, 60).contiguous()
-        batch_size = len(x_out)
+        # if x_out.shape[-1] == 1:
+        #     x_out = x_out.repeat(1, 1, 1, 60).contiguous()
         end = len(self.linear)
         for lid, linear in enumerate(self.linear):
             # norm = self.norm[norm_cnt]

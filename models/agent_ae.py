@@ -3,15 +3,17 @@ import torch.nn as nn
 import numpy as np
 import wandb
 import torchvision
+import torch.nn.functional as F
 import __init__
 from models.ae_gan import get_network
 from models.base import BaseAgent
-# from utils.emd import earth_mover_distance
 from utils.extensions.chamfer_dist import ChamferDistance
-# from utils.p2i_utils import look_at
+from utils.p2i_utils import look_at
 from models.losses import loss_geodesic, loss_vectors, compute_vect_loss, compute_1vN_nocs_loss, compute_miou_loss
-from common.d3_utils import compute_rotation_matrix_from_euler, compute_euler_angles_from_rotation_matrices, compute_rotation_matrix_from_ortho6d, mean_angular_error
-from common.yj_pose import compute_pose_diff, rot_diff_degree
+from common.d3_utils import compute_rotation_matrix_from_euler, compute_euler_angles_from_rotation_matrices, compute_rotation_matrix_from_ortho6d, mean_angular_error, angle_from_R
+from common.yj_pose import compute_pose_diff, rot_diff_degree, rot_diff_rad
+from common.rotations import rotate
+from models.pointnet_lib.pointnet2_modules import farthest_point_sample, gather_operation
 from os import makedirs, remove
 from os.path import exists, join
 from utils.ycb_eval_utils import Basic_Utils
@@ -23,6 +25,7 @@ from global_info import global_info
 infos           = global_info()
 my_dir          = infos.base_path
 delta_R         = infos.delta_R
+delta_T         = infos.delta_T
 def bp():
     import pdb;pdb.set_trace()
 
@@ -88,6 +91,17 @@ class PointAEPoseAgent(BaseAgent):
         net = net.cuda()
         return net
 
+    def synchronize_input(self, data):
+        device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+        target_keys = ['xyz', 'points', 'C', 'T', 'R_gt', 'R', 'R_label']
+        for key in target_keys:
+            if key in data:
+                data[key] = data[key].to(device)
+                if (key == 'xyz' or key == 'points') and self.config.use_fps_points:
+                    fps_idx = farthest_point_sample(data[key], npoint=1024)
+                    new_xyz = gather_operation(data[key].permute(0, 2, 1).contiguous(), fps_idx.int())  # [B, C, S]
+                    data[key] = new_xyz.permute(0, 2, 1).contiguous()
+
     def forward(self, data, verbose=False):
         """
         1. forwarding;
@@ -95,144 +109,22 @@ class PointAEPoseAgent(BaseAgent):
         3. extra losses;
         """
         self.infos    = {}
+        self.synchronize_input(data) #
         if 'se3' in self.config.encoder_type:
             self.predict_se3(data)
         else:
             self.predict_pnet2(data)
 
+        # for general loss
         if self.config.pred_6d:
             self.compute_and_eval_6d(data)
         if self.config.pred_axis:
             self.compute_and_eval_axis(data)
-
+        if 'so3' in self.config.encoder_type or self.config.use_head_assemble:
+            self.compute_and_eval_so3(data)
+        #
         self.compute_loss(data)
 
-    def eval_func(self, data):
-        self.net.eval()
-        self.is_testing = True
-        with torch.no_grad():
-            self.forward(data)
-
-        # get pose_err and pose_info
-        if self.config.pred_6d:
-            self.eval_6d(data)
-        elif self.config.pred_nocs:
-            self.eval_nocs(data)
-        else:
-            if self.config.pre_compute_delta:
-                delta_R = so3_mean(self.r_pred.unsqueeze(0))
-                self.pose_err = None
-                self.pose_info = {'delta_r': self.r_pred, 'delta_t': self.t_pred}
-            else:
-                self.eval_ssl(data)
-
-    def eval_ssl(self, data):
-        # all you need to get a reasonable evalution during test stage, for unseen and seen data
-        BS = data['points'].shape[0]
-        N  = data['points'].shape[1]
-        M  = self.config.num_modes_R
-
-        if 'ssl' in self.config.task:
-            if f'{self.config.exp_num}_{self.config.name_dset}_{self.config.target_category}' in delta_R:
-                self.delta_R = torch.from_numpy(delta_R[f'{self.config.exp_num}_{self.config.name_dset}_{self.config.target_category}']).cuda()
-            elif f'{self.config.name_dset}_{self.config.target_category}' in delta_R:
-                self.delta_R = torch.from_numpy(delta_R[f'{self.config.name_dset}_{self.config.target_category}']).cuda()
-            else:
-                self.delta_R= torch.eye(3).reshape((1, 3, 3)).repeat(BS, 1, 1).cuda()
-        else:
-            self.delta_R = torch.eye(3).reshape((1, 3, 3)).cuda()
-
-        # self.delta_R
-        pred_rot    = torch.matmul(self.r_pred, self.delta_R.float().permute(0, 2, 1).contiguous())
-        gt_rot      = data['R_gt'].cuda()  # [B, 3, 3]
-        rot_err     = rot_diff_degree(gt_rot, pred_rot, chosen_axis=None)  # [B, M]
-
-        if 'xyz' in data:
-            input_pts  = data['xyz'].permute(0, 2, 1).contiguous().cuda()
-        else:
-            input_pts  = data['G'].ndata['x'].view(BS, -1, 3).contiguous().cuda() # B, N, 3
-
-        if self.config.pred_t:
-            pred_center= torch.matmul(self.r_pred, self.t_pred.unsqueeze(-1)) + input_pts.mean(dim=-1, keepdim=True) # local center, plus offsets
-            gt_center  = data['T'].cuda() # B, 3 # from original to
-            trans_err = torch.norm(pred_center[:, :, 0] - gt_center[:, 0, :], dim=-1)
-        else:
-            trans_err = torch.zeros(BS).cuda()
-            gt_center  = torch.zeros(BS, 1, 3).cuda()
-            pred_center= torch.zeros(BS, 3, 1).cuda()
-
-        scale_err = torch.zeros(BS).cuda()
-        scale = torch.ones(BS)
-        self.pose_err  = {'rdiff': rot_err, 'tdiff': trans_err, 'sdiff': scale_err}
-        self.pose_info = {'r_gt': gt_rot, 't_gt': gt_center.mean(dim=1), 's_gt': scale, 'r_pred': pred_rot, 't_pred': pred_center.mean(dim=-1), 's_pred': scale}
-        return
-
-    def eval_6d(self, data, thres=0.05):
-        """one step of validation"""
-        BS = data['points'].shape[0]
-        N  = data['points'].shape[1]
-        M  = self.config.num_modes_R
-        if 'C' in data:
-            mask = data['C'].cuda() # B, N
-        else:
-            mask = torch.ones(BS, N, device=data['points'].cuda().device)
-        flatten_r    = self.output_R.view(BS, N, -1).contiguous()
-        pairwise_dis = torch.norm(flatten_r.unsqueeze(2) - flatten_r.unsqueeze(1), dim=-1) # [2, 512, 512]
-        inliers_mask = torch.zeros_like(pairwise_dis)
-        inliers_mask[pairwise_dis<thres] = 1.0   # [B, N, N]
-        inliers_mask = inliers_mask * mask.unsqueeze(-1)
-        score = inliers_mask.mean(dim=-1)
-        select_ind  = torch.argmax(score, dim=1) # B
-        pred_rot    = self.output_R[torch.arange(BS), select_ind]
-        gt_rot = data['R'].cuda()  # [B, 3, 3]
-        rot_err = rot_diff_degree(gt_rot, pred_rot, chosen_axis=None)  # [B, M]
-        if 'xyz' in data:
-            input_pts = data['xyz'].permute(0, 2, 1).contiguous().cuda()
-        else:
-            input_pts  = data['G'].ndata['x'].view(BS, -1, 3).contiguous().cuda() # B, N, 3
-        pred_center= input_pts - self.output_T.permute(0, 2, 1).contiguous()
-        gt_center  = input_pts - data['T'].cuda() # B, N, 3
-        mean_pred_c = torch.sum(pred_center * mask.unsqueeze(-1), dim=1) / (torch.sum(mask.unsqueeze(-1), dim=1) + epsilon)
-        trans_err = torch.norm(mean_pred_c - gt_center[:, 0, :], dim=1) #
-
-        scale_err = torch.Tensor([0, 0]) #
-        scale = torch.Tensor([1.0, 1.0])
-        self.pose_err  = {'rdiff': rot_err, 'tdiff': trans_err, 'sdiff': scale_err}
-        self.pose_info = {'r_gt': gt_rot, 't_gt': gt_center.mean(dim=1), 's_gt': scale, 'r_pred': pred_rot, 'r_raw': self.output_R, 't_pred': pred_center.mean(dim=1), 's_pred': scale}
-        return
-
-    def eval_nocs(self, data):
-        target_T   = data['T'].cuda().permute(0, 2, 1).contiguous() # B, 3, N
-        BS = data['points'].shape[0]
-        N  = data['points'].shape[1] # B, N, 3
-        target_pts = data['points'].cuda()
-        if 'xyz' in data:
-            input_pts = data['xyz'].permute(0, 2, 1).contiguous().cuda()
-        else:
-            input_pts = data['G'].ndata['x'].view(target_pts.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous().cuda()
-
-        if 'C' in data:
-            mask = data['C'].cuda() # B, N
-        else:
-            mask = None
-
-        pred_nocs = self.output_N # B, 3, N
-        if self.output_N.shape[-1] < target_pts.shape[1]:
-            input_pts        = data['G'].ndata['x'].view(target_pts.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous().cuda()
-            shift_dis        = input_pts.mean(dim=-1, keepdim=True)
-            reduced_pts      = self.latent_vect['xyz']
-            input_pts        = reduced_pts + shift_dis
-            target_pts       = torch.matmul(data['R'].cuda(), input_pts  - target_T) / data['S'].cuda().unsqueeze(-1) + 0.5
-            target_pts       = target_pts.permute(0, 2, 1).contiguous()
-        gt_nocs = target_pts.transpose(-1, -2) # B, 3, N
-        if mask is None:
-            self.pose_err, self.pose_info = compute_pose_diff(nocs_gt=gt_nocs.transpose(-1, -2),
-                    nocs_pred=pred_nocs.transpose(-1, -2), target=input_pts.transpose(-1, -2),
-                                              category=self.config.target_category)
-        else:
-            self.pose_err, self.pose_info = compute_pose_diff(nocs_gt=gt_nocs[0:1].transpose(-1, -2)[mask[0:1]>0],
-                    nocs_pred=pred_nocs[0:1].transpose(-1, -2)[mask[0:1]>0], target=input_pts[0:1].transpose(-1, -2)[mask[0:1]>0],
-                                              category=self.config.target_category)
 
     def predict_se3(self, data):
         BS = data['points'].shape[0]
@@ -255,6 +147,15 @@ class PointAEPoseAgent(BaseAgent):
         if self.config.pred_mode: # map 4 to 2
             self.output_M = self.net.classifier_mode(self.latent_vect['R0']).squeeze(-1) # [BS * N, M, 1]-->[BS * N, M] --> [BS, M, N]
 
+        if 'completion' in self.config.task:
+            if 'ycb' in self.config.task:
+                self.output_pts = data['full'].permute(0, 2, 1).to(
+                    self.latent_vect['R'].device).float()  # [B, N, 3] -> [B, 3, N]
+            elif isinstance(self.latent_vect, dict):
+                self.output_pts = self.net.decoder(self.latent_vect['0'])
+            else:
+                self.output_pts = self.net.decoder(self.latent_vect)
+
     def predict_pnet2(self, data):
         BS = data['points'].shape[0]
         N  = data['points'].shape[1] # B, N, 3
@@ -262,12 +163,12 @@ class PointAEPoseAgent(BaseAgent):
         CS = self.config.MODEL.num_channels_R
         # B, 3, N
         if 'xyz' in data:
-            input_pts = data['xyz'].permute(0, 2, 1).contiguous().cuda()
+            input_pts = data['xyz'].permute(0, 2, 1).contiguous()
         else:
-            input_pts    = data['G'].ndata['x'].view(BS, -1, 3).contiguous().permute(0, 2, 1).contiguous().cuda() #
+            input_pts    = data['G'].ndata['x'].view(BS, -1, 3).contiguous().permute(0, 2, 1).contiguous() #
         input_pts        = input_pts - input_pts.mean(dim=-1, keepdim=True)
         if self.config.use_rgb:
-            rgb_feat = data['G'].ndata['f'].view(BS, -1, 3).contiguous().permute(0, 2, 1).contiguous().cuda() #
+            rgb_feat = data['G'].ndata['f'].view(BS, -1, 3).contiguous().permute(0, 2, 1).contiguous() #
             feat = torch.cat([input_pts, rgb_feat], dim=1)
         else:
             feat = input_pts
@@ -294,15 +195,24 @@ class PointAEPoseAgent(BaseAgent):
         if self.config.pred_mode: # B, M, N
             self.output_M = self.latent_vect['M'].permute(0, 2, 1).contiguous().view(-1, M).contiguous() # BS*N, M
 
+        if 'completion' in self.config.task:
+            if 'ycb' in self.config.task:
+                self.output_pts = data['full'].permute(0, 2, 1).to(
+                    self.latent_vect['R'].device).float()  # [B, N, 3] -> [B, 3, N]
+            elif isinstance(self.latent_vect, dict):
+                self.output_pts = self.net.decoder(self.latent_vect['0'])
+            else:
+                self.output_pts = self.net.decoder(self.latent_vect)
+
     def compute_and_eval_6d(self, data):
-        input_pts  = data['points']
+        input_pts  = data['xyz'] # 'points'
         BS = data['points'].shape[0]
         N  = data['points'].shape[1] # B, N, 3
         M  = self.config.num_modes_R
         CS = self.config.MODEL.num_channels_R
-        target_R   = data['R'].cuda()
+        target_R   = data['R']
         if 'C' in data:
-            mask = data['C'].cuda() # B, N
+            mask = data['C'] # B, N
         else:
             mask = torch.ones(BS, N, device=target_R.device)
 
@@ -341,6 +251,11 @@ class PointAEPoseAgent(BaseAgent):
             self.output_R = self.output_R.squeeze()
 
         self.regressionR_loss = self.regressionR_loss.mean()
+
+        if self.config.use_objective_T:
+            target_T = data['T'].permute(0, 2, 1).contiguous()  # B, 3, N
+            self.regressionT_loss = compute_vect_loss(self.output_T, target_T, confidence=mask).mean() # TYPE_LOSS='SOFT_L1'
+
         correctness_mask = torch.zeros((self.degree_err.shape[0], self.degree_err.shape[1]), device=self.output_R.device) # B, N
         correctness_mask[self.degree_err<THRESHOLD_GOOD] = 1.0
         correctness_mask[mask<1] = 0.0
@@ -349,8 +264,8 @@ class PointAEPoseAgent(BaseAgent):
         self.infos.update({'5deg': good_pred_ratio.mean(), 'rdiff': degree_err_masked.mean()})
 
     def compute_and_eval_axis(self, data):
-        target_R   = data['R'].cuda()
-        target_R = target_R.permute(0, 2, 1).contiguous() # B, 3, 1
+        target_R   = data['R']
+        target_R   = target_R.permute(0, 2, 1).contiguous() # B, 3, 1
         if self.config.MODEL.num_channels_R > 1:
             BS, CS = target_R.shape[0], self.latent_vect['R'].shape[-2]     # [BS*N, C, 3] -> [Bs, N, C, 3] -> [Bs, 3, N, C]
             self.output_R  = self.latent_vect['R'].view(BS, -1, CS, 3).contiguous().permute(0, 3, 1, 2).contiguous()
@@ -393,6 +308,8 @@ class PointAEPoseAgent(BaseAgent):
             self.infos['regressionR'] = self.regressionR_loss.mean()
 
         self.regressionR_loss = self.regressionR_loss.mean()
+        if self.config.use_objective_T:
+            self.regressionT_loss = compute_vect_loss(self.output_T, target_T, confidence=mask).mean() # TYPE_LOSS='SOFT_L1'
 
         correctness_mask = torch.zeros((self.degree_err.shape[0], self.degree_err.shape[1]), device=self.output_R.device) # B, N
         correctness_mask[self.degree_err<THRESHOLD_GOOD] = 1.0
@@ -409,100 +326,68 @@ class PointAEPoseAgent(BaseAgent):
                                    torch.arange(N).reshape(1, -1), self.output_M_label.reshape(BS, N)].permute(0, 2, 1)  # [B, N, 3]
             self.degree_err_chosen = torch.acos(torch.sum(self.output_R_chosen * target_R, dim=1)) * 180 / np.pi
 
-    def compute_loss(self, data):
-        target_pts = data['points'].cuda()
-        target_T   = data['T'].cuda().permute(0, 2, 1).contiguous() # B, 3, N
-        if 'xyz' in data:
-            input_pts = data['xyz'].cuda()
-        else:
-            input_pts  = data['G'].ndata['x'].view(BS, -1, 3).contiguous().cuda()
+    def compute_and_eval_so3(self, data):
+        input_pts      = data['xyz']
         shift_dis      = input_pts.mean(dim=1, keepdim=True)
-        BS = data['points'].shape[0]
-        N  = data['points'].shape[1] # B, N, 3
-        if 'C' in data:
-            mask = data['C'].cuda() # B, N
-        else:
-            mask = torch.ones(BS, N, device=target_T.device)
-        #>>>>>>>>>>>>>>>>>> 2. computing loss <<<<<<<<<<<<<<<<<<<#
-        if self.config.pred_seg:
-            self.seg_loss = compute_miou_loss(self.output_C, mask).mean()
+        target_pts     = data['points']
+        target_T       = data['T'].permute(0, 2, 1).contiguous() # B, 3, N
 
-        if self.config.pred_nocs:
-            if self.output_N.shape[-1] < N:
-                reduced_pts      = self.latent_vect['xyz']
-                target_pts       = torch.matmul(data['R'].cuda(), reduced_pts + shift_dis - target_T) / data['S'].cuda().unsqueeze(-1) + 0.5
-                target_pts       = target_pts.permute(0, 2, 1).contiguous()
-                mask = torch.ones(BS, self.output_N.shape[-1], device=target_T.device)
-            self.nocs_err = torch.norm(self.output_N - target_pts.permute(0, 2, 1).contiguous(), dim=1)
-            self.nocs_loss= compute_1vN_nocs_loss(self.output_N, target_pts.permute(0, 2, 1).contiguous(), target_category=self.config.target_category, num_parts=1, confidence=mask)
-            self.nocs_loss= self.nocs_loss.mean()
+        BS, N = target_pts.shape[0:2]
+        self.threshold = 1.0
+        nb, nr, na = self.latent_vect['R'].shape  #
+        r_gt        = data['R_gt'].float() # GT R,torch.Size([2, 3, 3])
+        rlabel_gt   = data['R_label'].view(-1).contiguous()   # GT R label, torch.Size([2])
+        ranchor_gt  = data['R'].float() # GT relative R, torch.Size([2, 60, 3, 3])
 
-        if self.config.use_objective_T:
-            self.regressionT_loss = compute_vect_loss(self.output_T, target_T, confidence=mask).mean() # TYPE_LOSS='SOFT_L1'
+        anchors = self.anchors
+        rlabel_pred = self.latent_vect['1']
+        # if not self.config.use_axis:
+        #     rotation_mapping = compute_rotation_matrix_from_quaternion if nr == 4 else compute_rotation_matrix_from_ortho6d
+        #     ranchor_pred = rotation_mapping(self.latent_vect['R'].transpose(1,2).contiguous().view(-1,nr)).view(nb,-1,3,3)
+        # else:
+        #     ranchor_pred = F.normalize(self.latent_vect['R'], p=2, dim=1).permute(0, 2, 1).contiguous().unsqueeze(-1) # b, 3, na --> b, na, 3, 1
+        rotation_mapping = compute_rotation_matrix_from_quaternion if nr == 4 else compute_rotation_matrix_from_ortho6d
+        ranchor_pred = rotation_mapping(self.latent_vect['R'].transpose(1,2).contiguous().view(-1,nr)).view(nb,-1,3,3)
+        pred_R = torch.matmul(anchors, ranchor_pred) # [60, 3, 3], [nb, 60, 3, 3] --> [nb, 60, 3, 3]
 
-        if 'completion' in self.config.task:
-            if 'ycb' in self.config.task:
-                self.output_pts = data['full'].permute(0, 2, 1).to(self.latent_vect['R'].device).float()  # [B, N, 3] -> [B, 3, N]
-                self.recon_canon_loss = 0
-                if self.config.instance is None:  # classify the object
-                    logits = self.latent_vect['class']  # [B, num_heads]
-                    pred_labels = torch.argmax(logits, dim=-1)
-                    gt_labels = data['class'].to(logits.device).long()
-                    self.classification_loss = nn.CrossEntropyLoss()(logits, gt_labels)
-                    self.classification_acc = (pred_labels == gt_labels).float().mean()
-                    self.infos['classification_loss'] = self.classification_loss
-                    self.infos['classification_acc'] = self.classification_acc
 
-                    chosen_class = pred_labels if self.is_testing else gt_labels
-                    batch_idx = torch.arange(len(chosen_class)).to(chosen_class.device).long()
+        if self.config.pred_t:
+            if self.config.t_method_type == -1:
+                pred_T          = self.output_T.permute(0, 2, 1).contiguous().unsqueeze(-1).contiguous()
+                pred_T          = torch.matmul(pred_R, pred_T) # nb, na, 3, 1,
+            elif self.config.t_method_type == 0:
+                pred_T          = self.output_T.permute(0, 2, 1).contiguous().unsqueeze(-1).contiguous()
+                pred_T          = torch.matmul(anchors, pred_T) # nb, na, 3, 1,
+            else: # type 1, 2, 3
+                pred_T          = self.output_T.permute(0, 2, 1).contiguous().unsqueeze(-1).contiguous() # nb, na, 3, 1
 
-                    for key in ['1', 'R', 'T']:
-                        self.latent_vect[key] = self.latent_vect[key][batch_idx, chosen_class]
-                    self.output_T = self.latent_vect['T']
-
-            else:
-                if isinstance(self.latent_vect, dict):
-                    self.output_pts = self.net.decoder(self.latent_vect['0'])
-                else:
-                    self.output_pts = self.net.decoder(self.latent_vect)
-                # in nocs space
-                dist1_canon, dist2_canon = self.chamfer_dist(self.output_pts.permute(0, 2, 1).contiguous(), target_pts, return_raw=True)
-                if 'partial' in self.config.task:
-                    self.recon_canon_loss = (dist2_canon).mean()
-                else:
-                    self.recon_canon_loss = dist1_canon.mean() + dist2_canon.mean()
-            self.infos["recon_canon"] = self.recon_canon_loss
-
-            # get rotated R, Option 1:
-            nb, nr, na = self.latent_vect['R'].shape  #
+        if 'ssl' in self.config.task:
             np_out = self.output_pts.shape[-1]
-            rotation_mapping = compute_rotation_matrix_from_quaternion if nr == 4 else compute_rotation_matrix_from_ortho6d
-            pred_RAnchor = rotation_mapping(self.latent_vect['R'].transpose(1,2).contiguous().view(-1,nr)).view(nb,-1,3,3).float()
+            if self.config.r_method_type <1: # Q to R first
+                if self.config.pred_t:
+                    transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5) + pred_T
+                    transformed_pts = transformed_pts.permute(0, 1, 3, 2).contiguous() # nb, na, np, 3
+                    shift_dis       = input_pts.mean(dim=1, keepdim=True)
+                    dist1, dist2 = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), (input_pts - shift_dis).unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
+                else:
+                    transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5).permute(0, 1, 3, 2).contiguous() #
+                    dist1, dist2 = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), input_pts.unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
+            elif self.config.r_method_type == 1: # raw quaternion
+                if self.config.pred_t:
+                    qw, qxyz = torch.split(self.latent_vect['R'].permute(0, 2, 1).contiguous(), [1, 3], dim=-1)
+                    theta_max= torch.Tensor([1.2]).cuda()
+                    qw       = torch.cos(theta_max) + (1- torch.cos(theta_max)) * F.sigmoid(qw)
+                    constrained_quat = torch.cat([qw, qxyz], dim=-1)
+                    constrained_quat_tiled = constrained_quat.unsqueeze(2).contiguous().repeat(1, 1, np_out, 1).contiguous() # nb, na, np, 4
+                    canon_pts= self.output_pts.permute(0, 2, 1).contiguous() - 0.5 # nb, np, 3
+                    canon_pts_tiled= canon_pts.unsqueeze(1).contiguous().repeat(1, na, 1, 1).contiguous() # nb, na, np, 3
 
-            anchors = torch.from_numpy(L.get_anchors(self.config.model.kanchor)).to(self.output_pts).to(pred_RAnchor.device).float()
-            select_r= False
-
-            # The actual prediction is the classified anchor rotation @ regressed rotation
-            preds  = torch.argmax(self.latent_vect['1'], 1)
-            pred_R = torch.matmul(anchors, pred_RAnchor) # [60, 3, 3], [nb, 60, 3, 3] --> [nb, 60, 3, 3]
-
-            # [4, 60, 3, 1024]  [nb, na, 3, np] -->  [nb, na, np, 3]
-            if self.config.pred_t:
-                if self.config.t_method_type == -1:
-                    pred_T          = self.output_T.permute(0, 2, 1).contiguous().unsqueeze(-1).contiguous()
-                    pred_T          = torch.matmul(pred_R, pred_T) # nb, na, 3, 1,
-                elif self.config.t_method_type == 0:
-                    pred_T          = self.output_T.permute(0, 2, 1).contiguous().unsqueeze(-1).contiguous()
-                    pred_T          = torch.matmul(anchors, pred_T) # nb, na, 3, 1,
-                else: # type 1, 2, 3
-                    pred_T          = self.output_T.permute(0, 2, 1).contiguous().unsqueeze(-1).contiguous() # nb, na, 3, 1
-                transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5) + pred_T
-                transformed_pts = transformed_pts.permute(0, 1, 3, 2).contiguous() # nb, na, np, 3
-                shift_dis       = input_pts.mean(dim=1, keepdim=True)
-                dist1, dist2 = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), (input_pts - shift_dis).unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
-            else:
-                transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5).permute(0, 1, 3, 2).contiguous() #
-                dist1, dist2 = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), input_pts.unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
+                    transformed_pts = rotate(constrained_quat_tiled, canon_pts_tiled) # nb, na, np, 3
+                    transformed_pts = torch.matmul(anchors, transformed_pts.permute(0, 1, 3, 2).contiguous()) + pred_T
+                    transformed_pts = transformed_pts.permute(0, 1, 3, 2).contiguous()
+                    shift_dis       = input_pts.mean(dim=1, keepdim=True)
+                    dist1, dist2    = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), (input_pts - shift_dis).unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
+                    self.regu_quat_loss = torch.mean( torch.norm( torch.norm(constrained_quat, dim=-1) - 1))
 
             if 'partial' in self.config.task:
                 all_dist = (dist2).mean(-1).view(nb, -1).contiguous()
@@ -516,31 +401,19 @@ class PointAEPoseAgent(BaseAgent):
             self.transformed_pts = transformed_pts[torch.arange(0, BS), min_indices] + shift_dis
             self.r_pred = pred_R[torch.arange(0, BS), min_indices].detach().clone() # correct R by searching
             self.r_pred.requires_grad = False
+            self.infos["recon"] = self.recon_loss
+            if self.config.eval:
+                print('chamferL1', torch.sqrt(self.recon_loss))
+
             if self.config.pred_t:
                 self.t_pred = pred_T.squeeze(-1)[torch.arange(0, BS), min_indices] + shift_dis.squeeze()
             else:
                 self.t_pred = None
-            # jointly train is fine, no necessary pretraining;
-            rlabel_pred = self.latent_vect['1']
-            if 'so3' in self.config.encoder_type:
-                if 'ssl' in self.config.task:
-                    rlabel_gt = self.rlabel_pred
-                    r_gt      = self.r_pred
-                else:
-                    rlabel_gt = data['R_label'].cuda()
-                    r_gt      = data['R_gt'].cuda()
-                select_R = pred_R[torch.arange(0, BS), preds]
-                cls_loss, r_acc = self.classifier(rlabel_pred, rlabel_gt.view(-1).contiguous())
-                self.classifyM_loss = self.config.modecls_loss_multiplier * cls_loss.mean()
-                self.infos['r_acc'] = r_acc
-                self.infos['rdiff'] = mean_angular_error(select_R, r_gt).mean() * 180 / np.pi
-            # GT
+
             if self.config.pred_t:
-                pass
-                """
                 gt_view_matrix = look_at(
                     eyes=torch.tensor([[0, 0, 0]], dtype=torch.float32).repeat(BS, 1).contiguous(), # can multiply 0.8 if the eye is too close?
-                    centers=data['T'].squeeze(),
+                    centers=data['T'].cpu().squeeze(),
                     ups=torch.tensor([[0, 0, 1]], dtype=torch.float32).repeat(BS, 1).contiguous(),
                 )
                 gt_pre_matrix = self.render.projection_matrix @ gt_view_matrix
@@ -553,10 +426,10 @@ class PointAEPoseAgent(BaseAgent):
                     ups=torch.tensor([[0, 0, 1]], dtype=torch.float32).repeat(BS, 1).contiguous(),
                 )
                 pred_pre_matrix = self.render.projection_matrix @ pred_view_matrix
-                self.pred_depth_map = self.render(self.transformed_pts, view_id=0, radius_list=[15.0, 20.0], pre_matrix=pred_pre_matrix)
-                self.projection_loss = 0.1 * self.render_loss(self.pred_depth_map, self.gt_depth_map.detach())
+                self.pred_depth_map = self.render(self.transformed_pts, view_id=0, radius_list=[20.0, 25.0], pre_matrix=pred_pre_matrix)
+                self.projection_loss   = 0.1 * self.render_loss(self.pred_depth_map, self.gt_depth_map.detach())
                 self.infos['projection'] = self.projection_loss
-                # if self.config.vis and self.config.use_objective_P and self.config.eval:
+                # if self.config.use_objective_P and self.config.eval:
                 #     ids = data['idx']
                 #     if not exists(f'{self.config.log_dir}/depth/'):
                 #         makedirs(f'{self.config.log_dir}/depth/')
@@ -567,15 +440,263 @@ class PointAEPoseAgent(BaseAgent):
                 #             save_path = f"{self.config.log_dir}/depth/{ids[k]}_r{m}_depth_maps_pred.jpg"
                 #             torchvision.utils.save_image(self.pred_depth_map[k, m, :, :], save_path, pad_value=1)
                 #             print('---saving to ', save_path)
-                """
+        else:  # 60 anchors estimation
+            rlabel_pred = rlabel_pred.view(nb, -1)  # b
+            if na == 1:
+                r_acc = torch.zeros(1) + 1
+                self.classifyM_loss = torch.zeros(1).cuda()
+                self.regressionR_loss = torch.pow(ranchor_pred.squeeze() - r_gt, 2).mean()
+                self.r_pred = ranchor_pred.squeeze()
+                self.ranchor_pred = ranchor_pred.squeeze()
+                self.ranchor_gt = r_gt
+                if self.config.pred_t:
+                    self.t_pred = self.output_T.squeeze() + shift_dis.squeeze()
+                    self.regressionT_loss = torch.norm(self.t_pred - target_T.squeeze(), dim=1).mean()
+                else:
+                    self.t_pred = None
+            else:
+                cls_loss, r_acc = self.classifier(rlabel_pred, rlabel_gt.view(-1).contiguous())
+                self.classifyM_loss = cls_loss.mean()
 
-            # self.r_pred, self.t_pred: [B, 3, 3] and [B, 3]
+                if not self.config.use_axis:
+                    gt_bias = angle_from_R(ranchor_gt.view(-1, 3, 3)).view(nb, -1)
+                    mask = (gt_bias < self.threshold)[:, :, None, None].float()
+                    self.regressionR_loss = torch.pow(ranchor_gt * mask - ranchor_pred * mask, 2).sum()
+                else:
+                    gt_bias = angle_from_R(ranchor_gt.view(-1, 3, 3)).view(nb, -1)
+                    # gt_bias = rot_diff_rad(ranchor_gt.view(-1,3,3), torch.eye(3).cuda().unsqueeze(0), chosen_axis='z').view(nb, -1)
+                    mask = (gt_bias < self.threshold)[:, :, None, None].float()
+                    self.regressionR_loss = torch.pow(
+                        ranchor_gt[:, :, :, -2:-1] * mask - ranchor_pred[:, :, :, -2:-1] * mask, 2).sum()
+                # [4, 60, 3, 1024]  [nb, na, 3, np] -->  [nb, na, np, 3]
+                self.rlabel_pred = torch.argmax(rlabel_pred, 1).detach().clone()
+                self.rlabel_pred.requires_grad = False
+                # self.transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5).permute(0, 1, 3, 2).contiguous() #
+                if not self.config.use_axis:
+                    self.r_pred = L.batched_index_select(pred_R, 1, self.rlabel_pred.long().view(nb, -1)).view(nb,
+                                                                                                               3, 3)
+                    self.ranchor_pred = L.batched_index_select(ranchor_pred, 1,
+                                                               self.rlabel_pred.long().view(nb, -1)).view(nb, 3, 3)
+                    self.ranchor_gt = L.batched_index_select(ranchor_gt, 1, rlabel_gt.long().view(nb, -1)).view(nb,
+                                                                                                                3,
+                                                                                                                3)
+                else:
+                    self.r_pred = L.batched_index_select(pred_R, 1, self.rlabel_pred.long().view(nb, -1)).view(nb,
+                                                                                                               3, 3)
+                    self.ranchor_pred = L.batched_index_select(ranchor_pred, 1,
+                                                               self.rlabel_pred.long().view(nb, -1)).view(nb, 3, 3)
+                    self.ranchor_gt = L.batched_index_select(ranchor_gt, 1, rlabel_gt.long().view(nb, -1)).view(nb,
+                                                                                                                3,
+                                                                                                                3)
+
+                if self.config.pred_t:
+                    regressionT_loss = torch.norm(
+                        pred_T + shift_dis.unsqueeze(-1) - target_T.unsqueeze(1).contiguous(),
+                        dim=2).squeeze()  # TYPE_LOSS='SOFT_L1'
+                    regressionT_loss = torch.sum(regressionT_loss * mask.squeeze(), dim=1) / mask.squeeze().sum(
+                        dim=1)
+                    self.regressionT_loss = regressionT_loss.mean()
+                    self.t_pred = L.batched_index_select(pred_T, 1, self.rlabel_pred.long().view(nb,
+                                                                                                 -1)).squeeze() + shift_dis.squeeze()
+                else:
+                    self.t_pred = None
+
+            self.infos['r_acc'] = r_acc
+            if not self.config.use_axis:
+                self.infos['rdiff'] = mean_angular_error(self.r_pred, r_gt).mean() * 180 / np.pi  # final r error
+                self.infos['rdiff_anchor'] = mean_angular_error(self.ranchor_pred,
+                                                                self.ranchor_gt).mean() * 180 / np.pi  # final r error
+            else:
+                self.infos['rdiff'] = rot_diff_degree(self.r_pred, r_gt, chosen_axis='z').view(nb, -1).mean()
+                self.infos['rdiff_anchor'] = rot_diff_degree(self.ranchor_pred, self.ranchor_gt,
+                                                             chosen_axis='z').view(nb, -1).mean()
+            if self.config.pred_t:
+                self.infos['tdiff'] = torch.norm(self.t_pred - target_T.squeeze(), dim=1).mean()
+
+        if 'ycb' in self.config.task:
+            pred_RT = torch.cat([self.r_pred, self.t_pred.unsqueeze(-1)], dim=-1)  # [B, 3, 1] -> [B, 3, 4]
+            gt_RT = torch.cat([data['R_gt'], data['T'].transpose(-1, -2)], dim=-1).to(pred_RT.device)
+            cls = int(self.config.instance)
+            self.ycb_last_pose_err = self.bs_utils.cal_full_error(pred_RT, gt_RT, cls)
+
+
+    def compute_loss(self, data):
+        """
+        check all other losses
+        """
+        input_pts      = data['xyz']
+        shift_dis      = input_pts.mean(dim=1, keepdim=True)
+        target_pts     = data['points']
+        target_T       = data['T'].permute(0, 2, 1).contiguous() # B, 3, N
+        BS, N = target_pts.shape[0:2]
+
+        if 'C' in data:
+            mask = data['C'] # B, N
+        else:
+            mask = torch.ones(BS, N, device=target_T.device)
+
+        if self.config.pred_seg:
+            self.seg_loss = compute_miou_loss(self.output_C, mask).mean()
+
+        if self.config.pred_nocs:
+            shift_dis     = input_pts.mean(dim=1, keepdim=True)
+            self.nocs_err = torch.norm(self.output_N - target_pts.permute(0, 2, 1).contiguous(), dim=1)
+            self.nocs_loss= compute_1vN_nocs_loss(self.output_N, target_pts.permute(0, 2, 1).contiguous(), target_category=self.config.target_category, num_parts=1, confidence=mask)
+            self.nocs_loss= self.nocs_loss.mean()
+
+        if 'completion' in self.config.task:
             if 'ycb' in self.config.task:
-                pred_RT = torch.cat([self.r_pred, self.t_pred.unsqueeze(-1)], dim=-1)  # [B, 3, 1] -> [B, 3, 4]
-                gt_RT = torch.cat([data['R_gt'], data['T'].transpose(-1, -2)], dim=-1).to(pred_RT.device)
-                cls = int(self.config.instance)
-                self.ycb_last_pose_err = self.bs_utils.cal_full_error(pred_RT, gt_RT, cls)
+                self.recon_canon_loss = 0.0
+            else:
+                dist1_canon, dist2_canon = self.chamfer_dist(self.output_pts.permute(0, 2, 1).contiguous(), target_pts, return_raw=True)
+                if 'partial' in self.config.task:
+                    self.recon_canon_loss = (dist2_canon).mean()
+                else:
+                    self.recon_canon_loss = dist1_canon.mean() + dist2_canon.mean()
+            self.infos["recon_canon"] = self.recon_canon_loss
 
+    def eval_func(self, data):
+        self.net.eval()
+        with torch.no_grad():
+            self.forward(data)
+
+        # get pose_err and pose_info
+        if self.config.pred_6d:
+            self.eval_6d(data)
+        elif self.config.pred_nocs:
+            self.eval_nocs(data)
+        else:
+            if self.config.pre_compute_delta:
+                self.pose_err = None
+                self.pose_info = {'delta_r': self.r_pred, 'delta_t': self.t_pred}
+            else:
+                self.eval_so3(data)
+
+    def eval_so3(self, data):
+        # all you need to get a reasonable evalution during test stage, for unseen and seen data
+        BS = data['points'].shape[0]
+        N  = data['points'].shape[1]
+        M  = self.config.num_modes_R
+
+        if 'ssl' in self.config.task:
+            # r
+            if f'{self.config.exp_num}_{self.config.name_dset}_{self.config.target_category}' in delta_R:
+                self.delta_r = torch.from_numpy(delta_R[f'{self.config.exp_num}_{self.config.name_dset}_{self.config.target_category}']).cuda()
+            elif f'{self.config.name_dset}_{self.config.target_category}' in delta_R:
+                self.delta_r = torch.from_numpy(delta_R[f'{self.config.name_dset}_{self.config.target_category}']).cuda()
+            else:
+                self.delta_r= torch.eye(3).reshape((1, 3, 3)).repeat(BS, 1, 1).cuda()
+            # t
+            if f'{self.config.exp_num}_{self.config.name_dset}_{self.config.target_category}' in delta_T:
+                self.delta_t = torch.from_numpy(delta_T[f'{self.config.exp_num}_{self.config.name_dset}_{self.config.target_category}']).cuda()
+            elif f'{self.config.name_dset}_{self.config.target_category}' in delta_T:
+                self.delta_t = torch.from_numpy(delta_R[f'{self.config.name_dset}_{self.config.target_category}']).cuda()
+            else:
+                self.delta_t= torch.zeros(1, 3).cuda()
+        else:
+            self.delta_r= torch.eye(3).reshape((1, 3, 3)).cuda()
+            self.delta_t= torch.zeros(1, 3).cuda()
+
+        # self.delta_r
+        if self.config.use_axis:
+            pred_rot = self.r_pred
+            gt_rot      = data['R_gt'].cuda()  # [B, 3, 3]
+            rot_err     = rot_diff_degree(self.r_pred, gt_rot, chosen_axis='z')
+        else:
+            pred_rot    = torch.matmul(self.r_pred, self.delta_r.float().permute(0, 2, 1).contiguous())
+            gt_rot      = data['R_gt'].cuda()  # [B, 3, 3]
+            rot_err     = rot_diff_degree(gt_rot, pred_rot, chosen_axis=None)  # [B, M]
+
+        if 'xyz' in data:
+            input_pts  = data['xyz'].permute(0, 2, 1).contiguous().cuda()
+        else:
+            input_pts  = data['G'].ndata['x'].view(BS, -1, 3).contiguous().cuda() # B, N, 3
+
+        if self.config.pred_t:
+            # if
+            if self.r_pred.shape[-1] < 3:
+                pred_center= self.t_pred.unsqueeze(-1)
+            else:
+                pred_center= self.t_pred.unsqueeze(-1) +  torch.matmul(self.r_pred, self.delta_t.unsqueeze(-1))
+            gt_center  = data['T'].cuda() # B, 3 # from original to
+            trans_err  = torch.norm(pred_center[:, :, 0] - gt_center[:, 0, :], dim=-1)
+        else:
+            trans_err = torch.zeros(BS).cuda()
+            gt_center  = torch.zeros(BS, 1, 3).cuda()
+            pred_center= torch.zeros(BS, 3, 1).cuda()
+
+        scale_err = torch.zeros(BS).cuda()
+        scale = torch.ones(BS)
+        self.pose_err  = {'rdiff': rot_err, 'tdiff': trans_err, 'sdiff': scale_err}
+        self.pose_info = {'r_gt': gt_rot, 't_gt': gt_center.mean(dim=1), 's_gt': scale, 'r_pred': pred_rot, 't_pred': pred_center.mean(dim=-1), 's_pred': scale}
+        return
+
+    def eval_6d(self, data, thres=0.05):
+        """one step of validation"""
+        BS = data['points'].shape[0]
+        N  = data['points'].shape[1]
+        M  = self.config.num_modes_R
+        if 'C' in data:
+            mask = data['C'].cuda() # B, N
+        else:
+            mask = torch.ones(BS, N, device=data['points'].device)
+        flatten_r    = self.output_R.view(BS, N, -1).contiguous()
+        pairwise_dis = torch.norm(flatten_r.unsqueeze(2) - flatten_r.unsqueeze(1), dim=-1) # [2, 512, 512]
+        inliers_mask = torch.zeros_like(pairwise_dis)
+        inliers_mask[pairwise_dis<thres] = 1.0   # [B, N, N]
+        inliers_mask = inliers_mask * mask.unsqueeze(-1)
+        score = inliers_mask.mean(dim=-1)
+        select_ind  = torch.argmax(score, dim=1) # B
+        pred_rot    = self.output_R[torch.arange(BS), select_ind]
+        gt_rot = data['R'].cuda()  # [B, 3, 3]
+        rot_err = rot_diff_degree(gt_rot, pred_rot, chosen_axis=None)  # [B, M]
+        if 'xyz' in data:
+            input_pts = data['xyz'].permute(0, 2, 1).contiguous().cuda()
+        else:
+            input_pts  = data['G'].ndata['x'].view(BS, -1, 3).contiguous().cuda() # B, N, 3
+        pred_center= input_pts - self.output_T.permute(0, 2, 1).contiguous()
+        gt_center  = input_pts - data['T'].cuda() # B, N, 3
+        mean_pred_c = torch.sum(pred_center * mask.unsqueeze(-1), dim=1) / (torch.sum(mask.unsqueeze(-1), dim=1) + epsilon)
+        trans_err = torch.norm(mean_pred_c - gt_center[:, 0, :], dim=1) #
+
+        scale_err = torch.Tensor([0, 0]) #
+        scale = torch.Tensor([1.0, 1.0]) #
+        self.pose_err  = {'rdiff': rot_err, 'tdiff': trans_err, 'sdiff': scale_err}
+        self.pose_info = {'r_gt': gt_rot, 't_gt': gt_center.mean(dim=1), 's_gt': scale, 'r_pred': pred_rot, 'r_raw': self.output_R, 't_pred': pred_center.mean(dim=1), 's_pred': scale}
+        return
+
+    def eval_nocs(self, data):
+        target_T   = data['T'].cuda().permute(0, 2, 1).contiguous() # B, 3, N
+        BS = data['points'].shape[0]
+        N  = data['points'].shape[1] # B, N, 3
+        target_pts = data['points'].cuda()
+        if 'xyz' in data:
+            input_pts = data['xyz'].permute(0, 2, 1).contiguous().cuda()
+        else:
+            input_pts = data['G'].ndata['x'].view(target_pts.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous().cuda()
+
+        if 'C' in data:
+            mask = data['C'].cuda() # B, N
+        else:
+            mask = None
+
+        pred_nocs = self.output_N # B, 3, N
+        if self.output_N.shape[-1] < target_pts.shape[1]:
+            input_pts        = data['G'].ndata['x'].view(target_pts.shape[0], -1, 3).contiguous().permute(0, 2, 1).contiguous().cuda()
+            shift_dis        = input_pts.mean(dim=-1, keepdim=True)
+            reduced_pts      = self.latent_vect['xyz']
+            input_pts        = reduced_pts + shift_dis
+            target_pts       = torch.matmul(data['R'].cuda(), input_pts  - target_T) / data['S'].cuda().unsqueeze(-1) + 0.5
+            target_pts       = target_pts.permute(0, 2, 1).contiguous()
+        gt_nocs = target_pts.transpose(-1, -2) # B, 3, N
+        if mask is None:
+            self.pose_err, self.pose_info = compute_pose_diff(nocs_gt=gt_nocs.transpose(-1, -2),
+                    nocs_pred=pred_nocs.transpose(-1, -2), target=input_pts.transpose(-1, -2),
+                                              category=self.config.target_category)
+        else:
+            self.pose_err, self.pose_info = compute_pose_diff(nocs_gt=gt_nocs[0:1].transpose(-1, -2)[mask[0:1]>0],
+                    nocs_pred=pred_nocs[0:1].transpose(-1, -2)[mask[0:1]>0], target=input_pts[0:1].transpose(-1, -2)[mask[0:1]>0],
+                                              category=self.config.target_category)
 
     # seems vector is more stable
     def collect_loss(self):
@@ -606,6 +727,8 @@ class PointAEPoseAgent(BaseAgent):
                 loss_dict['classification'] = self.classification_loss * 0.01
             if self.config.use_symmetry_loss:
                 loss_dict['chirality'] = self.recon_chirality_loss
+            if self.config.r_method_type == 1:
+                loss_dict['regu_quat'] = 0.001 * self.regu_quat_loss
 
         return loss_dict
 
@@ -618,7 +741,7 @@ class PointAEPoseAgent(BaseAgent):
 
     def visualize_batch(self, data, mode, **kwargs):
         tb = self.train_tb if mode == 'train' else self.val_tb
-        num = min(data['points'].shape[0], 2)
+        num = min(data['points'].shape[0], 12)
         target_pts = data['points'].detach().cpu().numpy() # canonical space
         if 'xyz' in data:
             input_pts = data['xyz'].detach().cpu().numpy()
@@ -688,6 +811,7 @@ class PointAEPoseAgent(BaseAgent):
                 # camera space
                 pts = np.concatenate([input_pts[0], transformed_pts[0]], axis=0)
                 wandb.log({"camera_space": [wandb.Object3D(pts)], 'step': self.clock.step})
+
             # canon shape, camera shape, input shape
             for k in range(num): # batch
                 save_name = f'{save_path}/{mode}_{self.clock.step}_{ids[k]}_input.txt'
