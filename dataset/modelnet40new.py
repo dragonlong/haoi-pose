@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import __init__
 try:
     import vgtk.so3conv.functional as L
+    import vgtk.pc as pctk
 except:
     pass
 from dataset.modelnet40new_render import backproject
@@ -73,8 +74,11 @@ class Dataloader_ModelNet40New(data.Dataset):
         self.mode = cfg.mode if mode is None else mode
         if 'val' in self.mode:
             self.mode = 'test'
-
-        self.num_points = cfg.num_points
+        if cfg.use_fps_points:
+            self.num_points = 4 * cfg.num_points
+            print(f'---using {self.num_points} points as input')
+        else:
+            self.num_points = cfg.num_points
         self.add_noise = cfg.DATASET.add_noise
         self.noise_trans = cfg.DATASET.noise_trans
 
@@ -116,10 +120,13 @@ class Dataloader_ModelNet40New(data.Dataset):
         target_r = gt_pose[:3, :3]
         target_t = gt_pose[:3, 3]
         add_t = np.array([random.uniform(-self.noise_trans, self.noise_trans) for i in range(3)])
-
         canon_cloud = np.dot(cloud - target_t, target_r) + 0.5
         if self.add_noise:
             cloud = cloud + add_t.astype(cloud.dtype)
+
+        if self.cfg.augment:
+            cloud, R = pctk.rotate_point_cloud(cloud)
+            target_r = np.matmul(R, target_r)
 
         _, R_label, R0 = rotation_distance_np(target_r, self.anchors)
 

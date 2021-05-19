@@ -245,7 +245,7 @@ def main(cfg):
                       '5deg': [], '5cm': [], '5deg5cm': [], 'chamferL1': [], 'r_acc': [], 'chirality': []}
         num_iteration = 1
         if 'partial' not in cfg.task:
-            num_iteration = 2
+            num_iteration = 1
         for iteration in range(num_iteration):
             cfg.iteration = iteration
             for num, data in enumerate(test_loader):
