@@ -285,15 +285,32 @@ MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
 use_fps_points=True \
 use_wandb=True
 
-0.914: # supervision in camera space, random R, airplane, but add T estimation, use fps sampling, use foreground points selection
+0.9131: # supervision in camera space, random R, airplane, but add T estimation, use fps sampling, correct points prediction
+python train_aegan.py task='ssl_partial_pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
+models=epn exp_num='0.9131' model.model='enc_so3net' model.pooling_method='max' \
+datasets=modelnet40new item=modelnet40new name_dset=modelnet40new target_category='airplane' dataset_class=AE \
+TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
+MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
+use_fps_points=True r_method_type=-1 \
+use_wandb=True
+
+0.914: # supervision in camera space, random R, airplane, but add T estimation, use fps sampling, use quaternion activation
 python train_aegan.py task='ssl_partial_pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
 models=epn exp_num='0.914' model.model='enc_so3net' model.pooling_method='max' \
 datasets=modelnet40new item=modelnet40new name_dset=modelnet40new target_category='airplane' dataset_class=AE \
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
-use_fps_points=True \
+use_fps_points=True r_method_type=1 \
 use_wandb=True
 
+0.9141: # supervision in camera space, random R, airplane, but add T estimation, use fps sampling, use quaternion activation
+python train_aegan.py task='ssl_partial_pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
+models=epn exp_num='0.9141' model.model='enc_so3net' model.pooling_method='max' \
+datasets=modelnet40new item=modelnet40new name_dset=modelnet40new target_category='airplane' dataset_class=AE \
+TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
+MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
+use_fps_points=True r_method_type=1 \
+use_wandb=True
 
 0.91a: # random R, airplane, but add T estimation, dense per-point voting, R0
 python train_aegan.py task='partial_pcloud_pose' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \

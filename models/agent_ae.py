@@ -12,6 +12,7 @@ from utils.p2i_utils import look_at
 from models.losses import loss_geodesic, loss_vectors, compute_vect_loss, compute_1vN_nocs_loss, compute_miou_loss
 from common.d3_utils import compute_rotation_matrix_from_euler, compute_euler_angles_from_rotation_matrices, compute_rotation_matrix_from_ortho6d, mean_angular_error, angle_from_R
 from common.yj_pose import compute_pose_diff, rot_diff_degree, rot_diff_rad
+from common.rotations import rotate
 from models.pointnet_lib.pointnet2_modules import farthest_point_sample, gather_operation
 from os import makedirs, remove
 from os.path import exists, join
@@ -345,14 +346,31 @@ class PointAEPoseAgent(BaseAgent):
 
         if 'ssl' in self.config.task:
             np_out = self.output_pts.shape[-1]
-            if self.config.pred_t:
-                transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5) + pred_T
-                transformed_pts = transformed_pts.permute(0, 1, 3, 2).contiguous() # nb, na, np, 3
-                shift_dis       = input_pts.mean(dim=1, keepdim=True)
-                dist1, dist2 = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), (input_pts - shift_dis).unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
-            else:
-                transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5).permute(0, 1, 3, 2).contiguous() #
-                dist1, dist2 = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), input_pts.unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
+            if self.config.r_method_type <1: # Q to R first
+                if self.config.pred_t:
+                    transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5) + pred_T
+                    transformed_pts = transformed_pts.permute(0, 1, 3, 2).contiguous() # nb, na, np, 3
+                    shift_dis       = input_pts.mean(dim=1, keepdim=True)
+                    dist1, dist2 = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), (input_pts - shift_dis).unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
+                else:
+                    transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5).permute(0, 1, 3, 2).contiguous() #
+                    dist1, dist2 = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), input_pts.unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
+            elif self.config.r_method_type == 1: # raw quaternion
+                if self.config.pred_t:
+                    qw, qxyz = torch.split(self.latent_vect['R'].permute(0, 2, 1).contiguous(), [1, 3], dim=-1)
+                    theta_max= torch.Tensor([1.2]).cuda()
+                    qw       = torch.cos(theta_max) + (1- torch.cos(theta_max)) * F.sigmoid(qw)
+                    constrained_quat = torch.cat([qw, qxyz], dim=-1)
+                    constrained_quat_tiled = constrained_quat.unsqueeze(2).contiguous().repeat(1, 1, np_out, 1).contiguous() # nb, na, np, 4
+                    canon_pts= self.output_pts.permute(0, 2, 1).contiguous() - 0.5 # nb, np, 3
+                    canon_pts_tiled= canon_pts.unsqueeze(1).contiguous().repeat(1, na, 1, 1).contiguous() # nb, na, np, 3
+
+                    transformed_pts = rotate(constrained_quat_tiled, canon_pts_tiled) # nb, na, np, 3
+                    transformed_pts = torch.matmul(anchors, transformed_pts.permute(0, 1, 3, 2).contiguous()) + pred_T
+                    transformed_pts = transformed_pts.permute(0, 1, 3, 2).contiguous()
+                    shift_dis       = input_pts.mean(dim=1, keepdim=True)
+                    dist1, dist2    = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), (input_pts - shift_dis).unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
+                    self.regu_quat_loss = torch.mean( torch.norm( torch.norm(constrained_quat, dim=-1) - 1))
 
             if 'partial' in self.config.task:
                 all_dist = (dist2).mean(-1).view(nb, -1).contiguous()
@@ -432,7 +450,6 @@ class PointAEPoseAgent(BaseAgent):
                     # gt_bias = rot_diff_rad(ranchor_gt.view(-1,3,3), torch.eye(3).cuda().unsqueeze(0), chosen_axis='z').view(nb, -1)
                     mask = (gt_bias < self.threshold)[:,:,None,None].float()
                     self.regressionR_loss = torch.pow(ranchor_gt[:, :, :, -2:-1] * mask - ranchor_pred[:, :, :, -2:-1] * mask,2).sum()
-
                 # [4, 60, 3, 1024]  [nb, na, 3, np] -->  [nb, na, np, 3]
                 self.rlabel_pred  = torch.argmax(rlabel_pred, 1).detach().clone()
                 self.rlabel_pred.requires_grad = False
@@ -667,6 +684,8 @@ class PointAEPoseAgent(BaseAgent):
                 loss_dict['recon'] = self.recon_loss
             if self.config.use_symmetry_loss:
                 loss_dict['chirality'] = self.recon_chirality_loss
+            if self.config.r_method_type == 1:
+                loss_dict['regu_quat'] = 0.001 * self.regu_quat_loss
 
         return loss_dict
 
