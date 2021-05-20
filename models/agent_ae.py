@@ -377,8 +377,8 @@ class PointAEPoseAgent(BaseAgent):
                     qw, qxyz = torch.split(self.latent_vect['R'].permute(0, 2, 1).contiguous(), [1, 3], dim=-1)
                     # angle = 2 * arccos(qw) <= 2 * arccos(qw_min) = theta_max / 2.0
                     # qw_min = cos(theta_max / 4.0)
-                    theta_max= torch.Tensor([float(np.deg2rad(72.0))]).cuda().float()
-                    qw_min = torch.cos(theta_max / 4.0)
+                    theta_max= torch.Tensor([float(np.deg2rad(self.config.theta_max))]).cuda().float()
+                    qw_min = torch.cos(theta_max / 2.0)
                     qw = qw_min + (1 - qw_min) * F.sigmoid(qw)
                     constrained_quat = torch.cat([qw, qxyz], dim=-1)
 

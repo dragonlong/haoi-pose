@@ -11,12 +11,6 @@ import torch.utils.data as data
 from os.path import join as pjoin
 import matplotlib.pyplot as plt
 import __init__
-<<<<<<< HEAD
-import vgtk.so3conv.functional as L
-from vgtk.functional import rotation_distance_np
-from dataset.modelnet40new_render import backproject
-
-=======
 try:
     import vgtk.so3conv.functional as L
     import vgtk.pc as pctk
@@ -47,7 +41,6 @@ def rotation_distance_np(r0, r1):
         traces = np.einsum('bii->b', diff_r)
 
         return traces, np.argmax(traces), diff_r
->>>>>>> 1ac8811363cdbd63f352cad122f34fb70900bc30
 
 def get_index(src_length, tgt_length):
     idx = np.arange(0, src_length)
