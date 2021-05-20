@@ -405,6 +405,7 @@ class PointAEPoseAgent(BaseAgent):
                     transformed_pts = rotate(constrained_quat_tiled, canon_pts_tiled) # nb, na, np, 3
                     transformed_pts = torch.matmul(anchors, transformed_pts.permute(0, 1, 3, 2).contiguous()) + pred_T
                     transformed_pts = transformed_pts.permute(0, 1, 3, 2).contiguous()
+
                     shift_dis       = input_pts.mean(dim=1, keepdim=True)
                     dist1, dist2    = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), (input_pts - shift_dis).unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
 
@@ -747,6 +748,8 @@ class PointAEPoseAgent(BaseAgent):
             if self.config.use_symmetry_loss:
                 loss_dict['chirality'] = self.recon_chirality_loss
             if self.config.r_method_type in [1, 2, 3]:
+                #  before: frobenius norm = sqrt(sum(diff^2)) -> sqrt(nb * na * diff^2) -> sqrt(60 * b) * diff
+                #  loss_dict['regu_quat'] = 0.001 * self.regu_quat_loss
                 loss_dict['regu_quat'] = 0.001 * self.regu_quat_loss
 
         return loss_dict
