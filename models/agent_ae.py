@@ -363,7 +363,7 @@ class PointAEPoseAgent(BaseAgent):
 
         if 'ssl' in self.config.task:
             np_out = self.output_pts.shape[-1]
-            if self.config.r_method_type <1: # Q to R first
+            if self.config.r_method_type < 1:  # Q to R first
                 if self.config.pred_t:
                     transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5) + pred_T
                     transformed_pts = transformed_pts.permute(0, 1, 3, 2).contiguous() # nb, na, np, 3
@@ -372,29 +372,41 @@ class PointAEPoseAgent(BaseAgent):
                 else:
                     transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5).permute(0, 1, 3, 2).contiguous() #
                     dist1, dist2 = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), input_pts.unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
-            elif self.config.r_method_type == 1: # raw quaternion
+            elif self.config.r_method_type in [1, 2, 3]:  # transform by quaternion
                 if self.config.pred_t:
-                    qw, qxyz = torch.split(self.latent_vect['R'].permute(0, 2, 1).contiguous(), [1, 3], dim=-1)
-                    # angle = 2 * arccos(qw) <= 2 * arccos(qw_min) = theta_max / 2.0
-                    # qw_min = cos(theta_max / 4.0)
-                    theta_max= torch.Tensor([float(np.deg2rad(self.config.theta_max))]).cuda().float()
-                    qw_min = torch.cos(theta_max / 2.0)
-                    qw = qw_min + (1 - qw_min) * F.sigmoid(qw)
-                    constrained_quat = torch.cat([qw, qxyz], dim=-1)
+                    if self.config.r_method_type in [1, 2]:   # constrained
+                        qw, qxyz = torch.split(self.latent_vect['R'].permute(0, 2, 1).contiguous(), [1, 3], dim=-1)
+                        # angle = 2 * arccos(qw) <= 2 * arccos(qw_min) = theta_max
+                        # qw_min = cos(theta_max / 2.0)
+                        theta_max = torch.Tensor([float(np.deg2rad(self.config.theta_max))]).cuda().float()
+                        qw_min = torch.cos(theta_max / 2.0)
+                        qw = qw_min + (1 - qw_min) * F.sigmoid(qw)
+                        constrained_quat = torch.cat([qw, qxyz], dim=-1)  # [nb, na, 4]
+
+                    elif self.config.r_method_type in [3]:
+                        constrained_quat = self.latent_vect['R'].permute(0, 2, 1)   # [nb, na, 4]
+                    else:
+                        assert 0, f'Unsupported r_method_type {self.config.r_method_type}'
+
+                    constrained_quat_norm = torch.norm(constrained_quat, dim=-1)
+                    # self.regu_quat_loss = torch.mean(torch.norm(torch.norm(constrained_quat, dim=-1) - 1))
+                    self.regu_quat_loss = torch.mean((constrained_quat_norm - 1) ** 2)
+
+                    if self.config.r_method_type in [2, 3]:
+                        constrained_quat = constrained_quat / constrained_quat_norm.unsqueeze(-1).detach()
 
                     ranchor_pred = compute_rotation_matrix_from_quaternion(constrained_quat.view(-1, 4)).view(nb, -1, 3, 3)
                     pred_R = torch.matmul(anchors, ranchor_pred)  # [60, 3, 3], [nb, 60, 3, 3] --> [nb, 60, 3, 3]
 
                     constrained_quat_tiled = constrained_quat.unsqueeze(2).contiguous().repeat(1, 1, np_out, 1).contiguous() # nb, na, np, 4
-                    canon_pts= self.output_pts.permute(0, 2, 1).contiguous() - 0.5 # nb, np, 3
-                    canon_pts_tiled= canon_pts.unsqueeze(1).contiguous().repeat(1, na, 1, 1).contiguous() # nb, na, np, 3
+                    canon_pts = self.output_pts.permute(0, 2, 1).contiguous() - 0.5 # nb, np, 3
+                    canon_pts_tiled = canon_pts.unsqueeze(1).contiguous().repeat(1, na, 1, 1).contiguous() # nb, na, np, 3
 
                     transformed_pts = rotate(constrained_quat_tiled, canon_pts_tiled) # nb, na, np, 3
                     transformed_pts = torch.matmul(anchors, transformed_pts.permute(0, 1, 3, 2).contiguous()) + pred_T
                     transformed_pts = transformed_pts.permute(0, 1, 3, 2).contiguous()
                     shift_dis       = input_pts.mean(dim=1, keepdim=True)
                     dist1, dist2    = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), (input_pts - shift_dis).unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
-                    self.regu_quat_loss = torch.mean( torch.norm( torch.norm(constrained_quat, dim=-1) - 1))
 
             if 'partial' in self.config.task:
                 all_dist = (dist2).mean(-1).view(nb, -1).contiguous()
@@ -734,7 +746,7 @@ class PointAEPoseAgent(BaseAgent):
                 loss_dict['classification'] = self.classification_loss * 0.01
             if self.config.use_symmetry_loss:
                 loss_dict['chirality'] = self.recon_chirality_loss
-            if self.config.r_method_type == 1:
+            if self.config.r_method_type in [1, 2, 3]:
                 loss_dict['regu_quat'] = 0.001 * self.regu_quat_loss
 
         return loss_dict
