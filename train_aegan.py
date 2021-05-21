@@ -192,7 +192,7 @@ def main(cfg):
     if cfg.eval_mini or cfg.eval:
         if 'ycb' in cfg.task:
             track_dict = {key: [] for key in ['rdiff', 'tdiff', '5deg', '5cm', '5deg5cm',
-                                              'add', 'adds', 'chamferL1']}
+                                              'add', 'adds', 'add_acc', 'adds_acc', 'chamferL1']}
             for num, data in tqdm(enumerate(test_loader), total=len(test_loader)):
                 torch.cuda.empty_cache()
                 tr_agent.val_func(data)

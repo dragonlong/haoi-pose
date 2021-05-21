@@ -148,13 +148,13 @@ class Basic_Utils():
         mdis = torch.min(dis, dim=1)[0]
         return torch.mean(mdis)
 
-    def cal_add_and_adds_batch(self, pred_RT, gt_RT, cls): # [B, 3, 4]
+    def cal_add_and_adds_batch(self, pred_RT, gt_RT, cls):  # [B, 3, 4]
         cls = self.get_cls_name(cls)
         p3ds = self.ycb_cls_ptsxyz_cuda_dict[cls].unsqueeze(0)  # [1, N, 3]
         pred_p3ds = torch.matmul(p3ds, pred_RT[..., :3].permute(0, 2, 1)) + pred_RT[..., 3:4].permute(0, 2, 1)
         gt_p3ds = torch.matmul(p3ds, gt_RT[..., :3].permute(0, 2, 1)) + gt_RT[..., 3:4].permute(0, 2, 1)
         dis = torch.norm(pred_p3ds - gt_p3ds, dim=-1).mean(dim=-1)  # [B, N, 3] -> [B]
-        mdis, _ = self.chamfer_dist(pred_p3ds, gt_p3ds, return_raw=True) # [B, N]
+        mdis, _ = self.chamfer_dist(pred_p3ds, gt_p3ds, return_raw=True)  # [B, N]
         mdis = mdis.mean(dim=-1)  # [B]
         return dis, mdis
 
@@ -191,7 +191,10 @@ class Basic_Utils():
     def cal_full_error(self, pred_RT, gt_RT, cls):
         r_err, t_err, new_gt_RT = self.cal_pose_error(pred_RT, gt_RT, cls)
         add, adds = self.cal_add_and_adds_batch(pred_RT, new_gt_RT, cls)
+        add_acc, adds_acc = torch.mean((add <= 0.1).float()), torch.mean((adds <= 0.1).float())
 
-        return {'add': add, 'adds': adds, 'rdiff': r_err, 'tdiff': t_err}  # all of shape [B]
+        return {'add': add, 'adds': adds,
+                'rdiff': r_err, 'tdiff': t_err,
+                'add_acc': add_acc, 'adds_acc': adds_acc}  # all of shape [B]
 
 
