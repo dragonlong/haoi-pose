@@ -21,8 +21,8 @@ from extensions.chamfer_dist import ChamferFunction
 
 class ChamferDistanceTestCase(unittest.TestCase):
     def test_chamfer_dist(self):
-        x = torch.rand(4, 64, 3).double()
-        y = torch.rand(4, 128, 3).double()
+        x = torch.rand(4, 64, 3).float()
+        y = torch.rand(4, 128, 3).float()
         x.requires_grad = True
         y.requires_grad = True
         print(gradcheck(ChamferFunction.apply, [x.cuda(), y.cuda()]))

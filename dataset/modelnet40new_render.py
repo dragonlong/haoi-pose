@@ -11,7 +11,8 @@ import cv2
 from os.path import join as pjoin
 import pickle
 
-
+def bp():
+    import pdb;pdb.set_trace()
 def create_partial(read_path, save_folder, ins_num, render_num,
                    mean_pose=np.array([0, 0, -1.8]), std_pose=np.array([0.2, 0.2, 0.15]),
                    yfov=np.deg2rad(60), pw=640, ph=480, near=0.1, far=10):

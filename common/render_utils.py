@@ -12,7 +12,6 @@ def linear_alpha(dist_xy, radius: float):
     alpha = 1 - dists_norm
     return alpha
 
-
 @torch.jit.script
 def exponential_alpha(dist_xy, radius: float):
     dists2 = dist_xy.permute(0, 3, 1, 2)

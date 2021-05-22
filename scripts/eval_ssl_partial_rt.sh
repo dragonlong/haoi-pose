@@ -170,3 +170,56 @@ chamferL1 : 0.020161850406573367
 --saving fig to  ./results/test/5cm_0.847c.png
 --saving fig to  ./results/test/5deg5cm_0.847c.png
 --saving fig to  ./results/test/chamferL1_0.847c.png
+
+chamferL1 tensor(0.0103, device='cuda:0')
+airplane
+ with r_score:  tensor(0.4141, device='cuda:0') tensor([[[-0.9069, -0.3941, -0.1490],
+         [ 0.3418, -0.4815, -0.8071],
+         [ 0.2463, -0.7829,  0.5713]]])
+ with t_score:  tensor(0.6709, device='cuda:0') tensor([[ 0.0387, -0.0189,  0.0279]])
+saving to  /home/lxiaol9/3DGenNet2019/haoi-pose/evaluation/infos/0.913r_modelnet40new_airplane.npy
+chamferL1 tensor(0.0128, device='cuda:0')
+airplane
+ with r_score:  tensor(0.4871, device='cuda:0') tensor([[[-0.1305, -0.8961,  0.4243],
+         [ 0.2322, -0.4436, -0.8656],
+         [ 0.9639, -0.0144,  0.2660]]])
+ with t_score:  tensor(0.6849, device='cuda:0') tensor([[0.0443, 0.0241, 0.0021]])
+saving to  /home/lxiaol9/3DGenNet2019/haoi-pose/evaluation/infos/0.9141r_modelnet40new_airplane.npy
+
+
+# >>>>>>>> Exp: 0.9141r for airplane <<<<<<<<<<<<<<<<<<
+rdiff : 3.8907136590021354
+rdiff _mid: 1.8794065713882446
+tdiff : 0.07277572119608522
+sdiff : 0.0
+5deg : 0.9353333333333333
+5cm : 0.17
+5deg5cm : 0.154
+chamferL1 : 0.009678633192864557
+--saving to  /groups/CESCA-CV/ICML2021/results/test_pred/modelnet40new/0.9141r_unseen_part_rt_pn_general.npy
+--saving fig to  ./results/test/rdiff_0.9141r.png
+--saving fig to  ./results/test/tdiff_0.9141r.png
+--saving fig to  ./results/test/sdiff_0.9141r.png
+--saving fig to  ./results/test/5deg_0.9141r.png
+--saving fig to  ./results/test/5cm_0.9141r.png
+--saving fig to  ./results/test/5deg5cm_0.9141r.png
+--saving fig to  ./results/test/chamferL1_0.9141r.png
+
+
+# >>>>>>>> Exp: 0.913r for airplane <<<<<<<<<<<<<<<<<<
+rdiff : 4.505517589519421
+rdiff _mid: 2.184804916381836
+tdiff : 0.07293944712604086
+sdiff : 0.0
+5deg : 0.916
+5cm : 0.17666666666666667
+5deg5cm : 0.15883333333333333
+chamferL1 : 0.009880191578840215
+--saving to  /groups/CESCA-CV/ICML2021/results/test_pred/modelnet40new/0.913r_unseen_part_rt_pn_general.npy
+--saving fig to  ./results/test/rdiff_0.913r.png
+--saving fig to  ./results/test/tdiff_0.913r.png
+--saving fig to  ./results/test/sdiff_0.913r.png
+--saving fig to  ./results/test/5deg_0.913r.png
+--saving fig to  ./results/test/5cm_0.913r.png
+--saving fig to  ./results/test/5deg5cm_0.913r.png
+--saving fig to  ./results/test/chamferL1_0.913r.png

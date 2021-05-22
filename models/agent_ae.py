@@ -351,6 +351,8 @@ class PointAEPoseAgent(BaseAgent):
                     transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5) + pred_T
                     transformed_pts = transformed_pts.permute(0, 1, 3, 2).contiguous() # nb, na, np, 3
                     shift_dis       = input_pts.mean(dim=1, keepdim=True)
+
+
                     dist1, dist2 = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), (input_pts - shift_dis).unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
                 else:
                     transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5).permute(0, 1, 3, 2).contiguous() #
@@ -358,9 +360,13 @@ class PointAEPoseAgent(BaseAgent):
             elif self.config.r_method_type == 1: # raw quaternion
                 if self.config.pred_t:
                     qw, qxyz = torch.split(self.latent_vect['R'].permute(0, 2, 1).contiguous(), [1, 3], dim=-1)
-                    theta_max= torch.Tensor([1.2]).cuda()
+                    # theta_max= torch.Tensor([1.2]).cuda()
+                    theta_max= torch.Tensor([36/180 * np.pi]).cuda()
                     qw       = torch.cos(theta_max) + (1- torch.cos(theta_max)) * F.sigmoid(qw)
                     constrained_quat = torch.cat([qw, qxyz], dim=-1)
+                    ranchor_pred = rotation_mapping(constrained_quat.view(-1,nr)).view(nb,-1,3,3)
+                    pred_R = torch.matmul(anchors, ranchor_pred) # [60, 3, 3], [nb, 60, 3, 3] --> [nb, 60, 3, 3]
+
                     constrained_quat_tiled = constrained_quat.unsqueeze(2).contiguous().repeat(1, 1, np_out, 1).contiguous() # nb, na, np, 4
                     canon_pts= self.output_pts.permute(0, 2, 1).contiguous() - 0.5 # nb, np, 3
                     canon_pts_tiled= canon_pts.unsqueeze(1).contiguous().repeat(1, na, 1, 1).contiguous() # nb, na, np, 3
@@ -394,24 +400,50 @@ class PointAEPoseAgent(BaseAgent):
                 self.t_pred = None
 
             if self.config.pred_t:
-                gt_view_matrix = look_at(
-                    eyes=torch.tensor([[0, 0, 0]], dtype=torch.float32).repeat(BS, 1).contiguous(), # can multiply 0.8 if the eye is too close?
-                    centers=data['T'].cpu().squeeze(),
-                    ups=torch.tensor([[0, 0, 1]], dtype=torch.float32).repeat(BS, 1).contiguous(),
-                )
-                gt_pre_matrix = self.render.projection_matrix @ gt_view_matrix
-                self.gt_depth_map = self.render(input_pts, view_id=0, radius_list=[15.0, 20.0], pre_matrix=gt_pre_matrix)
+                if self.config.p_method_type == -1: # use naive project loss
+                    gt_view_matrix = look_at(
+                        eyes=torch.tensor([[0, 0, 0]], dtype=torch.float32).repeat(BS, 1).contiguous(), # can multiply 0.8 if the eye is too close?
+                        centers=data['T'].cpu().squeeze(),
+                        ups=torch.tensor([[0, 0, 1]], dtype=torch.float32).repeat(BS, 1).contiguous(),
+                    )
+                    gt_pre_matrix = self.render.projection_matrix @ gt_view_matrix
+                    self.gt_depth_map = self.render(input_pts, view_id=0, radius_list=[15.0, 20.0], pre_matrix=gt_pre_matrix)
 
-                # pred
-                pred_view_matrix =look_at(
-                    eyes=torch.tensor([[0, 0, 0]], dtype=torch.float32).repeat(BS, 1).contiguous(), # can multiply 0.8 if the eye is too close?
-                    centers=self.t_pred.cpu(),
-                    ups=torch.tensor([[0, 0, 1]], dtype=torch.float32).repeat(BS, 1).contiguous(),
-                )
-                pred_pre_matrix = self.render.projection_matrix @ pred_view_matrix
-                self.pred_depth_map = self.render(self.transformed_pts, view_id=0, radius_list=[20.0, 25.0], pre_matrix=pred_pre_matrix)
-                self.projection_loss   = 0.1 * self.render_loss(self.pred_depth_map, self.gt_depth_map.detach())
-                self.infos['projection'] = self.projection_loss
+                    # pred
+                    pred_view_matrix =look_at(
+                        eyes=torch.tensor([[0, 0, 0]], dtype=torch.float32).repeat(BS, 1).contiguous(), # can multiply 0.8 if the eye is too close?
+                        centers=self.t_pred.cpu(),
+                        ups=torch.tensor([[0, 0, 1]], dtype=torch.float32).repeat(BS, 1).contiguous(),
+                    )
+                    pred_pre_matrix = self.render.projection_matrix @ pred_view_matrix
+                    self.pred_depth_map = self.render(self.transformed_pts, view_id=0, radius_list=[20.0, 25.0], pre_matrix=pred_pre_matrix)
+                    self.projection_loss   = 0.1 * self.render_loss(self.pred_depth_map, self.gt_depth_map.detach())
+                    self.infos['projection'] = self.projection_loss
+                elif self.config.p_method_type == 0:
+                    camera_intri_mat = torch.Tensor([[0.1, 0, 320],
+                                                    [0, 0.1, 240],
+                                                    [0, 0, 1]]).cuda() # [3, 3]
+                    input_xy, input_z = torch.split(input_pts, [2, 1], dim=-1)
+                    input_pts_scaled  = input_pts / (input_z - epsilon)
+                    input_proj = torch.matmul(input_pts_scaled, camera_intri_mat.transpose(1, 0).contiguous())
+
+                    pred_xy, pred_z = torch.split(self.transformed_pts, [2, 1], dim=-1)
+                    pred_pts_scaled  = self.transformed_pts / (pred_z - epsilon)
+                    pred_proj  = torch.matmul(pred_pts_scaled, camera_intri_mat.transpose(1, 0).contiguous())
+                    dist1, dist2 = self.chamfer_dist_2d(input_proj, pred_proj, return_raw=True)
+                    self.projection_loss = 0.01 * (dist1 + dist2).mean()
+                # elif self.config.p_method_type == 1:
+                #     # Calculate PC coverage
+                #     # new_points[:, :, -1] = -new_points[:, :, -1]
+                #     data_dict = self.depth_render(), feats_tensor)
+                #     idx = data_dict['raster_output']['idx']
+                #     print(idx.shape)
+                #     visible_pts = idx[:, 0:3, :, :]
+                #     visible_ids = visible_pts[visible_pts>0].unique()
+                #     print(visible_ids.shape)
+                #     visible_points = points_tensor.view(-1, 3).contiguous()
+                #     visible_points = visible_points[visible_ids.long()].unsqueeze(0).repeat(2, 1, 1).contiguous()
+                #     print(visible_points.shape)
                 # if self.config.use_objective_P and self.config.eval:
                 #     ids = data['idx']
                 #     if not exists(f'{self.config.log_dir}/depth/'):

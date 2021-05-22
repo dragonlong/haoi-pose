@@ -59,6 +59,7 @@ class BaseAgent(object):
             self.anchors = torch.from_numpy(L.get_anchors(self.config.model.kanchor)).cuda()
         if self.config.pred_t:
             self.render_loss = torch.nn.L1Loss()
+            self.chamfer_dist_2d = ChamferDistance() # newly add
 
     def _setup_metric(self):
         # regressor + classifier
