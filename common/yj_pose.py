@@ -173,8 +173,6 @@ def pose_fit(source, target, cfg, hard=True):  # [B, N, 3]
         return model
 
 
-from global_info import global_info
-infos = global_info()
 from common.d3_utils import rotate_about_axis
 
 
@@ -196,6 +194,8 @@ def rot_diff_rad(rot1, rot2, chosen_axis=None):
 def rot_diff_degree(rot1, rot2, chosen_axis=None):
     return rot_diff_rad(rot1, rot2, chosen_axis=chosen_axis) / np.pi * 180.0
 
+
+infos = {}
 
 def compute_pose_diff(nocs_gt, nocs_pred, target, category):
     gt_cfg = {'num_hyps': 16, 'inlier_th': 0.05, 'refine': True}

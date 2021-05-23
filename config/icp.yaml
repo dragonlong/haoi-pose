@@ -1,0 +1,57 @@
+# @package _global_
+defaults:
+  - datasets: ycb
+    optional: True
+
+mode: 'train'
+no_cuda: False
+device: ''
+
+exp_num: '1'
+exp_name: 'default'
+task: 'pcloud_completion' # hand_regression, obj_reconstruction, hand_reconstruction, contacts_vote, pcloud_pose, pcloud_completion, partial_pcloud_pose
+is_debug: False
+
+
+# eval
+log_dir: '/model/${item}/${exp_num}'
+use_pretrain: False
+eval: False
+eval_mini: False
+pre_compute_delta: False
+split: 'val'
+pretrained_path: ''
+is_testing: False
+use_gt_M: False
+eval_mode_r: 0
+checkpoints_name: ''
+
+# general, gpu, print
+use_wandb: False
+pretty_print: False
+distributed: False
+port: '8803'
+num_gpus: 1
+gpu: '0'
+gpu_ids: 0
+num_workers: 8
+nframe: 1
+f: aa
+
+# visualization & eval
+BS: 2
+domain: 'unseen'
+nocs: 'part'
+hand: False
+contact: False
+vote: False
+mano: False
+save: False
+save_fig: False
+show_fig: False
+viz: False
+is_special: True
+iteration: 0
+words: 'c,se3,T' # 'c,se3,N'
+
+num_points: 1024
