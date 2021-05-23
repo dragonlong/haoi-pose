@@ -6,7 +6,43 @@ import random
 import torch
 import yaml
 from os.path import join as pjoin
-from common.yj_pose import rot_diff_degree, rotate_about_axis
+# from common.yj_pose import rot_diff_degree, rotate_about_axis
+
+def rot_diff_rad(rot1, rot2, chosen_axis=None):
+    if chosen_axis is not None:
+        axis = {'x': 0, 'y': 1, 'z': 2}[chosen_axis]
+        y1, y2 = rot1[..., axis], rot2[..., axis]  # [Bs, 3]
+        diff = torch.sum(y1 * y2, dim=-1)  # [Bs]
+        diff = torch.clamp(diff, min=-1.0, max=1.0)
+        return torch.acos(diff)
+    else:
+        mat_diff = torch.matmul(rot1, rot2.transpose(-1, -2))
+        diff = mat_diff[..., 0, 0] + mat_diff[..., 1, 1] + mat_diff[..., 2, 2]
+        diff = (diff - 1) / 2.0
+        diff = torch.clamp(diff, min=-1.0, max=1.0)
+        return torch.acos(diff)
+
+
+def rot_diff_degree(rot1, rot2, chosen_axis=None):
+    return rot_diff_rad(rot1, rot2, chosen_axis=chosen_axis) / np.pi * 180.0
+
+
+def rotate_about_axis(theta, axis='x'):
+    if axis == 'x':
+        R = np.array([[1, 0, 0],
+                      [0, np.cos(theta), -np.sin(theta)],
+                      [0, np.sin(theta), np.cos(theta)]])
+
+    elif axis == 'y':
+        R = np.array([[np.cos(theta), 0, np.sin(theta)],
+                      [0, 1, 0],
+                      [-np.sin(theta), 0, np.cos(theta)]])
+
+    elif axis == 'z':
+        R = np.array([[np.cos(theta), -np.sin(theta), 0],
+                      [np.sin(theta), np.cos(theta),  0],
+                      [0, 0, 1]])
+    return R
 
 def VOCap(rec, prec):
     idx = np.where(rec != np.inf)
@@ -38,6 +74,7 @@ class Basic_Utils():
         self.config = config
         self.chamfer_dist = chamfer_dist
         self.ycb_root = config.DATASET.data_path
+        self.device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
         cur_path = os.path.abspath(os.path.dirname(__file__))
         config_path = '/'.join(cur_path.split('/')[:-1] + ['config/datasets/ycb_config'])
         with open(pjoin(config_path, 'classes.txt'), 'r') as f:
@@ -54,9 +91,7 @@ class Basic_Utils():
             ptxyz_ptn = os.path.join(self.ycb_root, 'models', '{}/points.xyz'.format(cls))
             pointxyz = np.loadtxt(ptxyz_ptn.format(cls), dtype=np.float32)
             self.ycb_cls_ptsxyz_dict[cls] = pointxyz
-            ptsxyz_cu = torch.from_numpy(pointxyz.astype(np.float32))
-            if torch.cuda.is_available():
-                ptsxyz_cu = ptsxyz_cu.cuda()
+            ptsxyz_cu = torch.from_numpy(pointxyz.astype(np.float32)).to(self.device)
             self.ycb_cls_ptsxyz_cuda_dict[cls] = ptsxyz_cu
 
     def get_cls_name(self, cls):
