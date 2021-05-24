@@ -166,7 +166,9 @@ if __name__ == "__main__":
         'airplane': np.array([0, 0, -1.8]),
         'car': np.array([0, 0, -2.0]),
         'bottle': np.array([0, 0, -2.0]),
-        'bowl': np.array([0, 0, -2.3])
+        'bowl': np.array([0, 0, -2.3]),
+        'sofa': np.array([0, 0, -2.3]),
+        'chair': np.array([0, 0, -2.3])
     }
     mean_pose = mean_pose_dict[args.category]
     std_pose = np.array([0.2, 0.2, 0.15])
