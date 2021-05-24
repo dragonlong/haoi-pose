@@ -59,6 +59,13 @@ def square_distance(src, dst):
     dist += torch.sum(dst ** 2, -1).view(B, 1, M)
     return dist #
 
+def get_index(src_length, tgt_length):
+    idx = np.arange(0, src_length)
+    if src_length < tgt_length:
+        idx = np.pad(idx, (0, tgt_length - src_length), 'wrap')
+    idx = np.random.permutation(idx)[:tgt_length]
+    return idx
+
 class NOCSDataset(data.Dataset):
     def __init__(self, cfg, split='train', root=None, npoint_shift=False, is_testing=False, rand_seed=999):
         if root is None:
@@ -137,7 +144,7 @@ class NOCSDataset(data.Dataset):
             data_dict = np.load(fn, allow_pickle=True)['all_dict'].item()
             labels    = data_dict['labels']
             p_arr  = data_dict['points'][labels]
-            if p_arr.shape[0] < self.npoints:
+            if p_arr.shape[0] < 100:
                 category_name, instance_name, data_dict, idx = self.backup_cache[random.randint(0, len(self.backup_cache)-1)]
                 if verbose:
                     print('use ', idx)
@@ -160,15 +167,17 @@ class NOCSDataset(data.Dataset):
                 print(f'we have {p_arr.shape[0]} pts')
             full_points = np.concatenate([p_arr, n_arr, rgb], axis=1)
             full_points = np.random.permutation(full_points)
-            pos         = torch.from_numpy(full_points[:self.npoints, :3].astype(np.float32)).unsqueeze(0)
-            nocs_gt     = torch.from_numpy(full_points[:self.npoints, 3:6].astype(np.float32))
+
+            idx = get_index(len(full_points), self.npoints)
+            pos         = torch.from_numpy(full_points[idx, :3].astype(np.float32)).unsqueeze(0)
+            nocs_gt     = torch.from_numpy(full_points[idx, 3:6].astype(np.float32))
 
             if self.cfg.MODEL.num_in_channels == 1:
                 feat = torch.from_numpy(np.ones((pos.shape[0], pos.shape[1], 1)).astype(np.float32))
             elif self.cfg.use_rgb:
-                feat = torch.from_numpy(full_points[:self.npoints, 6:9].astype(np.float32)).unsqueeze(0)
+                feat = torch.from_numpy(full_points[idx, 6:9].astype(np.float32)).unsqueeze(0)
             else:
-                feat = torch.from_numpy(full_points[:self.npoints, 6:9].astype(np.float32)).unsqueeze(0)
+                feat = torch.from_numpy(full_points[idx, 6:9].astype(np.float32)).unsqueeze(0)
 
         T = torch.from_numpy(t.astype(np.float32))
         _, R_label, R0 = rotation_distance_np(r, self.anchors)
@@ -184,7 +193,7 @@ class NOCSDataset(data.Dataset):
         elif self.target_category == 'mug':
             scale_normalize = 0.25
         else:
-            scale_normalize = 0.5
+            scale_normalize = s
         # print('using scale normalization factor ', scale_normalize)
 
         if self.cfg.pre_compute_delta:
