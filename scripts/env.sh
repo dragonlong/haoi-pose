@@ -17,7 +17,7 @@ projectq 0.3.6 requires scipy, which is not installed.
 pip install neural_renderer_pytorch
 pip install mmcv
 conda install -c conda-forge scikit-image matplotlib opencv pyyaml tensorboardX
-#
+# 
 http://www.codeplastic.com/2019/03/12/how-to-install-python-modules-in-blender/
 python -m ensurepip
 bpy & ./pip3 install scipy imageio

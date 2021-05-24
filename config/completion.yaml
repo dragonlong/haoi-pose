@@ -74,7 +74,11 @@ use_one2many: False
 use_head_assemble: False
 t_method_type: -1
 r_method_type: -1
+<<<<<<< HEAD
 theta_max: 36.0
+=======
+p_method_type: -1
+>>>>>>> f74e7471073eb7e418766409b8f5ed99b9fb0a90
 use_axis: False
 use_fps_points: False
 

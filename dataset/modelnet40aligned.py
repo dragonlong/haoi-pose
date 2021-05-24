@@ -47,13 +47,19 @@ class Dataloader_ModelNet40(data.Dataset):
         else:
             print("[Dataloader]: USING ROTATED MODELNET LOADER!")
 
+        if self.opt.eval:
+            np.random.seed(seed=233423)
 
     def __len__(self):
         return len(self.all_data)
 
     def __getitem__(self, index):
         data = sio.loadmat(self.all_data[index])
-        _, pc = pctk.uniform_resample_np(data['pc'], self.opt.model.input_num)
+        if self.opt.use_fps_points:
+            _, pc = pctk.uniform_resample_np(data['pc'], 4 * self.opt.model.input_num)
+        else:
+            _, pc = pctk.uniform_resample_np(data['pc'], self.opt.model.input_num)
+
         boundary_pts = [np.min(pc, axis=0), np.max(pc, axis=0)]
         center_pt = (boundary_pts[0] + boundary_pts[1])/2
         length_bb = np.linalg.norm(boundary_pts[0] - boundary_pts[1])
@@ -80,6 +86,7 @@ class Dataloader_ModelNet40(data.Dataset):
             pc = pc + t
         else:
             T = T * 0
+        num_index = self.all_data[index].split('/')[-1].split('.')[0].split('_')[-1]
         return {'xyz': torch.from_numpy(pc.astype(np.float32)),
                 'points': torch.from_numpy(pc_canon.astype(np.float32)),
                 'label': torch.from_numpy(data['label'].flatten()).long(),
@@ -88,71 +95,71 @@ class Dataloader_ModelNet40(data.Dataset):
                 'R': R0,
                 'T': T,
                 'fn': data['name'][0],
-                'id': str(index),
-                'idx': str(index),
+                'id': num_index,
+                'idx': num_index,
                 'class': self.all_data[index].split('/')[-3]
                }
-
-# for relative rotation alignment
-class Dataloader_ModelNet40Alignment(data.Dataset):
-    def __init__(self, opt, mode=None):
-        super(Dataloader_ModelNet40Alignment, self).__init__()
-        self.opt = opt
-
-        # 'train' or 'eval'
-        self.mode = opt.mode if mode is None else mode
-
-        # attention method: 'attention | rotation'
-        self.flag = opt.model.flag
-        self.anchors = L.get_anchors(self.opt.model.kanchor)
-
-        cats = ['airplane']
-        print(f"[Dataloader]: USING ONLY THE {cats[0]} CATEGORY!!")
-
-        self.dataset_path = opt.DATASET.dataset_path
-        self.all_data = []
-        for cat in cats:
-            for fn in glob.glob(os.path.join(opt.DATASET.dataset_path, cat, self.mode, "*.mat")):
-                self.all_data.append(fn)
-        print("[Dataloader] : Training dataset size:", len(self.all_data))
-
-
-    def __len__(self):
-        return len(self.all_data)
-
-    def __getitem__(self, index):
-        data = sio.loadmat(self.all_data[index])
-        _, pc = pctk.uniform_resample_np(data['pc'], self.opt.model.input_num)
-
-        # normalization
-        pc = p3dtk.normalize_np(pc.T)
-        pc = pc.T
-        pc_src, R_src = pctk.rotate_point_cloud(pc)
-        pc_tgt = pc
-
-        # if self.mode == 'test':
-        #     data['R'] = R
-        #     output_path = os.path.join(self.dataset_path, data['cat'][0], 'testR')
-        #     os.makedirs(output_path,exist_ok=True)
-        #     sio.savemat(os.path.join(output_path, data['name'][0] + '.mat'), data)
-        # _, R_label, R0 = rotation_distance_np(R, self.anchors)
-
-        # T = R_src @ R_tgt.T
-        T = R_src # @ R_tgt.T
-
-        # RR_regress = np.einsum('abc,bj,ijk -> aick', self.anchors, T, self.anchors)
-        # R_label = np.argmax(np.einsum('abii->ab', RR_regress),axis=1)
-        # idxs = np.vstack([np.arange(R_label.shape[0]), R_label]).T
-        # R = RR_regress[idxs[:,0], idxs[:,1]]
-        R, R_label = label_relative_rotation_np(self.anchors, T)
-        pc_tensor = np.stack([pc_src, pc_tgt])
-
-        return {'pc':torch.from_numpy(pc_tensor.astype(np.float32)),
-                'fn': data['name'][0],
-                'T' : torch.from_numpy(T.astype(np.float32)),
-                'R': torch.from_numpy(R.astype(np.float32)),
-                'R_label': torch.Tensor([R_label]).long(),
-               }
+#
+# # for relative rotation alignment
+# class Dataloader_ModelNet40Alignment(data.Dataset):
+#     def __init__(self, opt, mode=None):
+#         super(Dataloader_ModelNet40Alignment, self).__init__()
+#         self.opt = opt
+#
+#         # 'train' or 'eval'
+#         self.mode = opt.mode if mode is None else mode
+#
+#         # attention method: 'attention | rotation'
+#         self.flag = opt.model.flag
+#         self.anchors = L.get_anchors(self.opt.model.kanchor)
+#
+#         cats = ['airplane']
+#         print(f"[Dataloader]: USING ONLY THE {cats[0]} CATEGORY!!")
+#
+#         self.dataset_path = opt.DATASET.dataset_path
+#         self.all_data = []
+#         for cat in cats:
+#             for fn in glob.glob(os.path.join(opt.DATASET.dataset_path, cat, self.mode, "*.mat")):
+#                 self.all_data.append(fn)
+#         print("[Dataloader] : Training dataset size:", len(self.all_data))
+#
+#
+#     def __len__(self):
+#         return len(self.all_data)
+#
+#     def __getitem__(self, index):
+#         data = sio.loadmat(self.all_data[index])
+#         _, pc = pctk.uniform_resample_np(data['pc'], self.opt.model.input_num)
+#
+#         # normalization
+#         pc = p3dtk.normalize_np(pc.T)
+#         pc = pc.T
+#         pc_src, R_src = pctk.rotate_point_cloud(pc)
+#         pc_tgt = pc
+#
+#         # if self.mode == 'test':
+#         #     data['R'] = R
+#         #     output_path = os.path.join(self.dataset_path, data['cat'][0], 'testR')
+#         #     os.makedirs(output_path,exist_ok=True)
+#         #     sio.savemat(os.path.join(output_path, data['name'][0] + '.mat'), data)
+#         # _, R_label, R0 = rotation_distance_np(R, self.anchors)
+#
+#         # T = R_src @ R_tgt.T
+#         T = R_src # @ R_tgt.T
+#
+#         # RR_regress = np.einsum('abc,bj,ijk -> aick', self.anchors, T, self.anchors)
+#         # R_label = np.argmax(np.einsum('abii->ab', RR_regress),axis=1)
+#         # idxs = np.vstack([np.arange(R_label.shape[0]), R_label]).T
+#         # R = RR_regress[idxs[:,0], idxs[:,1]]
+#         R, R_label = label_relative_rotation_np(self.anchors, T)
+#         pc_tensor = np.stack([pc_src, pc_tgt])
+#
+#         return {'pc':torch.from_numpy(pc_tensor.astype(np.float32)),
+#                 'fn': data['name'][0],
+#                 'T' : torch.from_numpy(T.astype(np.float32)),
+#                 'R': torch.from_numpy(R.astype(np.float32)),
+#                 'R_label': torch.Tensor([R_label]).long(),
+#                }
 
 if __name__ == '__main__':
     from models.spconv.options import opt
@@ -162,7 +169,9 @@ if __name__ == '__main__':
     device = torch.device("cuda:0")
     x = torch.randn(BS, N, 3).to(device)
     opt.model.model = 'inv_so3net'
+    opt.target_category = 'airplane'
     dset = Dataloader_ModelNet40(opt, mode='test')
+    bp()
     for i in range(10):
         dp = dset.__getitem__(i)
         print(dp)
