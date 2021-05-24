@@ -31,7 +31,7 @@ from dataset.obman_aese3 import HandDatasetAEGraph
 # modelnet40
 from dataset.modelnet40 import ModelNetDataset
 from dataset.airplane3k import OracleDataset
-from dataset.modelnet40aligned import Dataloader_ModelNet40, Dataloader_ModelNet40Alignment
+from dataset.modelnet40aligned import Dataloader_ModelNet40 #, Dataloader_ModelNet40Alignment
 from dataset.modelnet40new import Dataloader_ModelNet40New
 # nocs
 # from dataset.nocs_synthetic import NOCSDataset

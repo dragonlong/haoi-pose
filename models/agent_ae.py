@@ -4,6 +4,12 @@ import numpy as np
 import wandb
 import torchvision
 import torch.nn.functional as F
+
+import pytorch3d
+from pytorch3d.renderer import compositing as compositing
+from pytorch3d.renderer.points import rasterize_points
+from pytorch3d.structures import Pointclouds
+
 import __init__
 from models.ae_gan import get_network
 from models.base import BaseAgent
@@ -351,8 +357,6 @@ class PointAEPoseAgent(BaseAgent):
                     transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5) + pred_T
                     transformed_pts = transformed_pts.permute(0, 1, 3, 2).contiguous() # nb, na, np, 3
                     shift_dis       = input_pts.mean(dim=1, keepdim=True)
-
-
                     dist1, dist2 = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), (input_pts - shift_dis).unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
                 else:
                     transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5).permute(0, 1, 3, 2).contiguous() #
@@ -420,30 +424,51 @@ class PointAEPoseAgent(BaseAgent):
                     self.projection_loss   = 0.1 * self.render_loss(self.pred_depth_map, self.gt_depth_map.detach())
                     self.infos['projection'] = self.projection_loss
                 elif self.config.p_method_type == 0:
-                    camera_intri_mat = torch.Tensor([[0.1, 0, 320],
-                                                    [0, 0.1, 240],
-                                                    [0, 0, 1]]).cuda() # [3, 3]
-                    input_xy, input_z = torch.split(input_pts, [2, 1], dim=-1)
-                    input_pts_scaled  = input_pts / (input_z - epsilon)
-                    input_proj = torch.matmul(input_pts_scaled, camera_intri_mat.transpose(1, 0).contiguous())
+                    # pre-set the camera
+                    # put points into Pytorch3D world space
+                    points_p3d = self.transformed_pts.float() # [B, N, 3]
+                    points_p3d[:, :, -1] = -points_p3d[:, :, -1] # reverse z
+                    points_p3d[:, :, 0]  = -points_p3d[:, :, 0]  # reverse x to fit pytorch3d convention
+                    # convert into NDC
+                    pred_proj = self.cam.transform_points(points_p3d, eps=1e-10)
+                    pred_proj = pred_proj/pred_proj[:, :, -1:]
 
-                    pred_xy, pred_z = torch.split(self.transformed_pts, [2, 1], dim=-1)
-                    pred_pts_scaled  = self.transformed_pts / (pred_z - epsilon)
-                    pred_proj  = torch.matmul(pred_pts_scaled, camera_intri_mat.transpose(1, 0).contiguous())
+                    points_p3d = input_pts # [B, N, 3]
+                    points_p3d[:, :, -1] = -points_p3d[:, :, -1] # reverse z
+                    points_p3d[:, :, 0]  = -points_p3d[:, :, 0]  # reverse x to fit pytorch3d convention
+                    input_proj = self.cam.transform_points(points_p3d)
+                    input_proj = input_proj/input_proj[:, :, -1:]
                     dist1, dist2 = self.chamfer_dist_2d(input_proj, pred_proj, return_raw=True)
-                    self.projection_loss = 0.01 * (dist1 + dist2).mean()
-                # elif self.config.p_method_type == 1:
-                #     # Calculate PC coverage
-                #     # new_points[:, :, -1] = -new_points[:, :, -1]
-                #     data_dict = self.depth_render(), feats_tensor)
-                #     idx = data_dict['raster_output']['idx']
-                #     print(idx.shape)
-                #     visible_pts = idx[:, 0:3, :, :]
-                #     visible_ids = visible_pts[visible_pts>0].unique()
-                #     print(visible_ids.shape)
-                #     visible_points = points_tensor.view(-1, 3).contiguous()
-                #     visible_points = visible_points[visible_ids.long()].unsqueeze(0).repeat(2, 1, 1).contiguous()
-                #     print(visible_points.shape)
+                    self.projection_loss = torch.clamp(0.01 * (dist1 + dist2).mean(), min=0, max=0.1)
+                elif self.config.p_method_type == 1:
+                    # pre-set the camera
+                    # put points into Pytorch3D world space
+                    points_p3d = self.transformed_pts # [B, N, 3]
+                    points_p3d[:, :, -1] = -points_p3d[:, :, -1] # reverse z
+                    points_p3d[:, :, 0]  = -points_p3d[:, :, 0]  # reverse x to fit pytorch3d convention
+                    # convert into NDC
+                    points_ndc = self.cam.transform_points(points_p3d, eps=1e-10)
+                    points_features = points_ndc.clone().detach()
+
+                    # Rasterize points -- bins set heurisically
+                    pointcloud = pytorch3d.structures.Pointclouds(points_ndc, features=points_features)
+                    radius = 15 # pixels, set emperically
+                    K_pt   = 16
+                    K_num  = 2
+                    img_h  = 480
+                    img_w  = 640
+                    ndc_r = 2 * radius / float(img_h)
+                    idx, zbuf, dist_xy = rasterize_points(pointcloud, [img_h, img_w], ndc_r, K_pt)
+
+                    visible_ids = idx[:, 0:K_num, :, :] # assume the 3 closest points are visible, may need tune point radius
+                    visible_ids = visible_ids[visible_ids>0].unique()
+                    if len(visible_ids) > 0:
+                        self.projection_loss = dist1.view(nb, na, np_out).contiguous()[torch.arange(0, BS), min_indices]# [nb*na, np] --> [nb, np]
+                        self.projection_loss = self.projection_loss.view(-1).contiguous()[visible_ids.long()].mean()
+                        self.projection_loss = torch.clamp(self.projection_loss, min=0, max=0.1)
+                    else:
+                        self.projection_loss = torch.Tensor([0]).cuda()
+
                 # if self.config.use_objective_P and self.config.eval:
                 #     ids = data['idx']
                 #     if not exists(f'{self.config.log_dir}/depth/'):

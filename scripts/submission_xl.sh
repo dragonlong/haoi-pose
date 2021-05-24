@@ -1486,6 +1486,7 @@ models=epn exp_num='0.83' model.model='enc_so3net' model.pooling_method='max' \
 datasets=shapenetaligned item=shapenetaligned name_dset=shapenetaligned target_category='chair' dataset_class=AE \
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 augment=True MODEL.num_in_channels=1 \
+eval=True save=True pre_compute_delta=True
 use_wandb=True
 
 0.831: # supervision in nocs space
@@ -1755,7 +1756,7 @@ bathtub   bookshelf  car    cup      door     glass_box   lamp      monitor     
 bed       bottle     chair  curtain  dresser  guitar      laptop    night_stand  plant   sink        stool   toilet  wardrobe
 
 0.85: # supervision in camera space, random R, chair, ca227
-python train_aegan.py task='pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True nr_epochs=1000 save_frequency=20 \
+python train_aegan.py task='ssl_pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True nr_epochs=1000 save_frequency=20 \
 models=epn exp_num='0.85' model.model='enc_so3net' model.pooling_method='max' \
 datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='chair' dataset_class=AE \
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
@@ -1765,7 +1766,7 @@ use_pretrain=True
 use_wandb=True
 
 0.851: # car, ca202
-python train_aegan.py task='pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True nr_epochs=1000 save_frequency=20 \
+python train_aegan.py task='ssl_pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True nr_epochs=1000 save_frequency=20 \
 models=epn exp_num='0.851' model.model='enc_so3net' model.pooling_method='max' \
 datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='car' dataset_class=AE \
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
