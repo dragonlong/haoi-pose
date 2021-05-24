@@ -118,18 +118,8 @@ class NOCSDataset(data.Dataset):
             self.random_angle = np.random.rand(self.__len__(), 150, 3) * 360
             self.random_T     = np.random.rand(self.__len__(), 150, 3)
 
-        # pre-fetch
-        self.backup_cache = []
-        for j in range(300):
-            fn  = self.datapath[j]
-            category_name = fn.split('.')[-2].split('/')[-4]
-            instance_name = fn.split('.')[-2].split('/')[-5]
-            data_dict = np.load(fn, allow_pickle=True)['all_dict'].item()
-            labels    = data_dict['labels']
-            p_arr     = data_dict['points'][labels]
-            if p_arr.shape[0] > self.npoints:
-                self.backup_cache.append([category_name, instance_name, data_dict, j])
-        print('backup has ', len(self.backup_cache))
+        self.scale_dict = {'bottle': 0.5, 'bowl': 0.25, 'camera': 0.27,
+                           'can': 0.2, 'laptop': 0.5, 'mug': 0.21}
 
     def get_sample_partial(self, idx, verbose=False):
         fn  = self.datapath[idx]
@@ -137,64 +127,31 @@ class NOCSDataset(data.Dataset):
             print(fn)
         category_name = fn.split('.')[-2].split('/')[-5]
         instance_name = fn.split('.')[-2].split('/')[-4] + '_' + fn.split('.')[-2].split('/')[-3] + '_' + fn.split('.')[-2].split('/')[-1]
+        data_dict = np.load(fn, allow_pickle=True)['all_dict'].item()
+        labels    = data_dict['labels']
+        p_arr  = data_dict['points'][labels]
 
-        if self.fetch_cache and idx in self.g_dict:
-            pos, src, dst, feat = self.g_dict[idx]
-        else:
-            data_dict = np.load(fn, allow_pickle=True)['all_dict'].item()
-            labels    = data_dict['labels']
-            p_arr  = data_dict['points'][labels]
-            if p_arr.shape[0] < 100:
-                category_name, instance_name, data_dict, idx = self.backup_cache[random.randint(0, len(self.backup_cache)-1)]
-                if verbose:
-                    print('use ', idx)
-                labels = data_dict['labels']
-                p_arr  = data_dict['points'][labels]
-            rgb       = data_dict['rgb'][labels] / 255.0
-            pose      = data_dict['pose']
-            r, t, s   = pose['rotation'], pose['translation'].reshape(-1, 3), pose['scale']
-            labels = labels[labels].astype(np.int).reshape(-1, 1) # only get true
-            if s < 0.00001:
-                s = 1
-            n_arr     = np.matmul(p_arr - t, r) / s + 0.5 # scale
-            center    = t.reshape(1, 3)
-            bb_pts    = np.array([[0.5, 0.5, 0.5]])
-            bb_pts    = s * np.matmul(bb_pts, r.T)  + t.reshape(1, 3) # we actually don't know the exact bb, sad
-            center_offset = p_arr - center #
-            bb_offset =  bb_pts - p_arr #
-            up_axis   = np.matmul(np.array([[0.0, 1.0, 0.0]]), r.T)
-            if verbose:
-                print(f'we have {p_arr.shape[0]} pts')
-            full_points = np.concatenate([p_arr, n_arr, rgb], axis=1)
-            full_points = np.random.permutation(full_points)
+        rgb       = data_dict['rgb'][labels] / 255.0
+        pose      = data_dict['pose']
+        r, t, s   = pose['rotation'], pose['translation'].reshape(-1, 3), pose['scale']
+        scale_normalize = self.scale_dict[self.target_category]
+        if self.cfg.normalize_scale:
+            scale_normalize = s
+        if p_arr.shape[0] < 100 or s > scale_normalize * 1.01:
+            return self.get_sample_partial(random.randint(0, self.__len__() - 1))
+        n_arr = np.matmul(p_arr - t, r) / s + 0.5
+        if verbose:
+            print(f'we have {p_arr.shape[0]} pts')
+        full_points = np.concatenate([p_arr, n_arr, rgb], axis=1)
+        full_points = np.random.permutation(full_points)
 
-            idx = get_index(len(full_points), self.npoints)
-            pos         = torch.from_numpy(full_points[idx, :3].astype(np.float32)).unsqueeze(0)
-            nocs_gt     = torch.from_numpy(full_points[idx, 3:6].astype(np.float32))
-
-            if self.cfg.MODEL.num_in_channels == 1:
-                feat = torch.from_numpy(np.ones((pos.shape[0], pos.shape[1], 1)).astype(np.float32))
-            elif self.cfg.use_rgb:
-                feat = torch.from_numpy(full_points[idx, 6:9].astype(np.float32)).unsqueeze(0)
-            else:
-                feat = torch.from_numpy(full_points[idx, 6:9].astype(np.float32)).unsqueeze(0)
+        idx = get_index(len(full_points), self.npoints)
+        pos = torch.from_numpy(full_points[idx, :3].astype(np.float32)).unsqueeze(0)
+        nocs_gt = torch.from_numpy(full_points[idx, 3:6].astype(np.float32))
 
         T = torch.from_numpy(t.astype(np.float32))
         _, R_label, R0 = rotation_distance_np(r, self.anchors)
         R_gt = torch.from_numpy(r.astype(np.float32)) # predict r
-        center = torch.from_numpy(np.array([[0.5, 0.5, 0.5]])) # 1, 3
-        center_offset = pos[0].clone().detach() - T #
-        # print('compared to 1, the scale is ', s)
-        scale_normalize = 1
-        if self.target_category == 'laptop':
-            scale_normalize = 0.5
-        elif self.target_category == 'bowl':
-            scale_normalize = 0.25
-        elif self.target_category == 'mug':
-            scale_normalize = 0.25
-        else:
-            scale_normalize = s
-        # print('using scale normalization factor ', scale_normalize)
 
         if self.cfg.pre_compute_delta:
             xyz = nocs_gt - 0.5
@@ -206,7 +163,7 @@ class NOCSDataset(data.Dataset):
         return {'xyz': xyz,
                 'points': nocs_gt,
                 'label': torch.from_numpy(np.array([1]).astype(np.float32)),
-                'R_gt' : R_gt,
+                'R_gt': R_gt,
                 'R_label': R_label,
                 'R': R0,
                 'T': T/scale_normalize,
@@ -287,6 +244,7 @@ class NOCSDataset(data.Dataset):
 
     def __len__(self):
         return len(self.datapath)
+
 
 @hydra.main(config_path="../config/completion.yaml")
 def main(cfg):
