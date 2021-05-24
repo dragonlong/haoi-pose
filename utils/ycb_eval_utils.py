@@ -226,7 +226,7 @@ class Basic_Utils():
     def cal_full_error(self, pred_RT, gt_RT, cls):
         r_err, t_err, new_gt_RT = self.cal_pose_error(pred_RT, gt_RT, cls)
         add, adds = self.cal_add_and_adds_batch(pred_RT, new_gt_RT, cls)
-        add_acc, adds_acc = torch.mean((add <= 0.1).float()), torch.mean((adds <= 0.1).float())
+        add_acc, adds_acc = (add <= 0.1).float(), (adds <= 0.1).float()
 
         return {'add': add, 'adds': adds,
                 'rdiff': r_err, 'tdiff': t_err,
