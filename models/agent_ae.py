@@ -172,7 +172,8 @@ class PointAEPoseAgent(BaseAgent):
             input_pts = data['xyz'].permute(0, 2, 1).contiguous()
         else:
             input_pts    = data['G'].ndata['x'].view(BS, -1, 3).contiguous().permute(0, 2, 1).contiguous() #
-        input_pts        = input_pts - input_pts.mean(dim=-1, keepdim=True)
+        # input_pts        = input_pts - input_pts.mean(dim=-1, keepdim=True)
+        input_pts = input_pts - 0.5 * (input_pts.min(dim=-1, keepdim=True) + input_pts.max(dim=-1, keepdim=True))
         if self.config.use_rgb:
             rgb_feat = data['G'].ndata['f'].view(BS, -1, 3).contiguous().permute(0, 2, 1).contiguous() #
             feat = torch.cat([input_pts, rgb_feat], dim=1)
@@ -335,6 +336,7 @@ class PointAEPoseAgent(BaseAgent):
     def compute_and_eval_so3(self, data):
         input_pts      = data['xyz']
         shift_dis      = input_pts.mean(dim=1, keepdim=True)
+        shift_dis = 0.5 * (input_pts.min(dim=-1, keepdim=True) + input_pts.max(dim=-1, keepdim=True))
         target_pts     = data['points']
         target_T       = data['T'].permute(0, 2, 1).contiguous() # B, 3, N
 
@@ -373,7 +375,7 @@ class PointAEPoseAgent(BaseAgent):
                 if self.config.pred_t:
                     transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5) + pred_T
                     transformed_pts = transformed_pts.permute(0, 1, 3, 2).contiguous() # nb, na, np, 3
-                    shift_dis       = input_pts.mean(dim=1, keepdim=True)
+                    # shift_dis       = input_pts.mean(dim=1, keepdim=True)
                     dist1, dist2 = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), (input_pts - shift_dis).unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
                 else:
                     transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5).permute(0, 1, 3, 2).contiguous() #
@@ -397,7 +399,7 @@ class PointAEPoseAgent(BaseAgent):
                     transformed_pts = torch.matmul(anchors, transformed_pts.permute(0, 1, 3, 2).contiguous()) + pred_T
                     transformed_pts = transformed_pts.permute(0, 1, 3, 2).contiguous()
 
-                    shift_dis       = input_pts.mean(dim=1, keepdim=True)
+                    # shift_dis       = input_pts.mean(dim=1, keepdim=True)
                     dist1, dist2    = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), (input_pts - shift_dis).unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
 
                 else:
