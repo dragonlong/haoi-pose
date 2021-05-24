@@ -410,8 +410,14 @@ class global_info(object):
         group_path = None
         project_path = None
         if platform.uname()[0] == 'Darwin':
-            print("Now it knows it's in my local Mac")
-            base_path = '/Users/DragonX/Downloads/ARC/6DPOSE'
+            if platform.uname()[1].endswith('stanford.edu'):
+                base_path = '/Users/halfsummer11/HalfSummer11/Research/projects/equivariant_pose'
+                second_path = base_path
+                mano_path = base_path
+                project_path = base_path
+            else:
+                print("Now it knows it's in my local Mac")
+                base_path = '/Users/DragonX/Downloads/ARC/6DPOSE'
         elif platform.uname()[1] == 'viz1':
             base_path = '/home/xiaolong/Downloads/6DPOSE'
         elif platform.uname()[1] == 'vllab3':

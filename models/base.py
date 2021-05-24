@@ -4,6 +4,12 @@ import torch.optim as optim
 import torch.nn as nn
 from abc import abstractmethod
 from tensorboardX import SummaryWriter
+from pytorch3d.renderer.cameras import (
+    FoVPerspectiveCameras,
+    PerspectiveCameras,
+    look_at_view_transform,
+)
+
 from common.train_utils import TrainClock
 from utils.extensions.chamfer_dist import ChamferDistance
 from utils.p2i_utils import ComputeDepthMaps
@@ -44,7 +50,9 @@ class BaseAgent(object):
         # setup render
         self.render = ComputeDepthMaps(projection="perspective", eyepos_scale=1, image_size=256).float()
 
-        self.is_testing = False  # e.g. use gt labels to choose during training, use predicted labels during testing
+        # pre-set the camera
+        far = 10.0
+        self.cam = FoVPerspectiveCameras(znear=0.1, zfar=far, fov=60.0, device="cuda:0") # aspect ratio is 1.0, with same
 
     @abstractmethod
     def build_net(self, config):
@@ -60,6 +68,7 @@ class BaseAgent(object):
             self.anchors = torch.from_numpy(L.get_anchors(self.config.model.kanchor)).cuda()
         if self.config.pred_t:
             self.render_loss = torch.nn.L1Loss()
+            self.chamfer_dist_2d = ChamferDistance() # newly add
 
     def _setup_metric(self):
         # regressor + classifier

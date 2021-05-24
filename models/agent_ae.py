@@ -4,6 +4,12 @@ import numpy as np
 import wandb
 import torchvision
 import torch.nn.functional as F
+
+import pytorch3d
+from pytorch3d.renderer import compositing as compositing
+from pytorch3d.renderer.points import rasterize_points
+from pytorch3d.structures import Pointclouds
+
 import __init__
 from models.ae_gan import get_network
 from models.base import BaseAgent
@@ -372,42 +378,34 @@ class PointAEPoseAgent(BaseAgent):
                 else:
                     transformed_pts = torch.matmul(pred_R, self.output_pts.unsqueeze(1).contiguous() - 0.5).permute(0, 1, 3, 2).contiguous() #
                     dist1, dist2 = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), input_pts.unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
-            elif self.config.r_method_type in [1, 2, 3]:  # transform by quaternion
+
+            elif self.config.r_method_type == 1: # raw quaternion
+                qw, qxyz = torch.split(self.latent_vect['R'].permute(0, 2, 1).contiguous(), [1, 3], dim=-1)
+                # theta_max= torch.Tensor([1.2]).cuda()
+                theta_max= torch.Tensor([36/180 * np.pi]).cuda()
+                qw       = torch.cos(theta_max) + (1- torch.cos(theta_max)) * F.sigmoid(qw)
+                constrained_quat = torch.cat([qw, qxyz], dim=-1)
+                ranchor_pred = rotation_mapping(constrained_quat.view(-1,nr)).view(nb,-1,3,3)
+                pred_R = torch.matmul(anchors, ranchor_pred) # [60, 3, 3], [nb, 60, 3, 3] --> [nb, 60, 3, 3]
+
+                constrained_quat_tiled = constrained_quat.unsqueeze(2).contiguous().repeat(1, 1, np_out, 1).contiguous() # nb, na, np, 4
+                canon_pts= self.output_pts.permute(0, 2, 1).contiguous() - 0.5 # nb, np, 3
+                canon_pts_tiled= canon_pts.unsqueeze(1).contiguous().repeat(1, na, 1, 1).contiguous() # nb, na, np, 3
+
+                transformed_pts = rotate(constrained_quat_tiled, canon_pts_tiled) # nb, na, np, 3
                 if self.config.pred_t:
-                    if self.config.r_method_type in [1, 2]:   # constrained
-                        qw, qxyz = torch.split(self.latent_vect['R'].permute(0, 2, 1).contiguous(), [1, 3], dim=-1)
-                        # angle = 2 * arccos(qw) <= 2 * arccos(qw_min) = theta_max
-                        # qw_min = cos(theta_max / 2.0)
-                        theta_max = torch.Tensor([float(np.deg2rad(self.config.theta_max))]).cuda().float()
-                        qw_min = torch.cos(theta_max / 2.0)
-                        qw = qw_min + (1 - qw_min) * F.sigmoid(qw)
-                        constrained_quat = torch.cat([qw, qxyz], dim=-1)  # [nb, na, 4]
-
-                    elif self.config.r_method_type in [3]:
-                        constrained_quat = self.latent_vect['R'].permute(0, 2, 1)   # [nb, na, 4]
-                    else:
-                        assert 0, f'Unsupported r_method_type {self.config.r_method_type}'
-
-                    constrained_quat_norm = torch.norm(constrained_quat, dim=-1)
-                    # self.regu_quat_loss = torch.mean(torch.norm(torch.norm(constrained_quat, dim=-1) - 1))
-                    self.regu_quat_loss = torch.mean((constrained_quat_norm - 1) ** 2)
-
-                    if self.config.r_method_type in [2, 3]:
-                        constrained_quat = constrained_quat / constrained_quat_norm.unsqueeze(-1).detach()
-
-                    ranchor_pred = compute_rotation_matrix_from_quaternion(constrained_quat.view(-1, 4)).view(nb, -1, 3, 3)
-                    pred_R = torch.matmul(anchors, ranchor_pred)  # [60, 3, 3], [nb, 60, 3, 3] --> [nb, 60, 3, 3]
-
-                    constrained_quat_tiled = constrained_quat.unsqueeze(2).contiguous().repeat(1, 1, np_out, 1).contiguous() # nb, na, np, 4
-                    canon_pts = self.output_pts.permute(0, 2, 1).contiguous() - 0.5 # nb, np, 3
-                    canon_pts_tiled = canon_pts.unsqueeze(1).contiguous().repeat(1, na, 1, 1).contiguous() # nb, na, np, 3
-
-                    transformed_pts = rotate(constrained_quat_tiled, canon_pts_tiled) # nb, na, np, 3
                     transformed_pts = torch.matmul(anchors, transformed_pts.permute(0, 1, 3, 2).contiguous()) + pred_T
                     transformed_pts = transformed_pts.permute(0, 1, 3, 2).contiguous()
 
                     shift_dis       = input_pts.mean(dim=1, keepdim=True)
                     dist1, dist2    = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), (input_pts - shift_dis).unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
+
+                else:
+                    transformed_pts = torch.matmul(anchors, transformed_pts.permute(0, 1, 3, 2).contiguous())
+                    transformed_pts = transformed_pts.permute(0, 1, 3, 2).contiguous()
+                    dist1, dist2    = self.chamfer_dist(transformed_pts.view(-1, np_out, 3).contiguous(), input_pts.unsqueeze(1).repeat(1, na, 1, 1).contiguous().view(-1, N, 3).contiguous(), return_raw=True)
+
+                self.regu_quat_loss = torch.mean( torch.norm( torch.norm(constrained_quat, dim=-1) - 1))
 
             if 'partial' in self.config.task:
                 all_dist = (dist2).mean(-1).view(nb, -1).contiguous()
@@ -431,24 +429,71 @@ class PointAEPoseAgent(BaseAgent):
                 self.t_pred = None
 
             if self.config.pred_t:
-                gt_view_matrix = look_at(
-                    eyes=torch.tensor([[0, 0, 0]], dtype=torch.float32).repeat(BS, 1).contiguous(), # can multiply 0.8 if the eye is too close?
-                    centers=data['T'].cpu().squeeze(),
-                    ups=torch.tensor([[0, 0, 1]], dtype=torch.float32).repeat(BS, 1).contiguous(),
-                )
-                gt_pre_matrix = self.render.projection_matrix @ gt_view_matrix
-                self.gt_depth_map = self.render(input_pts, view_id=0, radius_list=[15.0, 20.0], pre_matrix=gt_pre_matrix)
+                if self.config.p_method_type == -1: # use naive project loss
+                    gt_view_matrix = look_at(
+                        eyes=torch.tensor([[0, 0, 0]], dtype=torch.float32).repeat(BS, 1).contiguous(), # can multiply 0.8 if the eye is too close?
+                        centers=data['T'].cpu().squeeze(),
+                        ups=torch.tensor([[0, 0, 1]], dtype=torch.float32).repeat(BS, 1).contiguous(),
+                    )
+                    gt_pre_matrix = self.render.projection_matrix @ gt_view_matrix
+                    self.gt_depth_map = self.render(input_pts, view_id=0, radius_list=[15.0, 20.0], pre_matrix=gt_pre_matrix)
 
-                # pred
-                pred_view_matrix =look_at(
-                    eyes=torch.tensor([[0, 0, 0]], dtype=torch.float32).repeat(BS, 1).contiguous(), # can multiply 0.8 if the eye is too close?
-                    centers=self.t_pred.cpu(),
-                    ups=torch.tensor([[0, 0, 1]], dtype=torch.float32).repeat(BS, 1).contiguous(),
-                )
-                pred_pre_matrix = self.render.projection_matrix @ pred_view_matrix
-                self.pred_depth_map = self.render(self.transformed_pts, view_id=0, radius_list=[20.0, 25.0], pre_matrix=pred_pre_matrix)
-                self.projection_loss   = 0.1 * self.render_loss(self.pred_depth_map, self.gt_depth_map.detach())
-                self.infos['projection'] = self.projection_loss
+                    # pred
+                    pred_view_matrix =look_at(
+                        eyes=torch.tensor([[0, 0, 0]], dtype=torch.float32).repeat(BS, 1).contiguous(), # can multiply 0.8 if the eye is too close?
+                        centers=self.t_pred.cpu(),
+                        ups=torch.tensor([[0, 0, 1]], dtype=torch.float32).repeat(BS, 1).contiguous(),
+                    )
+                    pred_pre_matrix = self.render.projection_matrix @ pred_view_matrix
+                    self.pred_depth_map = self.render(self.transformed_pts, view_id=0, radius_list=[20.0, 25.0], pre_matrix=pred_pre_matrix)
+                    self.projection_loss   = 0.1 * self.render_loss(self.pred_depth_map, self.gt_depth_map.detach())
+                    self.infos['projection'] = self.projection_loss
+                elif self.config.p_method_type == 0:
+                    # pre-set the camera
+                    # put points into Pytorch3D world space
+                    points_p3d = self.transformed_pts.float() # [B, N, 3]
+                    points_p3d[:, :, -1] = -points_p3d[:, :, -1] # reverse z
+                    points_p3d[:, :, 0]  = -points_p3d[:, :, 0]  # reverse x to fit pytorch3d convention
+                    # convert into NDC
+                    pred_proj = self.cam.transform_points(points_p3d, eps=1e-10)
+                    pred_proj = pred_proj/pred_proj[:, :, -1:]
+
+                    points_p3d = input_pts # [B, N, 3]
+                    points_p3d[:, :, -1] = -points_p3d[:, :, -1] # reverse z
+                    points_p3d[:, :, 0]  = -points_p3d[:, :, 0]  # reverse x to fit pytorch3d convention
+                    input_proj = self.cam.transform_points(points_p3d)
+                    input_proj = input_proj/input_proj[:, :, -1:]
+                    dist1, dist2 = self.chamfer_dist_2d(input_proj, pred_proj, return_raw=True)
+                    self.projection_loss = torch.clamp(0.01 * (dist1 + dist2).mean(), min=0, max=0.1)
+                elif self.config.p_method_type == 1:
+                    # pre-set the camera
+                    # put points into Pytorch3D world space
+                    points_p3d = self.transformed_pts # [B, N, 3]
+                    points_p3d[:, :, -1] = -points_p3d[:, :, -1] # reverse z
+                    points_p3d[:, :, 0]  = -points_p3d[:, :, 0]  # reverse x to fit pytorch3d convention
+                    # convert into NDC
+                    points_ndc = self.cam.transform_points(points_p3d, eps=1e-10)
+                    points_features = points_ndc.clone().detach()
+
+                    # Rasterize points -- bins set heurisically
+                    pointcloud = pytorch3d.structures.Pointclouds(points_ndc, features=points_features)
+                    radius = 15 # pixels, set emperically
+                    K_pt   = 16
+                    K_num  = 2
+                    img_h  = 480
+                    img_w  = 640
+                    ndc_r = 2 * radius / float(img_h)
+                    idx, zbuf, dist_xy = rasterize_points(pointcloud, [img_h, img_w], ndc_r, K_pt)
+
+                    visible_ids = idx[:, 0:K_num, :, :] # assume the 3 closest points are visible, may need tune point radius
+                    visible_ids = visible_ids[visible_ids>0].unique()
+                    if len(visible_ids) > 0:
+                        self.projection_loss = dist1.view(nb, na, np_out).contiguous()[torch.arange(0, BS), min_indices]# [nb*na, np] --> [nb, np]
+                        self.projection_loss = self.projection_loss.view(-1).contiguous()[visible_ids.long()].mean()
+                        self.projection_loss = torch.clamp(self.projection_loss, min=0, max=0.1)
+                    else:
+                        self.projection_loss = torch.Tensor([0]).cuda()
+
                 # if self.config.use_objective_P and self.config.eval:
                 #     ids = data['idx']
                 #     if not exists(f'{self.config.log_dir}/depth/'):

@@ -116,9 +116,21 @@ class Dataloader_ModelNet40New(data.Dataset):
         return len(self.all_data)
 
     def __getitem__(self, index):
+        category, _, instance = self.all_data[index].split('/')[-5:-2]  # ../render/airplane/train/0001/gt/001.npy
+        model_points = self.get_complete_cloud(instance)
+        boundary_pts = [np.min(model_points, axis=0), np.max(model_points, axis=0)]
+        # center_pt = (boundary_pts[0] + boundary_pts[1])/2
+        center_pt = np.array([0, 0, 0]).astype(np.float32)
+        length_bb = np.linalg.norm(boundary_pts[0] - boundary_pts[1])
+        # center_pt = np.array([0, 0, 0]).astype(np.float32)
+        # length_bb = 1
+        # all normalize into 0
+        model_points = (model_points - center_pt.reshape(1, 3))/length_bb  + 0.5#
+
         cloud, gt_pose = get_modelnet40_data(self.all_data[index], self.meta_dict, self.num_points)
+        cloud = cloud/length_bb
         target_r = gt_pose[:3, :3]
-        target_t = gt_pose[:3, 3]
+        target_t = gt_pose[:3, 3]/length_bb
         add_t = np.array([random.uniform(-self.noise_trans, self.noise_trans) for i in range(3)])
         canon_cloud = np.dot(cloud - target_t, target_r) + 0.5
         if self.add_noise:
@@ -133,9 +145,6 @@ class Dataloader_ModelNet40New(data.Dataset):
         R_gt = torch.from_numpy(target_r.astype(np.float32))  # predict r
         T = torch.from_numpy(target_t.reshape(1, 3).astype(np.float32))
 
-        category, _, instance = self.all_data[index].split('/')[-5:-2]  # ../render/airplane/train/0001/gt/001.npy
-        model_points = self.get_complete_cloud(instance) + 0.5
-
         """
         target = np.dot(model_points, target_r.T)  # the complete point cloud corresponding to the observation
         if self.add_noise:
@@ -145,9 +154,9 @@ class Dataloader_ModelNet40New(data.Dataset):
         """
 
         if self.cfg.eval and self.cfg.pre_compute_delta:
-            cloud = canon_cloud - 0.5
-            R_gt  = torch.from_numpy(np.eye(3).astype(np.float32))
-            T     = torch.from_numpy(np.zeros((1, 3)).astype(np.float32))
+            cloud = model_points - 0.5
+            R_gt  = torch.from_numpy(np.eye(3).astype(np.float32)) #
+            T     = torch.from_numpy(np.zeros((1, 3)).astype(np.float32)) #
 
         data_dict = {
             'xyz': torch.from_numpy(cloud.astype(np.float32)),  # point cloud in camera space
@@ -173,7 +182,7 @@ def check_data(data_dict):
     R, T = data_dict['R_gt'].numpy(), data_dict['T'].numpy()
     posed_canon_cloud = np.dot(canon_cloud - 0.5, R.T) + T
     posed_full_cloud = np.dot(full - 0.5, R.T) + T
-    num_plots = 3
+    num_plots = 1
     plt.figure(figsize=(6 * num_plots, 6))
 
     def plot(ax, pt_list, title):
@@ -182,7 +191,7 @@ def check_data(data_dict):
         center = (pmin + pmax) * 0.5
         lim = max(pmax - pmin) * 0.5 + 0.2
         for pts in pt_list:
-            ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2], alpha=0.8, s=3**2)
+            ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2], alpha=0.8, s=5**2)
         ax.set_xlim3d([center[0] - lim, center[0] + lim])
         ax.set_ylim3d([center[1] - lim, center[1] + lim])
         ax.set_zlim3d([center[2] - lim, center[2] + lim])
@@ -190,12 +199,16 @@ def check_data(data_dict):
         ax.set_ylabel('y')
         ax.set_zlabel('z')
         ax.set_title(title)
-
     for i, (name, pt_list) in enumerate(zip(
-            ['partial', 'canon_partial_and_complete', 'posed_canon_partial_and_complete'],
-            [[cloud], [canon_cloud, full], [posed_canon_cloud, posed_full_cloud]])):
+            ['posed_canon_partial_and_complete'],
+            [[posed_canon_cloud]])):
         ax = plt.subplot(1, num_plots, i + 1, projection='3d')
         plot(ax, pt_list, name)
+    # for i, (name, pt_list) in enumerate(zip(
+    #         ['partial', 'canon_partial_and_complete', 'posed_canon_partial_and_complete'],
+    #         [[cloud], [canon_cloud, full], [posed_canon_cloud, posed_full_cloud]])):
+    #     ax = plt.subplot(1, num_plots, i + 1, projection='3d')
+    #     plot(ax, pt_list, name)
 
     plt.show()
 

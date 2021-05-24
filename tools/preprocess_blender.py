@@ -227,6 +227,7 @@ class PoseDataset():
         # backproject to camera space
         xmap = self.xmap
         ymap = self.ymap
+        kp()
         cam_cx = K[0, 2]
         cam_cy = K[1, 2]
         cam_fx = K[0, 0]
