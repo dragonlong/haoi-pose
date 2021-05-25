@@ -125,7 +125,7 @@ class Dataloader_ModelNet40New(data.Dataset):
         # center_pt = np.array([0, 0, 0]).astype(np.float32)
         # length_bb = 1
         # all normalize into 0
-        model_points = (model_points - center_pt.reshape(1, 3))/length_bb  + 0.5#
+        model_points = (model_points - center_pt.reshape(1, 3))/length_bb  + 0.5  #
         print('length_bb', length_bb)
 
         cloud, gt_pose = get_modelnet40_data(self.all_data[index], self.meta_dict, self.num_points)
@@ -135,6 +135,8 @@ class Dataloader_ModelNet40New(data.Dataset):
         if abs(target_s - 1) > 0.001:
             target_t = gt_pose[:3, 3] * target_s
             canon_cloud = np.dot(cloud - target_t, target_r) / target_s + 0.5
+            cloud = cloud / target_s
+            target_t = target_t / target_s
         else:
             target_t = gt_pose[:3, 3]/length_bb
             canon_cloud = np.dot(cloud - target_t, target_r) + 0.5
