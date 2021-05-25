@@ -158,6 +158,8 @@ class NOCSDataset(data.Dataset):
         else:
             if self.cfg.pred_t:
                 xyz = pos[0]/scale_normalize
+                xyz_offset = torch.tensor([0, 0, -1.0]).float().reshape(1, 3) -xyz.mean(dim=0, keepdim=True)
+                xyz = xyz + xyz_offset
             else:
                 xyz = (pos[0] - T)/s
         return {'xyz': xyz,

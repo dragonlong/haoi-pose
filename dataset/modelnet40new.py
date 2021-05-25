@@ -83,7 +83,7 @@ class Dataloader_ModelNet40New(data.Dataset):
         self.noise_trans = cfg.DATASET.noise_trans
 
         self.dataset_path = cfg.DATASET.dataset_path
-        self.render_path = pjoin(self.dataset_path, 'render', cfg.target_category, self.mode)
+        self.render_path = pjoin(self.dataset_path, 'render_cst' if cfg.upper_hemi else 'render', cfg.target_category, self.mode)
         self.points_path = pjoin(self.dataset_path, 'points', cfg.target_category, self.mode)
 
         with open(pjoin(self.render_path, 'meta.pkl'), 'rb') as f:
