@@ -139,3 +139,4 @@ iteration: 0
 words: 'c,se3,T' # 'c,se3,N'
 
 normalize_scale: False
+upper_hemi: False

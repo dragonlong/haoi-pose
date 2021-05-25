@@ -172,8 +172,8 @@ class PointAEPoseAgent(BaseAgent):
             input_pts = data['xyz'].permute(0, 2, 1).contiguous()
         else:
             input_pts    = data['G'].ndata['x'].view(BS, -1, 3).contiguous().permute(0, 2, 1).contiguous() #
-        # input_pts        = input_pts - input_pts.mean(dim=-1, keepdim=True)
-        input_pts = input_pts - 0.5 * (input_pts.min(dim=-1, keepdim=True) + input_pts.max(dim=-1, keepdim=True))
+        input_pts        = input_pts - input_pts.mean(dim=-1, keepdim=True)
+        # input_pts = input_pts - 0.5 * (input_pts.min(dim=-1, keepdim=True)[0] + input_pts.max(dim=-1, keepdim=True)[0])
         if self.config.use_rgb:
             rgb_feat = data['G'].ndata['f'].view(BS, -1, 3).contiguous().permute(0, 2, 1).contiguous() #
             feat = torch.cat([input_pts, rgb_feat], dim=1)
@@ -336,7 +336,7 @@ class PointAEPoseAgent(BaseAgent):
     def compute_and_eval_so3(self, data):
         input_pts      = data['xyz']
         shift_dis      = input_pts.mean(dim=1, keepdim=True)
-        shift_dis = 0.5 * (input_pts.min(dim=-1, keepdim=True) + input_pts.max(dim=-1, keepdim=True))
+        # shift_dis = 0.5 * (input_pts.min(dim=-1, keepdim=True)[0] + input_pts.max(dim=-1, keepdim=True)[0])
         target_pts     = data['points']
         target_T       = data['T'].permute(0, 2, 1).contiguous() # B, 3, N
 
