@@ -122,8 +122,8 @@ class NOCSDataset(data.Dataset):
         self.backup_cache = []
         for j in range(300):
             fn  = self.datapath[j]
-            category_name = fn.split('.')[0].split('/')[-4]
-            instance_name = fn.split('.')[0].split('/')[-5]
+            category_name = fn.split('.')[-2].split('/')[-4]
+            instance_name = fn.split('.')[-2].split('/')[-5]
             data_dict = np.load(fn, allow_pickle=True)['all_dict'].item()
             labels    = data_dict['labels']
             p_arr     = data_dict['points'][labels]
@@ -136,8 +136,8 @@ class NOCSDataset(data.Dataset):
         fn  = self.datapath[idx]
         if verbose:
             print(fn)
-        category_name = fn.split('.')[0].split('/')[-5]
-        instance_name = fn.split('.')[0].split('/')[-4] + '_' + fn.split('.')[0].split('/')[-3] + '_' + fn.split('.')[0].split('/')[-1]
+        category_name = fn.split('.')[-2].split('/')[-5]
+        instance_name = fn.split('.')[-2].split('/')[-4] + '_' + fn.split('.')[-2].split('/')[-3] + '_' + fn.split('.')[-2].split('/')[-1]
 
         if self.fetch_cache and idx in self.g_dict:
             pos, src, dst, feat = self.g_dict[idx]
@@ -302,9 +302,9 @@ def main(cfg):
     cfg.log_dir  = infos.second_path + cfg.log_dir
     dset = NOCSDataset(cfg=cfg, split='train')
     #
-    for i in range(2000): #
-        dp   = dset.__getitem__(i, verbose=True)
-        # print(dp)
+    for i in range(2000):  #
+        dp = dset.__getitem__(i, verbose=True)
+         # print(dp)
 
 if __name__ == '__main__':
     main()
