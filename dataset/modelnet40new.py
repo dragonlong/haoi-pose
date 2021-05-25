@@ -103,8 +103,8 @@ class Dataloader_ModelNet40New(data.Dataset):
             cur_path = pjoin(self.render_path, instance, 'gt')
             items = [pjoin(cur_path, f) for f in os.listdir(cur_path) if f.endswith('.npy')]
             data_list += items
-            instance_points[instance] = np.load(pjoin(self.points_path, f'{instance}.npz'),
-                                                allow_pickle=True)['points']
+            points_path = pjoin(self.points_path, f'{instance}.npz')
+            instance_points[instance] = np.load(points_path, allow_pickle=True)['points']
         return instance_points, data_list
 
     def get_complete_cloud(self, instance):
@@ -126,19 +126,24 @@ class Dataloader_ModelNet40New(data.Dataset):
         # length_bb = 1
         # all normalize into 0
         model_points = (model_points - center_pt.reshape(1, 3))/length_bb  + 0.5#
+        print('length_bb', length_bb)
 
         cloud, gt_pose = get_modelnet40_data(self.all_data[index], self.meta_dict, self.num_points)
         cloud = cloud/length_bb
+        target_s = 1.0 / gt_pose[3, 3]
         target_r = gt_pose[:3, :3]
-        target_t = gt_pose[:3, 3]/length_bb
-        add_t = np.array([random.uniform(-self.noise_trans, self.noise_trans) for i in range(3)])
-        canon_cloud = np.dot(cloud - target_t, target_r) + 0.5
-        if self.add_noise:
-            cloud = cloud + add_t.astype(cloud.dtype)
+        if abs(target_s - 1) > 0.001:
+            target_t = gt_pose[:3, 3] * target_s
+            canon_cloud = np.dot(cloud - target_t, target_r) / target_s + 0.5
+        else:
+            target_t = gt_pose[:3, 3]/length_bb
+            canon_cloud = np.dot(cloud - target_t, target_r) + 0.5
 
+        """
         if self.cfg.augment:
             cloud, R = pctk.rotate_point_cloud(cloud)
             target_r = np.matmul(R, target_r)
+        """
 
         _, R_label, R0 = rotation_distance_np(target_r, self.anchors)
 
