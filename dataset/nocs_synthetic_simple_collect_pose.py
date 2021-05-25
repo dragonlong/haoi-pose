@@ -84,7 +84,6 @@ def main(cfg):
             save_path = pjoin(cfg.DATASET.data_path, 'pose_list', f'{target_category}_{split}.npz')
             np.savez_compressed(save_path, data=instance_pose_list)
 
-:memoryview
 if __name__ == '__main__':
     main()
     # python nocs_synthetic.py target_category='5' datasets=nocs_synthetic

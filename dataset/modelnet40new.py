@@ -86,6 +86,11 @@ class Dataloader_ModelNet40New(data.Dataset):
         self.render_path = pjoin(self.dataset_path, 'render_cst' if cfg.upper_hemi else 'render', cfg.target_category, self.mode)
         self.points_path = pjoin(self.dataset_path, 'points', cfg.target_category, self.mode)
 
+
+        scale_dict = {'bottle': 0.5, 'bowl': 0.25, 'camera': 0.27,
+                           'can': 0.2, 'laptop': 0.5, 'mug': 0.21}
+        self.scale_factor = scale_dict[cfg.target_category.split('_')[0]]
+
         with open(pjoin(self.render_path, 'meta.pkl'), 'rb') as f:
             self.meta_dict = pickle.load(f)  # near, far, projection
         self.instance_points, self.all_data = self.collect_data()
@@ -131,10 +136,11 @@ class Dataloader_ModelNet40New(data.Dataset):
         cloud = cloud/length_bb
         target_s = 1.0 / gt_pose[3, 3]
         target_r = gt_pose[:3, :3]
+
         if abs(target_s - 1) > 0.001:
             target_t = gt_pose[:3, 3] * target_s
             canon_cloud = np.dot(cloud - target_t, target_r) / target_s + 0.5
-            scale_norm = target_s if self.cfg.normalize_scale else 0.47
+            scale_norm = target_s if self.cfg.normalize_scale else self.scale_factor
             cloud = cloud / scale_norm
             target_t = target_t / scale_norm
         else:

@@ -41,6 +41,7 @@ pred_joint_ind: False
 pred_nocs: False
 pred_6d: False
 pred_t: False
+pred_s: False
 pred_bb: False
 pred_seg: False
 pred_conf: False
