@@ -128,12 +128,12 @@ class NOCSDataset(data.Dataset):
         category_name = fn.split('.')[-2].split('/')[-5]
         instance_name = fn.split('.')[-2].split('/')[-4] + '_' + fn.split('.')[-2].split('/')[-3] + '_' + fn.split('.')[-2].split('/')[-1]
         data_dict = np.load(fn, allow_pickle=True)['all_dict'].item()
-        labels    = data_dict['labels']
-        p_arr  = data_dict['points'][labels]
+        if 'labels' in data_dict:
+            labels = data_dict['labels']
+        p_arr = data_dict['points'][labels]
 
-        rgb       = data_dict['rgb'][labels] / 255.0
-        pose      = data_dict['pose']
-        r, t, s   = pose['rotation'], pose['translation'].reshape(-1, 3), pose['scale']
+        pose = data_dict['pose']
+        r, t, s  = pose['rotation'], pose['translation'].reshape(-1, 3), pose['scale']
         scale_normalize = self.scale_dict[self.target_category]
         if self.cfg.normalize_scale:
             scale_normalize = s
@@ -142,7 +142,7 @@ class NOCSDataset(data.Dataset):
         n_arr = np.matmul(p_arr - t, r) / s + 0.5
         if verbose:
             print(f'we have {p_arr.shape[0]} pts')
-        full_points = np.concatenate([p_arr, n_arr, rgb], axis=1)
+        full_points = np.concatenate([p_arr, n_arr], axis=1)
         full_points = np.random.permutation(full_points)
 
         idx = get_index(len(full_points), self.npoints)
