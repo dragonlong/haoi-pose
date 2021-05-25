@@ -287,9 +287,9 @@ def main(cfg):
         for key, value in track_dict.items():
             if len(value) < 1:
                 continue
-            print(key, ':', np.array(value).mean())
+            print(key, '\t', np.array(value).mean())
             if key == 'rdiff':
-                print(key, '_mid:', np.median(np.array(value)))
+                print(key, '_mid\t', np.median(np.array(value)))
         if cfg.save:
             print('--saving to ', file_name)
             np.save(file_name, arr={'info': infos_dict, 'err': track_dict})

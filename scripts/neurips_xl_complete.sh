@@ -74,7 +74,6 @@ models=epn exp_num='0.85a' model.model='enc_so3net' encoder_type=enc_so3net mode
 datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='car' dataset_class=AE \
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 augment=True MODEL.num_in_channels=1 use_objective_R=True use_objective_M=True \
-eval=True save=True
 use_wandb=True
 
 0.85b: # supervised training, ca227, 0

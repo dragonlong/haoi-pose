@@ -194,6 +194,7 @@ datasets=modelnet40new item=modelnet40new name_dset=modelnet40new target_categor
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
 use_fps_points=True \
+eval=True save=True pre_compute_delta=True
 use_wandb=True
 
 0.921r: # corrected, supervision in camera space, random R, car, but add T estimation, use fps sampling, use quaternion activation, 36, 0.001
@@ -203,6 +204,7 @@ datasets=modelnet40new item=modelnet40new name_dset=modelnet40new target_categor
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
 use_fps_points=True r_method_type=1 \
+eval=True save=True pre_compute_delta=True
 use_wandb=True
 
 # 0.921: # supervision in camera space, random R, airplane, but add T estimation, dense per-point voting, R0, ca201 0
@@ -288,3 +290,79 @@ use_wandb=True
 # MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
 # use_fps_points=True \
 # use_wandb=True
+
+
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> chair <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<,
+0.95r: # supervision in camera space, bottle, but add T estimation, use fps sampling,
+python train_aegan.py task='ssl_partial_pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
+models=epn exp_num='0.95r' model.model='enc_so3net' model.pooling_method='max' \
+datasets=modelnet40new item=modelnet40new name_dset=modelnet40new target_category='chair' dataset_class=AE \
+TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
+MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
+use_fps_points=True \
+use_wandb=True
+
+0.951r: # corrected, supervision in camera space, random R, airplane, but add T estimation, use fps sampling, use quaternion activation, 36, 0.001
+python train_aegan.py task='ssl_partial_pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
+models=epn exp_num='0.951r' model.model='enc_so3net' model.pooling_method='max' \
+datasets=modelnet40new item=modelnet40new name_dset=modelnet40new target_category='chair' dataset_class=AE \
+TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
+MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
+use_fps_points=True r_method_type=1 \
+use_wandb=True
+
+0.95a: # random R, airplane, but add T estimation, dense per-point voting, R0
+python train_aegan.py task='partial_pcloud_pose' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
+models=epn exp_num='0.95a' model.model='enc_so3net' model.pooling_method='max' \
+datasets=modelnet40new item=modelnet40new name_dset=modelnet40new target_category='chair' dataset_class=AE \
+TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
+MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
+use_objective_R=True use_objective_M=True use_objective_T=True \
+use_wandb=True
+
+0.95b: # random R, airplane, but add T estimation, dense per-point voting, R0
+python train_aegan.py task='partial_pcloud_pose' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
+models=epn exp_num='0.95b' model.model='enc_so3net' model.pooling_method='max' model.kpconv=True \
+datasets=modelnet40new item=modelnet40new name_dset=modelnet40new target_category='chair' dataset_class=AE \
+TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
+MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
+use_objective_R=True use_objective_M=True use_objective_T=True \
+use_wandb=True
+
+
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> sofa <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<,
+0.96r: # supervision in camera space,, but add T estimation, use fps sampling,
+python train_aegan.py task='ssl_partial_pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
+models=epn exp_num='0.96r' model.model='enc_so3net' model.pooling_method='max' \
+datasets=modelnet40new item=modelnet40new name_dset=modelnet40new target_category='sofa' dataset_class=AE \
+TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
+MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
+use_fps_points=True \
+use_wandb=True
+
+0.961r: # corrected, supervision in camera space, random R,but add T estimation, use fps sampling, use quaternion activation, 36, 0.001
+python train_aegan.py task='ssl_partial_pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
+models=epn exp_num='0.961r' model.model='enc_so3net' model.pooling_method='max' \
+datasets=modelnet40new item=modelnet40new name_dset=modelnet40new target_category='sofa' dataset_class=AE \
+TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
+MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
+use_fps_points=True r_method_type=1 \
+use_wandb=True
+
+0.96a: # n random R, airplane, but add T estimation, dense per-point voting, R0
+python train_aegan.py task='partial_pcloud_pose' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
+models=epn exp_num='0.96a' model.model='enc_so3net' model.pooling_method='max' \
+datasets=modelnet40new item=modelnet40new name_dset=modelnet40new target_category='sofa' dataset_class=AE \
+TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
+MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
+use_objective_R=True use_objective_M=True use_objective_T=True \
+use_wandb=True
+
+0.96b: # random R, airplane, but add T estimation, dense per-point voting, R0
+python train_aegan.py task='partial_pcloud_pose' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
+models=epn exp_num='0.96b' model.model='enc_so3net' model.pooling_method='max' model.kpconv=True \
+datasets=modelnet40new item=modelnet40new name_dset=modelnet40new target_category='sofa' dataset_class=AE \
+TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
+MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
+use_objective_R=True use_objective_M=True use_objective_T=True \
+use_wandb=True

@@ -127,8 +127,9 @@ class NOCSDataset(data.Dataset):
             data_dict = np.load(fn, allow_pickle=True)['all_dict'].item()
             labels    = data_dict['labels']
             p_arr     = data_dict['points'][labels]
-            if p_arr.shape[0] > self.npoints:
+            if p_arr.shape[0] > 256:
                 self.backup_cache.append([category_name, instance_name, data_dict, j])
+            # print('---we have {len(self.backup_cache)} backup examples')
         print('backup has ', len(self.backup_cache))
 
     def get_sample_partial(self, idx, verbose=False):
