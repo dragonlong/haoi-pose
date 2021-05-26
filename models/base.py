@@ -13,6 +13,7 @@ from pytorch3d.renderer.cameras import (
 from common.train_utils import TrainClock
 from utils.extensions.chamfer_dist import ChamferDistance
 from utils.p2i_utils import ComputeDepthMaps
+from common.quaternion import matrix_to_unit_quaternion, unit_quaternion_to_matrix
 
 import vgtk
 from vgtk.loss import CrossEntropyLoss
@@ -67,6 +68,9 @@ class BaseAgent(object):
         if 'ssl' in self.config.task or 'so3' in self.config.encoder_type:
             self.classifier = CrossEntropyLoss()
             self.anchors = torch.from_numpy(L.get_anchors(self.config.model.kanchor)).cuda()
+            with torch.no_grad():
+                self.anchor_quat = matrix_to_unit_quaternion(self.anchors)
+
         if self.config.pred_t:
             self.render_loss = torch.nn.L1Loss()
             self.chamfer_dist_2d = ChamferDistance() # newly add

@@ -2,6 +2,8 @@ import torch
 import numpy as np
 import numpy.testing as npt
 # PyTorch-backed implementations
+def bp():
+    import pdb;pdb.set_trace()
 
 def normalize(q):
     assert q.shape[-1] == 4
@@ -27,13 +29,13 @@ def multiply(q, r):
     assert q.shape[-1] == 4
     assert r.shape[-1] == 4
     assert q.shape == r.shape
-    
+
     original_shape = q.shape
 
     real1, im1 = q.split([1, 3], dim=-1)
     real2, im2 = r.split([1, 3], dim=-1)
 
-    real = real1*real2 -  torch.sum(im1*im2, dim=-1, keepdim=True) 
+    real = real1*real2 -  torch.sum(im1*im2, dim=-1, keepdim=True)
     im = real1*im2 + real2*im1 + im1.cross(im2)
     return torch.cat((real, im), dim=-1)
 
@@ -55,10 +57,10 @@ def rotate(q, v):
     assert v.shape[-1] == 3
     #print('inside rotate: ', q.shape, q.dtype, v.shape, v.dtype)
     assert q.shape[:-1] == v.shape[:-1]
-    
+
     original_shape = list(v.shape)
     assert_normalized(q)
-    
+
     zeros = torch.zeros(original_shape[:-1]+[1])
     qv = torch.cat((zeros, v), dim=-1)
 
@@ -85,7 +87,7 @@ def unit_quaternion_to_matrix(q):
     assert_normalized(q)
     w, x, y, z= torch.unbind(q, dim=-1)
     matrix = torch.stack(( 1 - 2*y*y - 2*z*z,  2*x*y - 2*z*w,      2*x*z + 2*y* w,
-                        2*x*y + 2*z*w,      1 - 2*x*x - 2*z*z,  2*y*z - 2*x*w,  
+                        2*x*y + 2*z*w,      1 - 2*x*x - 2*z*z,  2*y*z - 2*x*w,
                         2*x*z - 2*y*w,      2*y*z + 2*x*w,      1 - 2*x*x -2*y*y),
                         dim=-1)
     matrix_shape = list(matrix.shape)[:-1]+[3,3]
@@ -101,9 +103,9 @@ def matrix_to_unit_quaternion(matrix):
     x = (matrix[..., 2, 1] - matrix[..., 1, 2])*s
     y = (matrix[..., 0, 2] - matrix[..., 2, 0])*s
     z = (matrix[..., 1, 0] - matrix[..., 0, 1])*s
-    q = torch.cat((w, x, y, z), dim=-1) if w.dim() >= 1 else torch.stack((w, x, y, z))
-
-    return normalize(q) 
+    # q = torch.cat((w, x, y, z), dim=-1) if w.dim() >= 1 else torch.stack((w, x, y, z), dim=-1)
+    q = torch.stack((w, x, y, z), dim=-1)
+    return normalize(q)
 
 def qeuler(q, order, epsilon=0):
     """
@@ -112,16 +114,16 @@ def qeuler(q, order, epsilon=0):
     Returns a tensor of shape (*, 3).
     """
     assert q.shape[-1] == 4
-    
+
     original_shape = list(q.shape)
     original_shape[-1] = 3
     q = q.view(-1, 4)
-    
+
     q0 = q[:, 0]
     q1 = q[:, 1]
     q2 = q[:, 2]
     q3 = q[:, 3]
-    
+
     if order == 'xyz':
         x = torch.atan2(2 * (q0 * q1 - q2 * q3), 1 - 2*(q1 * q1 + q2 * q2))
         y = torch.asin(torch.clamp(2 * (q1 * q3 + q0 * q2), -1+epsilon, 1-epsilon))
@@ -176,13 +178,13 @@ def qfix(q):
     Enforce quaternion continuity across the time dimension by selecting
     the representation (q or -q) with minimal distance (or, equivalently, maximal dot product)
     between two consecutive frames.
-    
+
     Expects a tensor of shape (L, J, 4), where L is the sequence length and J is the number of joints.
     Returns a tensor of the same shape.
     """
     assert len(q.shape) == 3
     assert q.shape[-1] == 4
-    
+
     result = q.copy()
     dot_products = np.sum(q[1:]*q[:-1], axis=2)
     mask = dot_products < 0
@@ -198,7 +200,7 @@ def expmap_to_quaternion(e):
     Returns a tensor of shape (*, 4).
     """
     assert e.shape[-1] == 3
-    
+
     original_shape = list(e.shape)
     original_shape[-1] = 4
     e = e.reshape(-1, 3)
@@ -213,16 +215,16 @@ def euler_to_quaternion(e, order):
     Convert Euler angles to quaternions.
     """
     assert e.shape[-1] == 3
-    
+
     original_shape = list(e.shape)
     original_shape[-1] = 4
-    
+
     e = e.reshape(-1, 3)
-    
+
     x = e[:, 0]
     y = e[:, 1]
     z = e[:, 2]
-    
+
     rx = np.stack((np.cos(x/2), np.sin(x/2), np.zeros_like(x), np.zeros_like(x)), axis=1)
     ry = np.stack((np.cos(y/2), np.zeros_like(y), np.sin(y/2), np.zeros_like(y)), axis=1)
     rz = np.stack((np.cos(z/2), np.zeros_like(z), np.zeros_like(z), np.sin(z/2)), axis=1)
@@ -241,11 +243,11 @@ def euler_to_quaternion(e, order):
             result = r
         else:
             result = qmul_np(result, r)
-            
+
     # Reverse antipodal representation to have a non-negative "w"
     if order in ['xyz', 'yzx', 'zxy']:
         result *= -1
-    
+
     return result.reshape(original_shape)
 
 def generate_random_quaternion(shape):

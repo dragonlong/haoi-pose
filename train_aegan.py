@@ -358,7 +358,10 @@ def main(cfg):
                         if 'r_acc' in test_infos:
                             track_dict['r_acc'].append(test_infos['r_acc'].float().cpu().numpy().mean())
                     if 'completion' in cfg.task:
-                        track_dict['chamferL1'].append(tr_agent.recon_loss.cpu().numpy().mean())
+                        if 'partial' in cfg.task and 'ssl' in cfg.task:
+                            track_dict['chamferL1'].append(tr_agent.recon_loss.cpu().numpy().mean())
+                        else:
+                            track_dict['chamferL1'].append(tr_agent.recon_canon_loss.cpu().numpy().mean())
                 if cfg.use_wandb:
                     for key, value in track_dict.items():
                         if len(value) < 1:
