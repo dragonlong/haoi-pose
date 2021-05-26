@@ -50,9 +50,7 @@ class BaseAgent(object):
         self.val_tb   = SummaryWriter(os.path.join(self.log_dir, 'tb/val'))
 
         # setup render
-        # self.render = ComputeDepthMaps(projection="perspective", eyepos_scale=1, image_size=256).float()
-
-        self.is_testing = False  # e.g. use gt labels to choose during training, use predicted labels during testing
+        self.render = ComputeDepthMaps(projection="perspective", eyepos_scale=1, image_size=256).float()
 
         # pre-set the camera
         far = 10.0

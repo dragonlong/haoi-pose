@@ -35,7 +35,7 @@ def multiply(q, r):
     real2, im2 = r.split([1, 3], dim=-1)
 
     real = real1*real2 -  torch.sum(im1*im2, dim=-1, keepdim=True)
-    im = real1*im2 + real2*im1 + im1.cross(im2)
+    im = real1*im2 + real2*im1 + im1.cross(im2, dim=-1)
     return torch.cat((real, im), dim=-1)
 
 

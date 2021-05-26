@@ -759,6 +759,7 @@ class SO3OutBlockR(nn.Module):
             c_in = c
 
     def forward(self, x, anchors=None):
+        batch_size = len(x.feats)
         x_out = x.feats
         # if x_out.shape[-1] == 1:
         #     x_out = x_out.repeat(1, 1, 1, 60).contiguous()
@@ -767,7 +768,7 @@ class SO3OutBlockR(nn.Module):
             x_out = linear(x_out)
             if self.norm is not None:
                 x_out = self.norm[lid](x_out)
-            x_out = F.relu(x_out)
+            x_out = F.relu(x_out)  # [B, C, N, A]
 
         # mean pool at xyz ->  BxCxA
         if self.pooling_method == 'mean':
@@ -777,26 +778,21 @@ class SO3OutBlockR(nn.Module):
         elif self.pooling_method == 'pointnet':
             x_in = sptk.SphericalPointCloud(x.xyz, x_out, None)
             x_out = self.pointnet(x_in)
-        attention_wts = self.attention_layer(x_out)  # Bxnum_headsXA
-        confidence = F.softmax(attention_wts * self.temperature, dim=2)  # [B, num_heads, A]
+        attention_wts = self.attention_layer(x_out)  # [B, 1, A]
+        confidence = F.softmax(attention_wts * self.temperature, dim=2).squeeze(1)
         # regressor
         output = {}
         # if self.feat_mode_num < 2:
         #     y = self.regressor_layer(x_out[:, :, 0:1]).squeeze(-1).view(x.xyz.shape[0], 4, -1).contiguous()
         # else:
-        y = self.regressor_layer(x_out) # Bx6xA
+        y = self.regressor_layer(x_out) # [B, nr, A]
         output['1'] = confidence #
         output['R'] = y
         if self.pred_t:
-            y_t = self.regressor_t_layer(x_out).reshape(batch_size, self.num_heads, 3, -1)  # [B, 3 * num_heads, A]
+            y_t = self.regressor_t_layer(x_out) # [B, 3, A]
             output['T'] = y_t
         else:
             output['T'] = None
-
-        if self.num_heads == 1:
-            for key, value in output.items():
-                if value is not None:
-                    output[key] = value.squeeze(1)  # [B, A], [B, 4, A], [B, 3, A]
 
         return output
 

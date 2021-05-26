@@ -121,7 +121,6 @@ class NOCSDataset(data.Dataset):
         self.cloud_dict = manager.dict()
         self.g_dict    = manager.dict()
         self.r_dict    = manager.dict()
-
         # pre-fetch
         self.backup_cache = []
         for j in range(300):
@@ -194,23 +193,10 @@ class NOCSDataset(data.Dataset):
                 feat = torch.from_numpy(full_points[idx, 6:9].astype(np.float32)).unsqueeze(0)
             else:
                 feat = torch.from_numpy(full_points[idx, 6:9].astype(np.float32)).unsqueeze(0)
-
         T = torch.from_numpy(t.astype(np.float32))
         S = torch.from_numpy(np.array([s]).astype(np.float32))
         _, R_label, R0 = rotation_distance_np(r, self.anchors)
         R_gt = torch.from_numpy(r.astype(np.float32)) # predict r
-        center = torch.from_numpy(np.array([[0.5, 0.5, 0.5]])) # 1, 3
-        center_offset = pos[0].clone().detach() - T #
-
-        # we use a fixed scale for each category
-        if self.target_category == 'laptop':
-            scale_normalize = 0.5
-        elif self.target_category == 'bowl':
-            scale_normalize = 0.25
-        elif self.target_category == 'mug':
-            scale_normalize = 0.25
-        else:
-            scale_normalize = s
 
         if self.cfg.pre_compute_delta:
             xyz = nocs_gt - 0.5
@@ -225,7 +211,7 @@ class NOCSDataset(data.Dataset):
                 'points': torch.from_numpy(model_points.astype(np.float32)),  # replace nocs_gt as new target
                 'full': torch.from_numpy(model_points.astype(np.float32)),    # complete point cloud
                 'label': torch.from_numpy(np.array([1]).astype(np.float32)),
-                'R_gt' : R_gt,
+                'R_gt': R_gt,
                 'R_label': R_label,
                 'R': R0,
                 'T': T,

@@ -15,7 +15,7 @@ def bp():
     import pdb;pdb.set_trace()
 def create_partial(read_path, save_folder, ins_num, render_num,
                    mean_pose=np.array([0, 0, -1.8]), std_pose=np.array([0.2, 0.2, 0.15]),
-                   yfov=np.deg2rad(60), pw=640, ph=480, near=0.1, far=10):
+                   yfov=np.deg2rad(60), pw=640, ph=480, near=0.1, far=10, upper_hemi=False):
     m = trimesh.load(read_path)
     # centralization
     c = np.mean(m.vertices, axis=0)
@@ -48,10 +48,13 @@ def create_partial(read_path, save_folder, ins_num, render_num,
     for i in range(render_num):
         pose = np.eye(4)
         pose[:3, 3] = mean_pose + np.random.randn(3) * std_pose
-        pose[:3, :3] = trimesh.transformations.random_rotation_matrix()[:3, :3]
+        rotation = trimesh.transformations.random_rotation_matrix()[:3, :3]
+        while upper_hemi and (rotation[1, 2] < 0 or rotation[2, 2] < 0):
+            rotation = trimesh.transformations.random_rotation_matrix()[:3, :3]
+        pose[:3, :3] = rotation
         scene.set_pose(node, pose)
         depth_buffer = r.render(scene, flags=pyrender.constants.RenderFlags.DEPTH_ONLY)
-        pts = backproject(depth_buffer, projection, near, far, from_image=False)
+        # pts = backproject(depth_buffer, projection, near, far, from_image=False)
         mask = depth_buffer > 0
         depth_z = buffer_depth_to_ndc(depth_buffer, near, far)  # [-1, 1]
         depth_image = depth_z * 0.5 + 0.5  # [0, 1]
@@ -66,12 +69,12 @@ def create_partial(read_path, save_folder, ins_num, render_num,
 
 def proc_render(first, path_list, save_folder, render_num,
                 mean_pose=np.array([0, 0, -1.8]), std_pose=np.array([0.2, 0.2, 0.15]),
-                yfov=np.deg2rad(60), pw=640, ph=480, near=0.1, far=10):
+                yfov=np.deg2rad(60), pw=640, ph=480, near=0.1, far=10, upper_hemi=False):
     for read_path in tqdm(path_list):
         ins_num = read_path.split('/')[-1].split('.')[-2].split('_')[-1]
         projection, near, far = create_partial(read_path, save_folder, ins_num, render_num,
                                                mean_pose, std_pose,
-                                               yfov, pw, ph, near, far)
+                                               yfov, pw, ph, near, far, upper_hemi)
     if first:
         meta_path = pjoin(save_folder, 'meta.pkl')
         with open(meta_path, 'wb') as f:
@@ -149,6 +152,7 @@ def parse_args():
     parser.add_argument('--category', type=str, default='airplane')
     parser.add_argument('--split', type=str, default='train')
     parser.add_argument('--num_proc', type=int, default=8)
+    parser.add_argument('--upper_hemi', action='store_true')
 
     args = parser.parse_args()
     return args
@@ -167,7 +171,9 @@ if __name__ == "__main__":
         'airplane': np.array([0, 0, -1.8]),
         'car': np.array([0, 0, -2.0]),
         'bottle': np.array([0, 0, -2.0]),
-        'bowl': np.array([0, 0, -2.3])
+        'bowl': np.array([0, 0, -2.3]),
+        'sofa': np.array([0, 0, -2.3]),
+        'chair': np.array([0, 0, -2.3])
     }
     mean_pose = mean_pose_dict[args.category]
     std_pose = np.array([0.2, 0.2, 0.15])
@@ -181,7 +187,8 @@ if __name__ == "__main__":
         p = mp.Process(target=proc_render, args=(i == 0,
                                                  path_list[st: ed], save_folder, args.rotate_num,
                                                  mean_pose, std_pose,
-                                                 np.deg2rad(60), 640, 480, 0.01, 10))
+                                                 np.deg2rad(60), 640, 480, 0.01, 10,
+                                                 args.upper_hemi))
         processes.append(p)
         p.start()
 

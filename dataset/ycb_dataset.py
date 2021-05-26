@@ -13,6 +13,7 @@ import numpy.ma as ma
 import copy
 import scipy.misc
 import scipy.io as scio
+import trimesh
 import pickle
 import sys
 
@@ -20,6 +21,14 @@ import __init__
 from common.transformations import quaternion_from_euler, euler_matrix, random_quaternion, quaternion_matrix
 import vgtk.so3conv.functional as L
 from vgtk.functional import rotation_distance_np
+
+
+def get_index(src_length, tgt_length):
+    idx = np.arange(0, src_length)
+    if src_length < tgt_length:
+        idx = np.pad(idx, (0, tgt_length - src_length), 'wrap')
+    idx = np.random.permutation(idx)[:tgt_length]
+    return idx
 
 
 class YCBDataset(data.Dataset):
@@ -32,6 +41,7 @@ class YCBDataset(data.Dataset):
         self.add_noise = cfg.DATASET.add_noise and split == 'train'
         self.noise_trans = cfg.DATASET.noise_trans
         self.use_rgb = cfg.DATASET.use_rgb
+        self.so3_augment = cfg.DATASET.so3_augment and split == 'train'
         instance = cfg.instance
         if instance is not None:
             instance = int(instance)
@@ -124,6 +134,62 @@ class YCBDataset(data.Dataset):
         print(len(self.list))
 
     def __getitem__(self, index):
+        meta = scio.loadmat('{0}/{1}-meta.mat'.format(self.root, self.list[index]))
+        obj = meta['cls_indexes'].flatten().astype(np.int32)  # index starts from 1!
+        idx = [i for i in range(len(obj)) if obj[i] == self.instance][0]
+
+        scale = self.instance_scales[self.instance]
+        target_r = meta['poses'][:, :, idx][:, 0:3]
+        target_t = np.array([meta['poses'][:, :, idx][:, 3:4].flatten()]) / scale
+
+        cloud_path = pjoin(self.root, 'cloud', f'{self.instance}', f'{self.list[index]}.npz')
+        cloud = np.load(cloud_path, allow_pickle=True)['points']
+
+        cloud_idx = get_index(len(cloud), self.num_pt)
+        cloud = cloud[cloud_idx]
+
+        cloud = cloud / scale
+        canon_cloud = np.dot(cloud - target_t, target_r) + 0.5
+
+        if self.so3_augment:
+            target_r = trimesh.transformations.random_rotation_matrix()[:3, :3]
+            target_t = np.random.rand(3).reshape(target_t.shape)  # same as modelnet40aligned.py, uniform in [0, 1)
+            cloud = np.dot(canon_cloud - 0.5, target_r.T) + target_t
+            cloud = cloud.astype(np.float32)
+
+        _, R_label, R0 = rotation_distance_np(target_r, self.anchors)
+        R_gt = torch.from_numpy(target_r.astype(np.float32))  # predict r
+        T = torch.from_numpy(target_t.astype(np.float32))
+
+        dellist = [j for j in range(0, len(self.cld[self.instance]))]
+        dellist = random.sample(dellist, len(self.cld[self.instance]) - self.num_pt_mesh)
+        model_points = np.delete(self.cld[obj[idx]], dellist, axis=0) / scale + 0.5
+
+        data_dict = {
+            'xyz': cloud,
+            'points': canon_cloud,
+            'full': model_points,
+            'label': torch.from_numpy(np.array([1]).astype(np.float32)),
+            'R_gt': R_gt,
+            'R_label': R_label,
+            'R': R0,
+            'T': T,
+            'fn': self.list[index],
+            'id': obj[idx] - 1,
+            'idx': index,
+            'class': obj[idx] - 1
+        }
+
+        """
+        output_path = 'ycb_data_sample.pkl'
+        with open(output_path, 'wb') as f:
+            pickle.dump(data_dict, f)
+        sys.exit(0)
+        """
+
+        return data_dict
+
+    def old_getitem(self, index):
         img = Image.open('{0}/{1}-color.png'.format(self.root, self.list[index]))
         depth = np.array(Image.open('{0}/{1}-depth.png'.format(self.root, self.list[index])))
         label = np.array(Image.open('{0}/{1}-label.png'.format(self.root, self.list[index])))

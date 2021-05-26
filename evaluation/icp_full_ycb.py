@@ -1,6 +1,7 @@
 # examples/Python/Advanced/global_registration.py
 
 import torch
+from tqdm import tqdm
 import open3d as o3d
 import numpy as np
 import copy
@@ -176,7 +177,7 @@ def main(cfg):
     dataset = YCBDataset(cfg, cfg.DATASET.data_path, 'val')
     bs = Basic_Utils(cfg)
     err_dict = {'global': {}, 'rotate_60': {}}
-    for i in range(len(dataset)):
+    for i in tqdm(range(len(dataset))):
         data_dict = dataset[i]
         partial, full = data_dict['xyz'], data_dict['full']
         r, t = data_dict['R_gt'].numpy(), data_dict['T'].numpy()  # already normalized
