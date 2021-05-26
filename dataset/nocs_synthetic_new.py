@@ -44,6 +44,7 @@ def rotation_distance_np(r0, r1):
 
 def get_index(src_length, tgt_length):
     idx = np.arange(0, src_length)
+    idx = np.random.permutation(idx)
     if src_length < tgt_length:
         idx = np.pad(idx, (0, tgt_length - src_length), 'wrap')
     idx = np.random.permutation(idx)[:tgt_length]
@@ -80,10 +81,11 @@ def backproject_nocs(depth, intrinsics=np.array([[577.5, 0, 319.5], [0., 577.5, 
     return pts * scale, idxs
 
 
-def get_nocs_data(data_path, instance, track_name, prefix, intrinsics, real=False):
+def get_nocs_data(data_path, instance, track_name, prefix, intrinsics, num_points, model_points, real=False):
     file_path = pjoin(data_path, track_name)
+    suffix = 'depth' if real else 'composed'
     try:
-        depth = cv2.imread(pjoin(file_path, f'{prefix}_depth.png'), -1)
+        depth = cv2.imread(pjoin(file_path, f'{prefix}_{suffix}.png'), -1)
         mask = cv2.imread(pjoin(file_path, f'{prefix}_mask.png'))[:, :, 2]
         with open(pjoin(file_path, f'{prefix}_meta.txt'), 'r') as f:
             meta_lines = f.readlines()
@@ -93,17 +95,28 @@ def get_nocs_data(data_path, instance, track_name, prefix, intrinsics, real=Fals
         return None,  None
     if not real:
         depth, mask = depth[:, ::-1], mask[:, ::-1]
-        inst_num = -1
-        for meta_line in meta_lines:
-            inst_num = int(meta_line.split()[0])
-            inst_id = meta_line.split()[-1]
-            if inst_id == instance:
-                break
-        if inst_num not in pose_dict:
-            return None, None
-        pose = pose_dict[inst_num]
-        pts, _ = backproject_nocs(depth, intrinsics=intrinsics, mask=(mask == inst_num))
-        return pts, pose
+    inst_num = -1
+    for meta_line in meta_lines:
+        inst_num = int(meta_line.split()[0])
+        inst_id = meta_line.split()[-1]
+        if inst_id == instance:
+            break
+    if inst_num not in pose_dict:
+        return None, None
+    pose = pose_dict[inst_num]
+    pts, _ = backproject_nocs(depth, intrinsics=intrinsics, mask=(mask == inst_num))
+    idx = get_index(len(pts), num_points * 2)
+    pts = pts[idx]
+    posed_model = pose['scale'] * np.matmul(model_points, pose['rotation'].T) + pose['translation'].T
+    diff = pts.reshape(-1, 1, 3) - posed_model.reshape(1, -1, 3)
+    diff = np.linalg.norm(diff, axis=-1) # [N, M, 3]
+    min_diff = np.min(diff, axis=1)  # [N, M] -> [N]
+    idx = np.where(min_diff < 0.05)[0]
+    if len(idx) < 50:
+        return None, None
+    pts = pts[idx]
+    idx = get_index(len(pts), num_points)
+    return pts[idx], pose
 
 
 class NOCSDatasetNew(data.Dataset):
@@ -163,12 +176,12 @@ class NOCSDatasetNew(data.Dataset):
         model_points = model_points + 0.5
 
         cloud, gt_pose = get_nocs_data(self.render_path, instance, idx0, idx1,
-                                       self.intrinsics, 'real' in self.mode)
-        if cloud is None:
+                                       self.intrinsics, self.num_points, model_points - 0.5, 'real' in self.mode)
+        if cloud is None or gt_pose['scale'] < 0.1 or gt_pose['scale'] > self.scale_factor * 1.01:
             return self.__getitem__(np.random.randint(0, self.__len__()))
         target_s = gt_pose['scale']
         target_r = gt_pose['rotation']
-        target_t = gt_pose['translation']
+        target_t = gt_pose['translation'].reshape(-1)
         canon_cloud = np.dot(cloud - target_t, target_r) / target_s + 0.5
         scale_norm = target_s if self.cfg.normalize_scale else self.scale_factor
         cloud = cloud / scale_norm

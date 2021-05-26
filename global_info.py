@@ -182,6 +182,23 @@ _DATASETS = dict(
         joint_baseline='8.12',
         style='new'
        ),
+    nocs_new=DatasetInfo(
+        dataset_name='nocs_new',
+        num_object=10000,
+        parts_map=[[0]],
+        num_parts=1,
+        train_size=None,
+        test_size=None,
+        train_list=None,
+        test_list=None,
+        spec_list=None,
+        spec_map=None,
+        exp='8.1',
+        baseline='8.11',
+        joint_baseline='8.12',
+        style='new'
+       ),
+
     nocs_synthetic=DatasetInfo(
         dataset_name='nocs_synthetic',
         num_object=10000,
