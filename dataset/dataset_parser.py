@@ -37,6 +37,7 @@ from dataset.modelnet40new import Dataloader_ModelNet40New
 # from dataset.nocs_synthetic import NOCSDataset
 from dataset.nocs_synthetic_simple import NOCSDataset
 from dataset.nocs_synthetic_new import NOCSDatasetNew
+from dataset.nocs_synthetic_newer import NOCSDatasetNewer
 from dataset.ycb_dataset import YCBDataset
 # shapenet
 from dataset.shapenetv2 import ShapeNetDataset
@@ -67,6 +68,7 @@ add_datasets(ModelNetDataset)
 add_datasets(OracleDataset)
 add_datasets(NOCSDataset)
 add_datasets(NOCSDatasetNew)
+add_datasets(NOCSDatasetNewer)
 add_datasets(Dataloader_ModelNet40)
 add_datasets(Dataloader_ModelNet40New)
 add_datasets(ShapeNetH5)
@@ -149,6 +151,10 @@ def get_dataset(cfg,
     elif name_dset == 'nocs_synthetic':
         print('using nocs_synthetic data ', split)
         return NOCSDataset(cfg=cfg, root=cfg.DATASET.data_path, split=split)
+
+    elif name_dset == 'nocs_newer':
+        print('using nocs_neweer data ', split)
+        return NOCSDatasetNewer(cfg=cfg, root=cfg.DATASET.data_path, split=split)
 
     elif name_dset == 'nocs_new':
         print('using nocs_new data ', split)
