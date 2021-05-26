@@ -36,6 +36,7 @@ from dataset.modelnet40new import Dataloader_ModelNet40New
 # nocs
 # from dataset.nocs_synthetic import NOCSDataset
 from dataset.nocs_synthetic_simple import NOCSDataset
+from dataset.ycb_dataset import YCBDataset
 # shapenet
 from dataset.shapenetv2 import ShapeNetDataset
 from dataset.shapenetaligned import ShapeNetH5
@@ -147,6 +148,14 @@ def get_dataset(cfg,
         print('using nocs_synthetic data ', split)
         return NOCSDataset(cfg=cfg, root=cfg.DATASET.data_path, split=split)
 
+    elif name_dset == 'ycb':
+        print('using ycb data ', split)
+        return YCBDataset(cfg=cfg, root=cfg.DATASET.data_path, split=split)
+
+    # elif name_dset == 'nocs_synthetic_simple':
+    #     print('using nocs_synthetic data ', split)
+    #     return NOCSDataset(cfg=cfg, root=cfg.DATASET.data_path, split=split)
+
     elif name_dset == 'oracle':
         print('using toy data ', split)
         return OracleDataset(cfg=cfg, root=cfg.DATASET.data_path, split=split)
@@ -247,6 +256,7 @@ def summary(features):
 class DatasetParser(Parser):
     def __init__(self, cfg, mode='train', return_loader=True, domain=None, first_n=-1, add_noise=False, fixed_order=False, num_expr=0.01):
         name_dset  = cfg.name_dset
+        print('name_dset', name_dset)
         collate = None
         if 'Graph' in cfg.dataset_class:
             if cfg.module == 'gan':

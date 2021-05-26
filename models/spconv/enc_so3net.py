@@ -61,17 +61,27 @@ class InvSO3ConvModel(nn.Module):
         self.config = config
         self.t_method_type = config.t_method_type
 
+        if 'ycb' in config.task and config.instance is None:
+            self.num_heads = config.DATASET.num_classes
+            self.classifier = nn.Linear(params['outblock']['mlp'][-1], self.num_heads)
+        else:
+            self.num_heads = 1
+            self.classifier = None
         # per anchors R, T estimation
         if config.t_method_type == -1:    # 0.845, R_i * delta_T
             self.outblockR = M.SO3OutBlockR(params['outblock'], norm=1, pooling_method=config.model.pooling_method, pred_t=config.pred_t, feat_mode_num=self.na_in)
         elif config.t_method_type == 0:   # 0.847, R_i0 * delta_T
-            self.outblockRT = M.SO3OutBlockR(params['outblock'], norm=1, pooling_method=config.model.pooling_method, pred_t=config.pred_t, feat_mode_num=self.na_in)
+            self.outblockRT = M.SO3OutBlockR(params['outblock'], norm=1, pooling_method=config.model.pooling_method,
+                                             pred_t=config.pred_t, feat_mode_num=self.na_in, num_heads=self.num_heads)
         elif config.t_method_type == 1: # 0.8472,R_i0 * (xyz + Scalar*delta_T)_mean, current fastest
-            self.outblockRT = M.SO3OutBlockRT(params['outblock'], norm=1, pooling_method=config.model.pooling_method, global_scalar=True, use_anchors=False, feat_mode_num=self.na_in)
+            self.outblockRT = M.SO3OutBlockRT(params['outblock'], norm=1, pooling_method=config.model.pooling_method,
+                                              global_scalar=True, use_anchors=False, feat_mode_num=self.na_in, num_heads=self.num_heads)
         elif config.t_method_type == 2: # 0.8475,(xyz + R_i0 * Scalar*delta_T)_mean, current best
-            self.outblockRT = M.SO3OutBlockRT(params['outblock'], norm=1, pooling_method=config.model.pooling_method, global_scalar=True, use_anchors=True, feat_mode_num=self.na_in)
+            self.outblockRT = M.SO3OutBlockRT(params['outblock'], norm=1, pooling_method=config.model.pooling_method,
+                                              global_scalar=True, use_anchors=True, feat_mode_num=self.na_in, num_heads=self.num_heads)
         elif config.t_method_type == 3: # (xyz + R_i0 * delta_T)_mean
-            self.outblockRT = M.SO3OutBlockRT(params['outblock'], norm=1, pooling_method=config.model.pooling_method, feat_mode_num=self.na_in)
+            self.outblockRT = M.SO3OutBlockRT(params['outblock'], norm=1, pooling_method=config.model.pooling_method,
+                                              feat_mode_num=self.na_in, num_heads=self.num_heads)
 
         # invariant feature for shape reconstruction
         self.outblockN = M.InvOutBlockOurs(params['outblock'], norm=1, pooling_method='max')

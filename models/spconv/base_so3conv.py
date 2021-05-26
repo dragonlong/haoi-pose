@@ -713,7 +713,7 @@ class DirectSO3OutBlock(nn.Module):
 
 # outblock for rotation regression model
 class SO3OutBlockR(nn.Module):
-    def __init__(self, params, norm=None, pooling_method='mean', pred_t=False, feat_mode_num=60):
+    def __init__(self, params, norm=None, pooling_method='mean', pred_t=False, feat_mode_num=60, num_heads=1):
         super(SO3OutBlockR, self).__init__()
 
         c_in = params['dim_in']
@@ -742,14 +742,14 @@ class SO3OutBlockR(nn.Module):
             self.norm = None
         self.pooling_method = pooling_method
         if self.pooling_method == 'pointnet':
-            self.pointnet = sptk.PointnetSO3Conv(mlp[-1],mlp[-1], na)
+            self.pointnet = sptk.PointnetSO3Conv(mlp[-1], mlp[-1], na)
 
         self.attention_layer = nn.Conv1d(mlp[-1], 1, (1))
         self.regressor_layer = nn.Conv1d(mlp[-1],self.out_channel,(1))
 
         self.pred_t = pred_t
         if pred_t:
-            self.regressor_t_layer = nn.Conv1d(mlp[-1],3,(1))
+            self.regressor_t_layer = nn.Conv1d(mlp[-1], 3 * num_heads, (1, ))
 
         # ------------------ uniary conv ----------------
         for c in mlp:
@@ -777,8 +777,8 @@ class SO3OutBlockR(nn.Module):
         elif self.pooling_method == 'pointnet':
             x_in = sptk.SphericalPointCloud(x.xyz, x_out, None)
             x_out = self.pointnet(x_in)
-        attention_wts = self.attention_layer(x_out)  # Bx1XA
-        confidence = F.softmax(attention_wts * self.temperature, dim=2).view(x_out.shape[0], x_out.shape[2])
+        attention_wts = self.attention_layer(x_out)  # Bxnum_headsXA
+        confidence = F.softmax(attention_wts * self.temperature, dim=2)  # [B, num_heads, A]
         # regressor
         output = {}
         # if self.feat_mode_num < 2:
@@ -788,15 +788,22 @@ class SO3OutBlockR(nn.Module):
         output['1'] = confidence #
         output['R'] = y
         if self.pred_t:
-            y_t = self.regressor_t_layer(x_out)
+            y_t = self.regressor_t_layer(x_out).reshape(batch_size, self.num_heads, 3, -1)  # [B, 3 * num_heads, A]
             output['T'] = y_t
         else:
             output['T'] = None
+
+        if self.num_heads == 1:
+            for key, value in output.items():
+                if value is not None:
+                    output[key] = value.squeeze(1)  # [B, A], [B, 4, A], [B, 3, A]
+
         return output
 
 # outblock for rotation regression model
 class SO3OutBlockRT(nn.Module):
-    def __init__(self, params, norm=None, pooling_method='mean', global_scalar=False, use_anchors=False, feat_mode_num=60):
+    def __init__(self, params, norm=None, pooling_method='mean', global_scalar=False, use_anchors=False,
+                 feat_mode_num=60, num_heads=1):
         super(SO3OutBlockRT, self).__init__()
 
         c_in = params['dim_in']
@@ -809,6 +816,7 @@ class SO3OutBlockRT(nn.Module):
         self.global_scalar = global_scalar
         self.use_anchors   = use_anchors
         self.feat_mode_num=feat_mode_num
+        self.num_heads = num_heads
         # self.attention_layer = nn.Conv2d(mlp[-1], 1, (1,1))
         if norm is not None:
             self.norm = nn.ModuleList()
@@ -816,14 +824,14 @@ class SO3OutBlockRT(nn.Module):
             self.norm = None
         self.pooling_method = pooling_method
         if self.pooling_method == 'pointnet':
-            self.pointnet = sptk.PointnetSO3Conv(mlp[-1],mlp[-1], na)
+            self.pointnet = sptk.PointnetSO3Conv(mlp[-1], mlp[-1], na)
 
-        self.attention_layer = nn.Conv1d(mlp[-1], 1, (1))
+        self.attention_layer = nn.Conv1d(mlp[-1], 1 * num_heads, (1))
         if self.feat_mode_num < 2:
             self.regressor_layer = nn.Conv1d(mlp[-1],4,(1))
         else:
-            self.regressor_layer = nn.Conv1d(mlp[-1],4,(1))
-        self.regressor_scalar_layer = nn.Conv1d(mlp[-1],1,(1)) # [B, C, A] --> [B, 1, A] scalar, local
+            self.regressor_layer = nn.Conv1d(mlp[-1], 4 * num_heads, (1))
+        self.regressor_scalar_layer = nn.Conv1d(mlp[-1], 1 * num_heads, (1)) # [B, C, A] --> [B, 1, A] scalar, local
 
         # ------------------ uniary conv ----------------
         for c in mlp: #
@@ -833,10 +841,10 @@ class SO3OutBlockRT(nn.Module):
             c_in = c
 
         # ----------------- dense regression per mode per point ------------------
-        self.regressor_dense_layer = nn.Sequential(nn.Conv2d(2* mlp[-1], mlp[-1], 1),
-                                                 nn.BatchNorm2d(mlp[-1]),
-                                                 nn.LeakyReLU(inplace=True),
-                                                 nn.Conv2d(c, 3, 1)) # randomly
+        self.regressor_dense_layer = nn.Sequential(nn.Conv2d(2 * mlp[-1], mlp[-1], 1),
+                                                   nn.BatchNorm2d(mlp[-1]),
+                                                   nn.LeakyReLU(inplace=True),
+                                                   nn.Conv2d(c, 3 * num_heads, 1)) # randomly
 
     def forward(self, x, anchors=None):
         x_out = x.feats         # nb, nc, np, na -> nb, nc, na
@@ -860,28 +868,38 @@ class SO3OutBlockRT(nn.Module):
             x_in = sptk.SphericalPointCloud(x.xyz, x_out, None)
             x_out = self.pointnet(x_in)
 
-        t_out = self.regressor_dense_layer(torch.cat([x_out.unsqueeze(2).repeat(1, 1, shared_feat.shape[2], 1).contiguous(), shared_feat], dim=1)) # dense branch
+        t_out = self.regressor_dense_layer(torch.cat([x_out.unsqueeze(2).repeat(1, 1, shared_feat.shape[2], 1).contiguous(),
+                                                      shared_feat], dim=1))  # dense branch, [B, 3 * num_heads, P, A]
+        t_out = t_out.reshape((batch_size, self.num_heads, 3) + t_out.shape[-2:])  # [B, num_heads, 3, P, A]
         # anchors = torch.from_numpy(L.get_anchors(self.config.model.kanchor)).to(self.output_pts)
         if self.global_scalar:
-            y_t = self.regressor_scalar_layer(shared_feat.max(dim=-1)[0]) # [nb, 1, p]
-            y_t = F.normalize(t_out, p=2, dim=1) * y_t.unsqueeze(-1)   # 4, 3, 64, 60
+            y_t = self.regressor_scalar_layer(shared_feat.max(dim=-1)[0]).reshape(
+                batch_size, self.num_heads, -1)  # [B, num_heads, P]
+            y_t = F.normalize(t_out, p=2, dim=2) * y_t.unsqueeze(-1)   # 4, 3, 64, 60 [B, num_heads, 3, P, A]
             if self.use_anchors:
-                y_t = torch.matmul(anchors, y_t.permute(0, 3, 1, 2).contiguous()) + x.xyz.unsqueeze(1) # nb, 60, 3, 64
+                y_t = (torch.matmul(anchors.unsqueeze(1),
+                                   y_t.permute(0, 1, 4, 2, 3).contiguous())
+                       + x.xyz.unsqueeze(1).unsqueeze(1))  # [nb, num_heads, A, 3, P]
             else:
-                y_t = y_t.permute(0, 3, 1, 2).contiguous() + x.xyz.unsqueeze(1) # nb, 60, 3, 64
-            y_t = y_t.mean(dim=-1).permute(0, 2, 1).contiguous()
+                y_t = y_t.permute(0, 1, 4, 2, 3).contiguous() + x.xyz.unsqueeze(1).unsqueeze(1)  # nb, num_heads, 60, 3, 64
         else:
-            y_t = torch.matmul(anchors, t_out.permute(0, 3, 1, 2).contiguous()) + x.xyz.unsqueeze(1) # nb, 60, 3, 64
-            y_t = y_t.mean(dim=-1).permute(0, 2, 1).contiguous()
+            y_t = torch.matmul(anchors.unsqueeze(1),
+                               t_out.permute(0, 1, 4, 2, 3).contiguous()) \
+                  + x.xyz.unsqueeze(1).unsqueeze(1)  # nb, num_heads, 60, 3, 64
+        y_t = y_t.mean(dim=-1).permute(0, 1, 3, 2).contiguous()  # [B, num_heads, 3, A]
 
-        attention_wts = self.attention_layer(x_out)  # Bx1XA
-        confidence = F.softmax(attention_wts * self.temperature, dim=2).view(x_out.shape[0], x_out.shape[2])
+        attention_wts = self.attention_layer(x_out)  # [B, num_heads, A]
+        confidence = F.softmax(attention_wts * self.temperature, dim=2)
         # regressor
         output = {}
-        y = self.regressor_layer(x_out) # Bx6xA
-        output['1'] = confidence #
+        y = self.regressor_layer(x_out)  # [B, num_heads, 4, A]
+        output['1'] = confidence  #
         output['R'] = y
         output['T'] = y_t
+
+        if self.num_heads == 1:
+            for key, value in output.items():
+                output[key] = value.squeeze(1)
 
         return output
 
