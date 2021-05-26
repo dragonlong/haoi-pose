@@ -272,24 +272,26 @@ TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
 use_fps_points=True r_method_type=1 \
 use_wandb=True
-#
-# 0.941: # supervision in camera space, random R, airplane, but add T estimation, random SO3 rotate points
-# python train_aegan.py task='ssl_partial_pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
-# models=epn exp_num='0.941' model.model='enc_so3net' model.pooling_method='max' \
-# datasets=modelnet40new item=modelnet40new name_dset=modelnet40new target_category='bottle' dataset_class=AE \
-# TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
-# augment=True MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
-# use_pretrain=True \
-# use_wandb=True
-#
-# 0.942: # supervision in camera space, random R, airplane, but add T estimation, random SO3 rotate points, also use fps to get regularly sampled points
-# python train_aegan.py task='ssl_partial_pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
-# models=epn exp_num='0.942' model.model='enc_so3net' model.pooling_method='max' \
-# datasets=modelnet40new item=modelnet40new name_dset=modelnet40new target_category='bottle' dataset_class=AE \
-# TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
-# MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
-# use_fps_points=True \
-# use_wandb=True
+
+0.94a: # random R, airplane, but add T estimation, dense per-point voting, R0, ca201 1
+python train_aegan.py task='partial_pcloud_pose' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
+models=epn exp_num='0.94a' model.model='enc_so3net' model.pooling_method='max' \
+datasets=modelnet40new item=modelnet40new name_dset=modelnet40new target_category='bottle' dataset_class=AE \
+TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
+MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
+use_objective_R=True use_objective_M=True use_objective_T=True \
+use_fps_points=True use_axis=True  \
+use_wandb=True
+
+0.94b: # random R, airplane, but add T estimation, dense per-point voting, R0, ca201 1
+python train_aegan.py task='partial_pcloud_pose' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
+models=epn exp_num='0.94b' model.model='enc_so3net' model.pooling_method='max' model.kpconv=True \
+datasets=modelnet40new item=modelnet40new name_dset=modelnet40new target_category='bottle' dataset_class=AE \
+TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
+MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
+use_objective_R=True use_objective_M=True use_objective_T=True \
+use_fps_points=True use_axis=True \
+use_wandb=True
 
 
 # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> chair <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<,

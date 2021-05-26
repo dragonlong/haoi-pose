@@ -215,8 +215,6 @@ _DATASETS = dict(
         style='new'
        ),
 
-
-
     nocs_synthetic=DatasetInfo(
         dataset_name='nocs_synthetic',
         num_object=10000,
@@ -535,6 +533,7 @@ class global_info(object):
         sym_type['airplane']= {'y': 1}
         sym_type['chair']= {'y': 1}
         sym_type['car']= {'y': 1}
+        sym_type['sofa']= {'y': 1}
         sym_type['laptop']= {'y': 1}
         self.sym_type = sym_type
 

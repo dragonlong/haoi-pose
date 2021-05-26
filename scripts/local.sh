@@ -31,3 +31,23 @@ for i in 03624134
 do
 rsync -av --exclude='*manifold.obj' --exclude='*.npz' lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/external/ShapeNetCore.v2/$i /home/dragon/Documents/ICML2021/external/ShapeNetCore.v2/ &
 done
+
+#
+mkdir -p 0.91/generation
+mkdir -p 0.92/generation
+mkdir -p 0.921/generation
+mkdir -p 0.911/generation
+mkdir -p 0.913r/generation
+mkdir -p 0.9141r/generation
+mkdir -p 0.94r/generation
+mkdir -p 0.941r/generation
+mkdir -p 0.95r/generation
+mkdir -p 0.951r/generation
+mkdir -p 0.96r/generation
+mkdir -p 0.961r/generation
+scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/modelnet40new/0.94r/generation/test*txt 0.94r/generation/
+scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/modelnet40new/0.941r/generation/test*txt 0.941r/generation/
+scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/modelnet40new/0.95r/generation/test*txt 0.95r/generation/
+scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/modelnet40new/0.951r/generation/test*txt 0.951r/generation/
+scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/modelnet40new/0.96r/generation/test*txt 0.96r/generation/
+scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/modelnet40new/0.961r/generation/test*txt 0.961r/generation/

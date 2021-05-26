@@ -207,53 +207,75 @@ augment=True MODEL.num_in_channels=1 \
 use_fps_points=True r_method_type=1 \
 use_wandb=True
 
-0.856a: # supervised training, ca205, 0, pred_axis, eval axis
-python train_aegan.py task='pcloud_pose' training=ae_gan name_model=ae vis=True save_frequency=10 nr_epochs=500 \
-models=epn exp_num='0.856a' model.model='enc_so3net' encoder_type=enc_so3net model.pooling_method='max' \
-datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='bottle' dataset_class=AE \
-TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 model.representation='up_axis' \
-augment=True MODEL.num_in_channels=1 use_objective_R=True use_objective_M=True \
-use_wandb=True
-
-0.856a1: # supervised training, ca205, 0, pred_axis, eval axis
-python train_aegan.py task='pcloud_pose' training=ae_gan name_model=ae vis=True save_frequency=10 nr_epochs=500 \
-models=epn exp_num='0.856a1' model.model='enc_so3net' encoder_type=enc_so3net model.pooling_method='max' \
+0.8562a: # random R, airplane, but add T estimation, dense per-point voting, R0, ca201 1
+python train_aegan.py task='pcloud_pose' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
+models=epn exp_num='0.8562a' model.model='enc_so3net' model.pooling_method='max' \
 datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='bottle' dataset_class=AE \
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
-augment=True MODEL.num_in_channels=1 use_objective_R=True use_objective_M=True use_axis=True \
+MODEL.num_in_channels=1 \
+use_objective_R=True use_objective_M=True \
+use_fps_points=True use_axis=True  \
 use_wandb=True
 
-0.856a2: # supervised training, ca205, 0, pred_axis, eval axis, same mask
-python train_aegan.py task='pcloud_pose' training=ae_gan name_model=ae vis=True save_frequency=10 nr_epochs=500 \
-models=epn exp_num='0.856a2' model.model='enc_so3net' encoder_type=enc_so3net model.pooling_method='max' \
+0.8562b: # random R, airplane, but add T estimation, dense per-point voting, R0, ca201 1
+python train_aegan.py task='pcloud_pose' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
+models=epn exp_num='0.8562b' model.model='enc_so3net' model.pooling_method='max' model.kpconv=True \
 datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='bottle' dataset_class=AE \
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
-augment=True MODEL.num_in_channels=1 use_objective_R=True use_objective_M=True use_axis=True \
+MODEL.num_in_channels=1 \
+use_objective_R=True use_objective_M=True \
+use_fps_points=True use_axis=True \
 use_wandb=True
 
-0.856b: # supervised training, ca227, 0, pred_axis, eval axis
-python train_aegan.py task='pcloud_pose' training=ae_gan name_model=ae vis=True save_frequency=10 nr_epochs=500 \
-models=epn exp_num='0.856b' model.model='enc_so3net' encoder_type=enc_so3net model.pooling_method='max' \
-datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='bowl' dataset_class=AE \
-TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
-augment=True MODEL.num_in_channels=1 use_objective_R=True model.kpconv=True \
-use_wandb=True
 
-0.856c: # supervision in camera space, random R, pointnet++, 60 modes
-python train_aegan.py task='ssl_pcloud_pose_completion' training=ae_gan name_model=ae exp_num='0.856c' save_frequency=10 vis=True \
-models=pnet2 encoder_type=pnet2plusplus_so3 use_head_assemble=True \
-datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='bottle' dataset_class=AE \
-TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
-augment=True MODEL.num_in_channels=0 \
-use_wandb=True
-
-0.856d: # supervision in camera space, random R, kpconv, 60 heads modes
-python train_aegan.py task='ssl_pcloud_pose_completion' training=ae_gan name_model=ae vis=True exp_num='0.856d' save_frequency=10 vis=True \
-models=epn encoder_type=enc_so3net model.model='enc_so3net' model.pooling_method='max' \
-datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='bottle' dataset_class=AE \
-TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
-augment=True MODEL.num_in_channels=0 model.kpconv=True \
-use_wandb=True
+#
+# 0.856a: # supervised training, ca205, 0, pred_axis, eval axis
+# python train_aegan.py task='pcloud_pose' training=ae_gan name_model=ae vis=True save_frequency=10 nr_epochs=500 \
+# models=epn exp_num='0.856a' model.model='enc_so3net' encoder_type=enc_so3net model.pooling_method='max' \
+# datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='bottle' dataset_class=AE \
+# TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 model.representation='up_axis' \
+# augment=True MODEL.num_in_channels=1 use_objective_R=True use_objective_M=True \
+# use_wandb=True
+#
+# 0.856a1: # supervised training, ca205, 0, pred_axis, eval axis
+# python train_aegan.py task='pcloud_pose' training=ae_gan name_model=ae vis=True save_frequency=10 nr_epochs=500 \
+# models=epn exp_num='0.856a1' model.model='enc_so3net' encoder_type=enc_so3net model.pooling_method='max' \
+# datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='bottle' dataset_class=AE \
+# TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
+# augment=True MODEL.num_in_channels=1 use_objective_R=True use_objective_M=True use_axis=True \
+# use_wandb=True
+#
+# 0.856a2: # supervised training, ca205, 0, pred_axis, eval axis, same mask
+# python train_aegan.py task='pcloud_pose' training=ae_gan name_model=ae vis=True save_frequency=10 nr_epochs=500 \
+# models=epn exp_num='0.856a2' model.model='enc_so3net' encoder_type=enc_so3net model.pooling_method='max' \
+# datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='bottle' dataset_class=AE \
+# TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
+# augment=True MODEL.num_in_channels=1 use_objective_R=True use_objective_M=True use_axis=True \
+# use_wandb=True
+#
+# 0.856b: # supervised training, ca227, 0, pred_axis, eval axis
+# python train_aegan.py task='pcloud_pose' training=ae_gan name_model=ae vis=True save_frequency=10 nr_epochs=500 \
+# models=epn exp_num='0.856b' model.model='enc_so3net' encoder_type=enc_so3net model.pooling_method='max' \
+# datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='bowl' dataset_class=AE \
+# TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
+# augment=True MODEL.num_in_channels=1 use_objective_R=True model.kpconv=True \
+# use_wandb=True
+#
+# 0.856c: # supervision in camera space, random R, pointnet++, 60 modes
+# python train_aegan.py task='ssl_pcloud_pose_completion' training=ae_gan name_model=ae exp_num='0.856c' save_frequency=10 vis=True \
+# models=pnet2 encoder_type=pnet2plusplus_so3 use_head_assemble=True \
+# datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='bottle' dataset_class=AE \
+# TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
+# augment=True MODEL.num_in_channels=0 \
+# use_wandb=True
+#
+# 0.856d: # supervision in camera space, random R, kpconv, 60 heads modes
+# python train_aegan.py task='ssl_pcloud_pose_completion' training=ae_gan name_model=ae vis=True exp_num='0.856d' save_frequency=10 vis=True \
+# models=epn encoder_type=enc_so3net model.model='enc_so3net' model.pooling_method='max' \
+# datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='bottle' dataset_class=AE \
+# TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
+# augment=True MODEL.num_in_channels=0 model.kpconv=True \
+# use_wandb=True
 
 #
 # ##>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> laptop >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>.

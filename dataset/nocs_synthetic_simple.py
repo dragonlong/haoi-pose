@@ -121,6 +121,10 @@ class NOCSDataset(data.Dataset):
         self.cloud_dict = manager.dict()
         self.g_dict    = manager.dict()
         self.r_dict    = manager.dict()
+        self.scale_dict = {'bottle': 0.5, 'bowl': 0.25, 'camera': 0.27,
+                           'can': 0.2, 'laptop': 0.5, 'mug': 0.21}
+        self.scale_factor = self.scale_dict[cfg.target_category.split('_')[0]]
+
         # pre-fetch
         self.backup_cache = []
         for j in range(300):
@@ -197,7 +201,7 @@ class NOCSDataset(data.Dataset):
         S = torch.from_numpy(np.array([s]).astype(np.float32))
         _, R_label, R0 = rotation_distance_np(r, self.anchors)
         R_gt = torch.from_numpy(r.astype(np.float32)) # predict r
-
+        scale_normalize = self.scale_factor
         if self.cfg.pre_compute_delta:
             xyz = nocs_gt - 0.5
         else:

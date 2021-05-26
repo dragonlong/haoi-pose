@@ -33,6 +33,8 @@ python modelnet40_parser.py task='pcloud_pose' datasets='modelnet40' item='model
 # 3. bottleneck concat,
 python nocs_synthetic_simple.py datasets=nocs_synthetic target_category='mug'
 
+python nocs_synthetic_newer.py datasets=nocs_newer target_category='mug'
+
 python shapenetaligned.py datasets=shapenetaligned target_category='laptop'
 
 python modelnet40new.py datasets=modelnet40new target_category='airplane' num_points=4096
