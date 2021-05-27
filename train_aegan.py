@@ -241,20 +241,24 @@ def main(cfg):
         if cfg.pre_compute_delta:
             set_dr = []
             set_dt = []
+            sym_dict = infos.sym_type[cfg.target_category]
+            chosen_axis = None
+            for key, M in sym_dict.items():
+                if M > 20:
+                    chosen_axis = key
+                    if 'modelnet' in self.config.name_dset:
+                        chosen_axis = 'z'
             for num, data in enumerate(train_loader):
                 if num > 4096:
                     break
                 torch.cuda.empty_cache()
                 tr_agent.eval_func(data)
                 set_dr.append(tr_agent.pose_info['delta_r'])
+                if chosen_axis is not None:
+                    print(torch.matmul(tr_agent.pose_info['delta_r'], torch.Tensor([0, 0, 1]).view(1, 3, 1).contiguous().cuda()).squeeze())
                 if cfg.pred_t:
                     set_dt.append(tr_agent.pose_info['delta_t'])
 
-            sym_dict = infos.sym_type[cfg.target_category]
-            chosen_axis = None
-            for key, M in sym_dict.items():
-                if M > 20:
-                    chosen_axis = key
             delta_r, r_score = ransac_fit_r(torch.cat(set_dr, dim=0), chosen_axis=chosen_axis)
             if cfg.pred_t:
                 delta_t, t_score = ransac_fit_t(torch.cat(set_dt, dim=0), torch.cat(set_dr, dim=0), delta_r.squeeze() )
@@ -345,7 +349,7 @@ def main(cfg):
                 continue
             print(key, '\t', np.array(value).mean())
             if key == 'rdiff':
-                print(key, '_mid\t', np.median(np.array(value)))
+                print(key, '_mid \t', np.median(np.array(value)))
         if cfg.save:
             print('--saving to ', file_name)
             np.save(file_name, arr={'info': infos_dict, 'err': track_dict})

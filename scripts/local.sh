@@ -45,6 +45,9 @@ mkdir -p 0.95r/generation
 mkdir -p 0.951r/generation
 mkdir -p 0.96r/generation
 mkdir -p 0.961r/generation
+scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/modelnet40new/0.913r/generation/test*txt 0.913r/generation/
+scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/modelnet40new/0.9141r/generation/test*txt 9141r/generation/
+
 scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/modelnet40new/0.94r/generation/test*txt 0.94r/generation/
 scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/modelnet40new/0.941r/generation/test*txt 0.941r/generation/
 scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/modelnet40new/0.95r/generation/test*txt 0.95r/generation/

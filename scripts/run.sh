@@ -249,6 +249,9 @@ rclone sync drive:Object_and_hands/data/modelnet_render_sofa_chair.tar . -P
 rclone sync drive:Object_and_hands/data/modelnet_points_sofa_chair.tar . -P
 rclone sync 03624134.zip drive:Object_and_hands/external/ShapeNetCore.v2/ -P
 rclone sync . --include "*.{zip}" drive:Object_and_hands/external/ShapeNetCore.v2/ -P
+
+
+rclone sync . --include "*.{pth}" drive:Object_and_hands/model/nocs_newer/1.1_supervised_nocs/ -P
 pointnet++
 2.4074
 NOCS-se3

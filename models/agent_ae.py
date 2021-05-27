@@ -686,7 +686,6 @@ class PointAEPoseAgent(BaseAgent):
         BS = data['points'].shape[0]
         N  = data['points'].shape[1]
         M  = self.config.num_modes_R
-
         if 'ssl' in self.config.task and self.config.eval: # only apply this during eval
             # r
             if f'{self.config.exp_num}_{self.config.name_dset}_{self.config.target_category}' in delta_R:
@@ -709,7 +708,7 @@ class PointAEPoseAgent(BaseAgent):
         # if self.config.use_axis or chosen_axis is not None:
         pred_rot    = torch.matmul(self.r_pred, self.delta_r.float().permute(0, 2, 1).contiguous())
         gt_rot      = data['R_gt'].cuda()  # [B, 3, 3]
-        rot_err     = rot_diff_degree(self.r_pred, gt_rot, chosen_axis=self.chosen_axis)
+        rot_err     = rot_diff_degree(pred_rot, gt_rot, chosen_axis=self.chosen_axis)
 
         if 'xyz' in data:
             input_pts  = data['xyz'].permute(0, 2, 1).contiguous().cuda()

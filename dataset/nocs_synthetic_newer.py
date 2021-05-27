@@ -72,13 +72,18 @@ class NOCSDatasetNewer(data.Dataset):
         self.datapath = sorted(glob.glob(f'{dir_point}/*/*/*/*.npz'))
 
         category_id  = categories[self.target_category]
-        self.object_path = join(second_path, f'data/nocs/obj_models/{split}', category_id)
+        if 'train' in split:
+            split_folder = 'train'
+        else:
+            split_folder = 'val'
+        self.object_path = join(second_path, f'data/nocs/obj_models/{split_folder}', category_id)
         self.object_path_external = join(group_path, f'external/ShapeNetCore.v2/{category_id}/')
         instances_used = [f for f in os.listdir(self.object_path_external) if os.path.isdir(join(self.object_path, f))]
         instances = [f for f in os.listdir(self.object_path_external) if os.path.isdir(join(self.object_path_external, f))]
         print('--checking ', self.object_path, f' with {len(instances_used)} instances')
         print('--checking ', self.object_path_external, f' with {len(instances)} instances')
         self.instance_points = {}
+        self.instances = instances
         for instance in instances:
             model_path = join(self.object_path_external, instance, 'models', 'surface_points.pkl')
             with open(model_path, "rb") as obj_f:
@@ -100,7 +105,10 @@ class NOCSDatasetNewer(data.Dataset):
         self.scale_factor = self.scale_dict[cfg.target_category.split('_')[0]]
 
     def get_complete_cloud(self, instance):
-        pts = self.instance_points[instance]
+        if instance in self.instance_points:
+            pts = self.instance_points[instance]
+        else:
+            pts = self.instance_points[self.instances[0]]
         idx = get_index(len(pts), self.num_points)
         return pts[idx]
 
@@ -238,8 +246,8 @@ def main(cfg):
     cfg.item     ='nocs_newer'
     cfg.name_dset='nocs_newer'
     cfg.log_dir  = infos.second_path + cfg.log_dir
-    dset = NOCSDatasetNewer(cfg=cfg, split='train')
-    # dset = NOCSDatasetNewer(cfg=cfg, split='real_train')
+    # dset = NOCSDatasetNewer(cfg=cfg, split='train')
+    dset = NOCSDatasetNewer(cfg=cfg, split='real_train')
     #
     for i in range(len(dset)):  #
         dp = dset.__getitem__(i, verbose=True)
