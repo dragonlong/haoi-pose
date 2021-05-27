@@ -157,7 +157,7 @@ class BaseAgent(object):
 
         self.net.cuda()
 
-    def load_ckpt(self, name=None):
+    def load_ckpt(self, name=None, model_dir=None):
         """load checkpoint from saved checkpoint"""
         """load checkpoint from saved checkpoint"""
         if name == 'latest':
@@ -166,7 +166,12 @@ class BaseAgent(object):
             pass
         else:
             name = "ckpt_epoch{}".format(name)
-        load_path = os.path.join(self.model_dir, "{}.pth".format(name))
+
+        if model_dir is None:
+            load_path = os.path.join(self.model_dir, "{}.pth".format(name))
+        else:
+            load_path = os.path.join(model_dir, "{}.pth".format(name))
+            
         if not os.path.exists(load_path):
             raise ValueError("Checkpoint {} not exists.".format(load_path))
 

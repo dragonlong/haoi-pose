@@ -823,7 +823,10 @@ class PointAEPoseAgent(BaseAgent):
                 loss_dict['projection'] = self.projection_loss
         if 'completion' in self.config.task:
             if self.config.use_objective_canon:
-                loss_dict['recon'] = self.recon_canon_loss
+                recon_multiplier = 1
+                if 'finetune' in self.config.task:
+                    recon_multiplier = 0
+                loss_dict['recon'] = recon_multiplier * self.recon_canon_loss
             else:
                 loss_dict['recon'] = self.recon_loss
             if 'ycb' in self.config.task and self.config.instance is None:

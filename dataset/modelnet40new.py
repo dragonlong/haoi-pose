@@ -122,8 +122,11 @@ class Dataloader_ModelNet40New(data.Dataset):
         category, _, instance = self.all_data[index].split('/')[-5:-2]  # ../render/airplane/train/0001/gt/001.npy
         model_points = self.get_complete_cloud(instance)
         boundary_pts = [np.min(model_points, axis=0), np.max(model_points, axis=0)]
-        # center_pt = np.array([0, 0, 0]).astype(np.float32)
-        center_pt = (boundary_pts[0] + boundary_pts[1])/2
+        if 'ssl' not in self.cfg.task:
+            center_pt = np.array([0, 0, 0]).astype(np.float32)
+        else:
+            center_pt = (boundary_pts[0] + boundary_pts[1])/2
+
         length_bb = np.linalg.norm(boundary_pts[0] - boundary_pts[1])
         model_points = (model_points - center_pt.reshape(1, 3))/length_bb  + 0.5#
 

@@ -156,6 +156,14 @@ def get_dataset(cfg,
         print('using nocs_neweer data ', split)
         return NOCSDatasetNewer(cfg=cfg, root=cfg.DATASET.data_path, split=split)
 
+    elif name_dset == 'nocs_real':
+        if 'train' in split:
+            split_folder = 'real_train'
+        else:
+            split_folder = 'real_test'
+        print('using nocs_neweer data ', split_folder)
+        return NOCSDatasetNewer(cfg=cfg, root=cfg.DATASET.data_path, split=split_folder)
+
     elif name_dset == 'nocs_new':
         print('using nocs_new data ', split)
         return NOCSDatasetNew(cfg=cfg, root=cfg.DATASET.data_path, mode=split)

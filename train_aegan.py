@@ -186,7 +186,10 @@ def main(cfg):
 
     # load from checkpoint if provided
     if cfg.use_pretrain or cfg.eval:
-        tr_agent.load_ckpt('best')
+        if cfg.pretrained_path:
+            tr_agent.load_ckpt('best', model_dir=cfg.pretrained_path)
+        else:
+            tr_agent.load_ckpt('best')
 
     #>>>>>>>>>>>>>>>>>>>> dataset
     parser = DatasetParser(cfg)
@@ -246,7 +249,7 @@ def main(cfg):
             for key, M in sym_dict.items():
                 if M > 20:
                     chosen_axis = key
-                    if 'modelnet' in self.config.name_dset:
+                    if 'modelnet' in cfg.name_dset:
                         chosen_axis = 'z'
             for num, data in enumerate(train_loader):
                 if num > 4096:
