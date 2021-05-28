@@ -4,19 +4,25 @@ from os import makedirs, remove
 from os.path import exists, join
 from time import time
 import torch
+import multiprocessing as mp
 
+import tqdm
 import open3d as o3d
 import numpy as np
+from os.path import join as pjoin
 import copy
 from glob import glob
 import scipy.io as sio
-
+import argparse
 import matplotlib.pyplot as plt  # matplotlib.use('Agg') # TkAgg
 from mpl_toolkits.mplot3d import Axes3D
 import pyvista as pv
 
 import __init__
 from global_info import global_info
+
+cur_path = os.path.dirname(__file__)
+anchors = np.load(pjoin(cur_path, '..', 'vgtk', 'data', 'anchors', 'anchors.npy'))
 
 infos     = global_info()
 my_dir    = infos.base_path
@@ -108,19 +114,6 @@ def execute_global_registration(source_down, target_down, source_fpfh,
         ], o3d.pipelines.registration.RANSACConvergenceCriteria(100000, 0.999))
     return result
 
-def refine_registration(source, target, source_fpfh, target_fpfh, voxel_size):
-    distance_threshold = voxel_size * 0.4
-    print(":: Point-to-plane ICP registration is applied on original point")
-    print("   clouds to refine the alignment. This time we use a strict")
-    print("   distance threshold %.3f." % distance_threshold)
-    # result = o3d.pipelines.registration.registration_icp(
-    #     source, target, distance_threshold, result_ransac.transformation,
-    #     o3d.pipelines.registration.TransformationEstimationPointToPlane())
-    result =  o3d.pipelines.registration.registration_icp(
-        source, target, distance_threshold, result_ransac.transformation,
-        o3d.pipelines.registration.TransformationEstimationPointToPoint(),
-        o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=2000))
-    return result
 
 def get_txt(fn):
     point_normal_set = np.loadtxt(fn, delimiter=' ').astype(np.float32)
@@ -352,32 +345,11 @@ def plot3d_pts(pts, pts_name, s=1, dpi=350, title_name=None, sub_name='default',
         plt.close()
 
 
-# def global_registration(source_name, target_name, voxel_size, use_anchors=True):
-#     """
-#         # for fn in fnames['canon']:
-#         #     source_name = fn
-#         #     target_name = fn.replace('canon', 'input')
-#
-#     source_name: txt file for predicted canonical shape;
-#     target_name: txt file for input point cloud;
-#     """
-#     result_ransac = execute_global_registration(source_down, target_down,
-#                                                 source_fpfh, target_fpfh,
-#                                                 voxel_size)
-#     print(result_ransac.transformation)
-#     draw_registration_result(source_down, target_down,
-#                              result_ransac.transformation)
-#
-# def local_icp(source, target, source_fpfh, target_fpfh, voxel_size):
-#     result_icp = refine_registration(source, target, source_fpfh, target_fpfh,
-#                                      voxel_size)
-#     print('2. ', np.asarray(target.points).mean())
-#     print(result_icp.transformation)
-#     draw_registration_result(source, target, result_icp.transformation)
-#     new_pcd = copy.deepcopy(source).transform(result_icp.transformation)
-#     transformed_pts = np.asarray(new_pcd.points)
-#     # np.savetxt(fn.replace('canon', 'icp'), transformed_pts)
-#     # print('saving to', fn.replace('canon', 'icp'))
+def load_input(cfg):
+    res_path = f'{my_dir}/results/test_pred/{cfg.name_dset}/{cfg.exp_num}_unseen_part_rt_pn_general.npy'
+    results = np.load(res_path, allow_pickle=True).item()
+    infos_dict, track_dict = results['info'], results['err']
+    return infos_dict, track_dict
 
 
 def rot_diff_rad(rot1, rot2, chosen_axis=None):
@@ -413,37 +385,7 @@ def draw_geo(geo_list):
     plt.show()
 
 
-def preprocess_point_cloud(pcd, voxel_size):
-    pcd_down = pcd.voxel_down_sample(voxel_size)
-
-    radius_normal = voxel_size * 2
-    pcd_down.estimate_normals(
-        o3d.geometry.KDTreeSearchParamHybrid(radius=radius_normal, max_nn=30))
-
-    radius_feature = voxel_size * 5
-    pcd_fpfh = o3d.pipelines.registration.compute_fpfh_feature(
-        pcd_down,
-        o3d.geometry.KDTreeSearchParamHybrid(radius=radius_feature, max_nn=100))
-    return pcd_down, pcd_fpfh
-
-
-def execute_global_registration(source_down, target_down, source_fpfh,
-                                target_fpfh, voxel_size):
-    distance_threshold = voxel_size * 1.5
-    result = o3d.pipelines.registration.registration_ransac_based_on_feature_matching(
-        source_down, target_down, source_fpfh, target_fpfh, True,
-        distance_threshold,
-        o3d.pipelines.registration.TransformationEstimationPointToPoint(False),
-        3, [
-            o3d.pipelines.registration.CorrespondenceCheckerBasedOnEdgeLength(
-                0.9),
-            o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(
-                distance_threshold)
-        ], o3d.pipelines.registration.RANSACConvergenceCriteria(100000, 0.999))
-    return result
-
-
-def base_icp(source, target, init_trans, method='point2plane', threshold=0.05, max_iter=2000):
+def base_icp(source, target, init_trans, method='point2plane', threshold=0.05, max_iter=200):
     """threshold: assume inputs are normalized; init may have a large translation error"""
     method_dict = {'point2plane': o3d.pipelines.registration.TransformationEstimationPointToPlane,
                    'point2point': o3d.pipelines.registration.TransformationEstimationPointToPoint}
@@ -493,7 +435,7 @@ def get_init_pose(source, target, method='rotate_60', voxel_size=0.05):
 
 
 def icp_registeration(source, target, init_method='rotate_60', voxel_size=0.05,
-                      icp_method='point2point', icp_threshold=0.05, icp_max_iter=2000):
+                      icp_method='point2point', icp_threshold=0.05, icp_max_iter=200):
     init_poses = get_init_pose(copy.deepcopy(source), copy.deepcopy(target),
                                method=init_method, voxel_size=voxel_size)
     best_pose, min_rmse = None, 1e9
@@ -517,23 +459,113 @@ def eval_pose(pose, r, t, chosen_axis=None):
             '5deg5cm': float(rdiff <= 5 and tdiff <= 0.05)}
 
 class simple_config(object):
-    def __init__(self, target_category='airplane', name_dset='modelnet40aligned'):
+    def __init__(self, target_category='airplane', name_dset='modelnet40aligned', icp_method_type=0):
         self.log_dir = 'default'
+        self.icp_method_type  = icp_method_type    # -1 for predicted shape, 0 for example shape, 1 for GT shape
         self.symmetry_type    = 0    # 0 for non-symmetric, 1 for symmetric;
-        self.chosen_axis= None
-        self.name_dset='modelnet40aligned'
+        self.name_dset = name_dset
         self.target_category=target_category
-        if
-            self.exp_num    = exp_num     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
-        self.dataset_path=f'{my_dir}/data/modelnet40aligned/EvenAlignedModelNet40PC'
+        self.chosen_axis= None
 
-def load_input(cfg):
-    res_path = f'{my_dir}/results/test_pred/{cfg.name_dset}/{cfg.exp_num}_unseen_part_rt_pn_general.npy'
-    results = np.load(res_path, allow_pickle=True).item()
-    infos_dict, track_dict = results['info'], results['err']
-    return infos_dict, track_dict
-    
+        if name_dset == 'modelnet40aligned':
+            self.dataset_path=f'{my_dir}/data/modelnet40aligned/EvenAlignedModelNet40PC'
+            if self.target_category == 'airplane':
+                self.exp_num    = '0.813'     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
+            elif self.target_category == 'car':
+                self.exp_num    = '0.851'     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
+            elif self.target_category == 'chair':
+                self.exp_num    = '0.8581'     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
+            elif self.target_category == 'sofa':
+                self.exp_num    = '0.859'     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
+            elif self.target_category == 'bottle':
+                self.exp_num    = '0.8562'     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
+                self.symmetry_type = 1
+                self.chosen_axis = 'z'
+        elif name_dset == 'modelnet40new':
+            self.dataset_path=f'{my_dir}/data/modelnet40new/render/{target_category}/test/gt'
+            if self.target_category == 'airplane':
+                self.exp_num    = '0.913r'     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
+            elif self.target_category == 'car':
+                self.exp_num    = '0.921r'     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
+            elif self.target_category == 'chair':
+                self.exp_num    = '0.951r'     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
+            elif self.target_category == 'sofa':
+                self.exp_num    = '0.96r'     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
+            elif self.target_category == 'bottle':
+                self.exp_num    = '0.941r'     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
+                self.symmetry_type = 1
+                self.chosen_axis = 'z'
+
+
+def sub_proc(cfg, pc_canon, inputs, basenames, i_range, r_gt, t_gt):
+    err_dict = {'rotate_60': {}}
+    all_poses = {'rotate_60': []}
+    for i in tqdm.tqdm(i_range):
+        if cfg.icp_method_type == 1:
+            # canon_name
+            instance_id = basenames[i].split('_')[1]
+            canon_name = os.path.join(cfg.dataset_path, cfg.target_category, 'test',
+                                      f"{cfg.target_category}_{instance_id}.mat")
+            data = sio.loadmat(canon_name)
+            pc = np.random.permutation(data['pc'])[:1024]
+            boundary_pts = [np.min(pc, axis=0), np.max(pc, axis=0)]
+            center_pt = (boundary_pts[0] + boundary_pts[1]) / 2
+            length_bb = np.linalg.norm(boundary_pts[0] - boundary_pts[1])
+            pc_canon = (pc - center_pt.reshape(1, 3)) / length_bb
+
+        target_pts, source_pts = o3d.geometry.PointCloud(), o3d.geometry.PointCloud()
+        target_pts.points = o3d.utility.Vector3dVector(inputs[i])
+        source_pts.points = o3d.utility.Vector3dVector(pc_canon)
+        for init_method in ['rotate_60']:
+            pose = icp_registeration(copy.deepcopy(source_pts),
+                                     copy.deepcopy(target_pts),
+                                     init_method=init_method)
+            pred_pose = np.linalg.inv(pose)
+            all_poses[init_method].append(pred_pose)
+            # draw_registration_result(source_pts, target_pts, pred_pose, use_pv=True)
+            err = eval_pose(pred_pose, r_gt[i], t_gt[i], chosen_axis=cfg.chosen_axis)
+            print(f'--{i}th ', err)
+            cur_dict = err_dict[init_method]
+            for key, value in err.items():
+                if key not in cur_dict:
+                    cur_dict[key] = []
+                cur_dict[key].append(float(value))
+
+
+    final_dict = {}
+    for init_method in ['rotate_60']:
+        cur_dict = err_dict[init_method]
+        final_dict[init_method] = {}
+        cur_final = final_dict[init_method]
+        for key, value in cur_dict.items():
+            cur_dict[key] = np.array(value)
+            cur_final[key] = np.mean(np.array(value))
+            if key == 'rdiff':
+                cur_final['rdiff_mid'] = np.median(np.array(value))
+    # all = {'err': err_dict, 'pose': all_poses}
+    # results_folder = pjoin(cur_path, '..', 'icp_results', f'{cfg.name_dset}', f'{cfg.target_category}')
+    # os.makedirs(results_folder, exist_ok=True)
+    # np.savez_compressed(pjoin(results_folder, f'{i_range[0]}_{i_range[-1]}.npz'), all=all)
+    print(f'>>>>>>>>>>>>>>>>--{cfg.name_dset}--{cfg.target_category}--{i_range[0]}-{i_range[1]}<<<<<<<<<<<<<<<<<<')
+    for init_method in ['rotate_60']:
+        print('\n---Init:', init_method)
+        for key, value in final_dict[init_method].items():
+            print(f'{key}: {value}')
+
+    # print('Con!!!')
+
+
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--name_dset', default='modelnet40aligned', help='yyds')
+    parser.add_argument('--target_category', default='sofa', help='count of articulation change')
+    parser.add_argument('--icp_method_type', default=0, type=int, help='icp_method_type')
+    parser.add_argument('--proc_num', default=1, type=int, help='icp_method_type')
+    parser.add_argument('--ds', default=1, type=int, help='icp_method_type')
+    args = parser.parse_args()
+
+    mp.set_start_method('spawn')
+
     voxel_size = 0.02  # means 5cm for the dataset
     pv.set_plot_theme("document")
     off_screen = False
@@ -546,12 +578,13 @@ if __name__ == "__main__":
     # cfg = simple_config()
     # cfg = simple_config(exp_num='0.851', target_category='car')
     # cfg = simple_config(exp_num='0.85', target_category='chair')
-    cfg = simple_config(exp_num='0.859', target_category='sofa')
-    fpath   = f'/home/dragon/Documents/ICML2021/results/preds/{cfg.exp_num}/generation/' # generation/generation
-    if exists(fpath):
-        fnames  = {}
-        for key in query_keys:
-            fnames[key] = sorted(glob(f'{fpath}/*{key}*txt'))
+    cfg = simple_config(target_category=args.target_category, name_dset=args.name_dset, icp_method_type=args.icp_method_type)
+
+    # fpath   = f'{my_dir}results/preds/{cfg.exp_num}/generation/' # generation/generation
+    # if exists(fpath):
+    #     fnames  = {}
+    #     for key in query_keys:
+    #         fnames[key] = sorted(glob(f'{fpath}/*{key}*txt'))
 
     # load npy '/model/${item}/${exp_num}'
     infos_dict, track_dict = load_input(cfg)
@@ -566,17 +599,26 @@ if __name__ == "__main__":
 
     # load canonical shape
     all_data = []
-    for fn in glob(os.path.join(cfg.dataset_path, cfg.target_category, 'test', "*.mat")):
-        all_data.append(fn)
 
-    if cfg.icp_method_type  == 0:
+    if cfg.name_dset == 'modelnet40aligned':
+        for fn in glob(os.path.join(cfg.dataset_path, cfg.target_category, 'test', "*.mat")):
+            all_data.append(fn)
         data = sio.loadmat(all_data[0])
         pc = np.random.permutation(data['pc'])[:1024]
-        boundary_pts = [np.min(pc, axis=0), np.max(pc, axis=0)]
-        center_pt = (boundary_pts[0] + boundary_pts[1])/2
-        length_bb = np.linalg.norm(boundary_pts[0] - boundary_pts[1])
-        pc_canon = (pc - center_pt.reshape(1, 3))/length_bb
+    elif cfg.name_dset == 'modelnet40new':
 
+        points_path = '/orion/u/yijiaw/projects/haoi/data/modelnet40new/points/' + args.target_category + '/test/'
+        for fn in glob(points_path + '*npz'):
+            all_data.append(fn)
+        # points_path = pjoin(points_path, f'{instance}.npz')
+        points_path = all_data[0]
+        instance_points = np.load(points_path, allow_pickle=True)['points']
+        pc = np.random.permutation(instance_points)[:1024]
+
+    boundary_pts = [np.min(pc, axis=0), np.max(pc, axis=0)]
+    center_pt = (boundary_pts[0] + boundary_pts[1])/2
+    length_bb = np.linalg.norm(boundary_pts[0] - boundary_pts[1])
+    pc_canon = (pc - center_pt.reshape(1, 3))/length_bb
     # p = pv.Plotter(off_screen=off_screen, lighting='light_kit')
     # i = 0
     # for sample in [pc_canon @ r_gt[i].T, inputs[i]]:
@@ -586,50 +628,18 @@ if __name__ == "__main__":
     # p.add_title('canon + input', font_size=font_size)
     # p.show_grid()
     # p.show()
-    err_dict = {'global': {}, 'rotate_60': {}}
 
-    anchors = np.load('anchors.npy') # 60, 3, 3 as initialization
-    for i in range(inputs.shape[0]):
-        if cfg.icp_method_type  == 1:
-            # canon_name
-            data = sio.loadmat(canon_name)
-            pc = np.random.permutation(data['pc'])[:1024]
-            boundary_pts = [np.min(pc, axis=0), np.max(pc, axis=0)]
-            center_pt = (boundary_pts[0] + boundary_pts[1])/2
-            length_bb = np.linalg.norm(boundary_pts[0] - boundary_pts[1])
-            pc_canon = (pc - center_pt.reshape(1, 3))/length_bb
+    inputs = inputs[::args.ds]
+    basenames = basenames[::args.ds]
+    r_gt = r_gt[::args.ds]
+    t_gt = t_gt[::args.ds]
 
-        target_pts, source_pts = o3d.geometry.PointCloud(), o3d.geometry.PointCloud()
-        target_pts.points = o3d.utility.Vector3dVector(inputs[i])
-        source_pts.points = o3d.utility.Vector3dVector(pc_canon)
-        for init_method in ['global', 'rotate_60']:
-            pose = icp_registeration(copy.deepcopy(source_pts),
-                                     copy.deepcopy(target_pts),
-                                     init_method=init_method)
-            pred_pose = np.linalg.inv(pose)
-            # draw_registration_result(source_pts, target_pts, pred_pose, use_pv=True)
-            err = eval_pose(pred_pose, r_gt[i], t_gt[i], chosen_axis=cfg.chosen_axis)
-            print(f'--{i}th ', err)
-            cur_dict = err_dict[init_method]
-            for key, value in err.items():
-                if key not in cur_dict:
-                    cur_dict[key] = []
-                cur_dict[key].append(float(value))
+    total = len(inputs)
+    length = (total + args.proc_num - 1) // args.proc_num
 
-    final_dict = {}
-    mid_dict   = {}
-    for init_method in ['global', 'rotate_60']:
-        cur_dict = err_dict[init_method]
-        final_dict[init_method] = {}
-        cur_final = final_dict[init_method]
-        for key, value in cur_dict.items():
-            cur_final[key] = np.mean(np.array(value))
-            if key == 'rdiff':
-                cur_final['rdiff_mid'] = np.median(np.array(value))
-
-    for init_method in ['global', 'rotate_60']:
-        print('\n---Init:', init_method)
-        for key, value in final_dict[init_method].items():
-            print(f'{key}: {value}')
-
-    # print('Con!!!')
+    for p in range(args.proc_num):
+        st = p * length
+        ed = min(st + length, total)
+        p = mp.Process(target=sub_proc, args=(cfg, pc_canon, inputs, basenames, list(range(st, ed)),
+                                              r_gt, t_gt))
+        p.start()

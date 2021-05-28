@@ -87,6 +87,8 @@ class PointAEPoseAgent(BaseAgent):
         if 'ycb' in self.config.task:
             self.bs_utils = Basic_Utils(config=self.config) #, chamfer_dist=self.chamfer_dist)
             self.ycb_last_pose_err = None
+        self.flip_axis = config.target_category in ['can']
+        print('flip axis', self.flip_axis)
 
     def build_net(self, config):
         # customize your build_net function
@@ -600,9 +602,9 @@ class PointAEPoseAgent(BaseAgent):
                 self.infos['rdiff_anchor'] = mean_angular_error(self.ranchor_pred,
                                                                 self.ranchor_gt).mean() * 180 / np.pi  # final r error
             else:
-                self.infos['rdiff'] = rot_diff_degree(self.r_pred, r_gt, chosen_axis=self.chosen_axis).view(nb, -1).mean()
+                self.infos['rdiff'] = rot_diff_degree(self.r_pred, r_gt, chosen_axis=self.chosen_axis, flip_axis=self.flip_axis).view(nb, -1).mean()
                 self.infos['rdiff_anchor'] = rot_diff_degree(self.ranchor_pred, self.ranchor_gt,
-                                                             chosen_axis=self.chosen_axis).view(nb, -1).mean()
+                                                             chosen_axis=self.chosen_axis, flip_axis=self.flip_axis).view(nb, -1).mean()
             if self.config.pred_t:
                 self.infos['tdiff'] = torch.norm(self.t_pred - target_T.squeeze(), dim=1).mean()
 
@@ -685,30 +687,37 @@ class PointAEPoseAgent(BaseAgent):
         # all you need to get a reasonable evalution during test stage, for unseen and seen data
         BS = data['points'].shape[0]
         N  = data['points'].shape[1]
-        M  = self.config.num_modes_R
         if 'ssl' in self.config.task and self.config.eval: # only apply this during eval
             # r
+
             if f'{self.config.exp_num}_{self.config.name_dset}_{self.config.target_category}' in delta_R:
                 self.delta_r = torch.from_numpy(delta_R[f'{self.config.exp_num}_{self.config.name_dset}_{self.config.target_category}']).cuda()
+                print('use precomputed delta_r')
             elif f'{self.config.name_dset}_{self.config.target_category}' in delta_R:
                 self.delta_r = torch.from_numpy(delta_R[f'{self.config.name_dset}_{self.config.target_category}']).cuda()
             else:
+                print('not found precomputed delta_r!!!')
                 self.delta_r= torch.eye(3).reshape((1, 3, 3)).repeat(BS, 1, 1).cuda()
             # t
             if f'{self.config.exp_num}_{self.config.name_dset}_{self.config.target_category}' in delta_T:
+                print('use precomputed delta_t')
                 self.delta_t = torch.from_numpy(delta_T[f'{self.config.exp_num}_{self.config.name_dset}_{self.config.target_category}']).cuda()
             elif f'{self.config.name_dset}_{self.config.target_category}' in delta_T:
+                print('use precomputed delta_t, type 1')
                 self.delta_t = torch.from_numpy(delta_R[f'{self.config.name_dset}_{self.config.target_category}']).cuda()
             else:
-                self.delta_t= torch.zeros(1, 3).cuda()
+                self.delta_t = torch.zeros(1, 3).cuda()
         else:
-            self.delta_r= torch.eye(3).reshape((1, 3, 3)).cuda()
-            self.delta_t= torch.zeros(1, 3).cuda()
+            self.delta_r = torch.eye(3).reshape((1, 3, 3)).cuda()
+            self.delta_t = torch.zeros(1, 3).cuda()
+
+        self.delta_r = self.delta_r.reshape(1, 3, 3)
+        self.delta_t = self.delta_t.reshape(1, 3)
 
         # if self.config.use_axis or chosen_axis is not None:
         pred_rot    = torch.matmul(self.r_pred, self.delta_r.float().permute(0, 2, 1).contiguous())
         gt_rot      = data['R_gt'].cuda()  # [B, 3, 3]
-        rot_err     = rot_diff_degree(pred_rot, gt_rot, chosen_axis=self.chosen_axis)
+        rot_err     = rot_diff_degree(pred_rot, gt_rot, chosen_axis=self.chosen_axis, flip_axis=self.flip_axis)
 
         if 'xyz' in data:
             input_pts  = data['xyz'].permute(0, 2, 1).contiguous().cuda()
@@ -720,7 +729,7 @@ class PointAEPoseAgent(BaseAgent):
             if self.r_pred.shape[-1] < 3:
                 pred_center= self.t_pred.unsqueeze(-1)
             else:
-                pred_center= self.t_pred.unsqueeze(-1) +  torch.matmul(self.r_pred, self.delta_t.unsqueeze(-1))
+                pred_center= self.t_pred.unsqueeze(-1) - torch.matmul(pred_rot, self.delta_t.unsqueeze(-1))
             gt_center  = data['T'].cuda() # B, 3 # from original to
             trans_err  = torch.norm(pred_center[:, :, 0] - gt_center[:, 0, :], dim=-1)
         else:
