@@ -81,18 +81,22 @@ class NOCSDatasetNewer(data.Dataset):
             split_folder = 'train'
         else:
             split_folder = 'val'
+        self.instance_path = join(self.root, 'model_pts')
         self.object_path = join(second_path, f'data/nocs/obj_models/{split_folder}', category_id)
         self.object_path_external = join(group_path, f'external/ShapeNetCore.v2/{category_id}/')
-        instances_used = [f for f in os.listdir(self.object_path_external) if os.path.isdir(join(self.object_path, f))]
+        instances_used = [f for f in os.listdir(dir_point) if os.path.isdir(join(dir_point, f))]
         instances = [f for f in os.listdir(self.object_path_external) if os.path.isdir(join(self.object_path_external, f))]
         print('--checking ', self.object_path, f' with {len(instances_used)} instances')
         print('--checking ', self.object_path_external, f' with {len(instances)} instances')
         self.instance_points = {}
         self.instances = instances
-        for instance in instances:
+        for instance in instances_used:
             model_path = join(self.object_path_external, instance, 'models', 'surface_points.pkl')
-            with open(model_path, "rb") as obj_f:
-                self.instance_points[instance] = pickle.load(obj_f)
+            if os.path.exists(model_path):
+                with open(model_path, "rb") as obj_f:
+                    self.instance_points[instance] = pickle.load(obj_f)
+            else:
+                self.instance_points[instance] = np.load(join(self.instance_path, f'{instance}.npy'))
 
         # create NOCS dict
         manager = Manager()

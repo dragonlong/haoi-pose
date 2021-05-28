@@ -504,7 +504,8 @@ class global_info(object):
                             'remote': '04074963',   # 66
                             'airplane': 'airplane',
                             'chair': 'chair',
-                            'car': 'car'
+                            'car': 'car',
+                            'laptop': '03642806',
                             }
         self.categories_id = { '02876657': 'bottle', # 498
                             '03797390': 'mug',  # 214, pointNet++
@@ -515,6 +516,7 @@ class global_info(object):
                             '02992529': 'cellphone' ,# 831
                             '02942699': 'camera', # 113,
                             '04074963': 'remote', # 66
+                            '03642806': 'laptop',
                             'airplane': 'airplane',
                             'chair': 'chair',
                             'car': 'car'
@@ -609,7 +611,14 @@ class global_info(object):
         # find all pre-computed delta_R, delta_T
         rt_files = glob.glob(f'{project_path}/haoi-pose/evaluation/infos/*.npy')
         for rt_file in rt_files:
-            exp_num, name_dset, target_category = rt_file.split('/')[-1].split('.npy')[0].split('_')[:3]
+            name = rt_file.split('/')[-1].split('.npy')[0]
+            if not 'yj' in name:
+                exp_num, name_dset, target_category = rt_file.split('/')[-1].split('.npy')[0].split('_')[:3]
+            else:
+                if 'nocs_newer' in name:
+                    all = name.split('_')
+                    exp_num, name_dset, target_category = '_'.join(all[:-3]), '_'.join(all[-3:-1]), all[-1]
+
             rt_dict = np.load(rt_file, allow_pickle=True).item()
             delta_R[f'{exp_num}_{name_dset}_{target_category}'] = rt_dict['delta_r']
             if 'delta_t' in rt_dict:

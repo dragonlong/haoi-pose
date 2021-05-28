@@ -176,13 +176,18 @@ def pose_fit(source, target, cfg, hard=True):  # [B, N, 3]
 from common.d3_utils import rotate_about_axis
 
 
-def rot_diff_rad(rot1, rot2, chosen_axis=None):
+def rot_diff_rad(rot1, rot2, chosen_axis=None, flip_axis=False):
     if chosen_axis is not None:
         axis = {'x': 0, 'y': 1, 'z': 2}[chosen_axis]
         y1, y2 = rot1[..., axis], rot2[..., axis]  # [Bs, 3]
         diff = torch.sum(y1 * y2, dim=-1)  # [Bs]
         diff = torch.clamp(diff, min=-1.0, max=1.0)
-        return torch.acos(diff)
+        rad = torch.acos(diff)
+        if not flip_axis:
+            return rad
+        else:
+            return torch.min(rad, np.pi - rad)
+
     else:
         mat_diff = torch.matmul(rot1, rot2.transpose(-1, -2))
         diff = mat_diff[..., 0, 0] + mat_diff[..., 1, 1] + mat_diff[..., 2, 2]
@@ -191,8 +196,8 @@ def rot_diff_rad(rot1, rot2, chosen_axis=None):
         return torch.acos(diff)
 
 
-def rot_diff_degree(rot1, rot2, chosen_axis=None):
-    return rot_diff_rad(rot1, rot2, chosen_axis=chosen_axis) / np.pi * 180.0
+def rot_diff_degree(rot1, rot2, chosen_axis=None, flip_axis=False):
+    return rot_diff_rad(rot1, rot2, chosen_axis=chosen_axis, flip_axis=flip_axis) / np.pi * 180.0
 
 
 infos = {}
