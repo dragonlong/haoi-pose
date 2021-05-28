@@ -5,3 +5,4 @@ DATASET:
   data_path: '/groups/CESCA-CV/ICML2021/data/nocs/'
   num_gen_samples: 30
   workers: 8
+  real: False

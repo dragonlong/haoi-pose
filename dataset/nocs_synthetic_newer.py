@@ -56,6 +56,11 @@ class NOCSDatasetNewer(data.Dataset):
             self.root  = root
         self.cfg = cfg
         self.task = cfg.task
+        if cfg.DATASET.real:
+            if split == 'train':
+                split = f'real_{split}'
+            elif split == 'val':
+                split = 'real_test'
         self.split = split
         # needed number
         self.npoints = cfg.num_points
