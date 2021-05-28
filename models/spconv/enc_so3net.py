@@ -95,7 +95,6 @@ class InvSO3ConvModel(nn.Module):
 
         for block_i, block in enumerate(self.backbone):
             x = block(x)
-
         if self.t_method_type < 0:
             output = self.outblockR(x, self.anchors)
         else:
@@ -103,6 +102,7 @@ class InvSO3ConvModel(nn.Module):
         manifold_embed    = self.outblockN(x)
         output['0'] = manifold_embed
         output['xyz']     = x.xyz
+
         return output
 
     def get_anchor(self):

@@ -20,7 +20,8 @@ from se3net import equivariance_test
 from common.debugger import *
 from evaluation.pred_check import post_summary, prepare_pose_eval
 from common.algorithms import compute_pose_ransac
-from common.d3_utils import axis_diff_degree, rot_diff_rad, mean_angular_error
+from common.d3_utils import axis_diff_degree, mean_angular_error
+from common.yj_pose import compute_pose_diff, rot_diff_degree, rot_diff_rad
 from common.vis_utils import plot_distribution
 from vgtk.functional import so3_mean
 from global_info import global_info
@@ -34,6 +35,7 @@ categories      = infos.categories
 whole_obj = infos.whole_obj
 part_obj  = infos.part_obj
 obj_urdf  = infos.obj_urdf
+sym_type  = infos.sym_type
 
 def set_feat(G, R, num_features=1):
     G.edata['d'] = G.edata['d'] @ R
@@ -83,17 +85,22 @@ def random_choice_noreplace(l, n_sample, num_draw):
                              axis=-1)[:, :n_sample]]
 
 
-def ransac_fit_r(batch_dr, max_iter=100, thres=1.0):
+def ransac_fit_r(batch_dr, max_iter=100, thres=1.0, chosen_axis=None):
     # B, 3, 3
     best_score = 0
     chosen_hyp = None
     nb = batch_dr.shape[0]
+    if chosen_axis is not None:
+        print('--- we are processing a symmetric object!!!')
     with torch.no_grad():
         for i in range(max_iter):
             sample_idx = random_choice_noreplace(torch.tensor(np.arange(nb)), 5, 1).squeeze()
             r_samples = batch_dr[sample_idx]
             r_hyp     = so3_mean(r_samples.unsqueeze(0))
-            err = mean_angular_error(r_hyp, batch_dr) * 180 /np.pi
+            if chosen_axis is not None:
+                err = rot_diff_degree(r_hyp, batch_dr, chosen_axis=chosen_axis)
+            else:
+                err = mean_angular_error(r_hyp, batch_dr) * 180 /np.pi
             inliers = (err < thres) * 1.0
             curr_score = inliers.mean()
             if curr_score > best_score:
@@ -179,7 +186,10 @@ def main(cfg):
 
     # load from checkpoint if provided
     if cfg.use_pretrain or cfg.eval:
-        tr_agent.load_ckpt('best')
+        if cfg.pretrained_path:
+            tr_agent.load_ckpt('best', model_dir=cfg.pretrained_path)
+        else:
+            tr_agent.load_ckpt('best')
 
     #>>>>>>>>>>>>>>>>>>>> dataset
     parser = DatasetParser(cfg)
@@ -234,16 +244,25 @@ def main(cfg):
         if cfg.pre_compute_delta:
             set_dr = []
             set_dt = []
+            sym_dict = infos.sym_type[cfg.target_category]
+            chosen_axis = None
+            for key, M in sym_dict.items():
+                if M > 20:
+                    chosen_axis = key
+                    if 'modelnet' in cfg.name_dset:
+                        chosen_axis = 'z'
             for num, data in enumerate(train_loader):
                 if num > 4096:
                     break
                 torch.cuda.empty_cache()
                 tr_agent.eval_func(data)
                 set_dr.append(tr_agent.pose_info['delta_r'])
+                if chosen_axis is not None:
+                    print(torch.matmul(tr_agent.pose_info['delta_r'], torch.Tensor([0, 0, 1]).view(1, 3, 1).contiguous().cuda()).squeeze())
                 if cfg.pred_t:
                     set_dt.append(tr_agent.pose_info['delta_t'])
 
-            delta_r, r_score = ransac_fit_r(torch.cat(set_dr, dim=0))
+            delta_r, r_score = ransac_fit_r(torch.cat(set_dr, dim=0), chosen_axis=chosen_axis)
             if cfg.pred_t:
                 delta_t, t_score = ransac_fit_t(torch.cat(set_dt, dim=0), torch.cat(set_dr, dim=0), delta_r.squeeze() )
 
@@ -327,14 +346,13 @@ def main(cfg):
                     track_dict['chamferL1'].append(torch.sqrt(tr_agent.recon_loss).cpu().numpy().tolist())
                 tr_agent.visualize_batch(data, "test")
 
+        print(f'# >>>>>>>> Exp: {cfg.exp_num} for {cfg.target_category} <<<<<<<<<<<<<<<<<<')
         for key, value in track_dict.items():
             if len(value) < 1:
                 continue
-            print(key, ':', np.array(value).mean())
+            print(key, '\t', np.array(value).mean())
             if key == 'rdiff':
-                print(key, '_mid:', np.median(np.array(value)))
-        print(f'experiment {cfg.exp_num} for {cfg.target_category}\n')
-
+                print(key, '_mid \t', np.median(np.array(value)))
         if cfg.save:
             print('--saving to ', file_name)
             np.save(file_name, arr={'info': infos_dict, 'err': track_dict})
@@ -404,10 +422,10 @@ def main(cfg):
                         if 'r_acc' in test_infos:
                             track_dict['r_acc'].append(test_infos['r_acc'].float().cpu().numpy().mean())
                     if 'completion' in cfg.task:
-                        test_infos = tr_agent.infos
-                        track_dict['chamferL1'].append(tr_agent.recon_loss.cpu().numpy().mean())
-                        if 'classification_acc' in test_infos:
-                            track_dict['class_acc'].append(test_infos['classification_acc'].float().cpu().numpy().mean())
+                        if 'partial' in cfg.task and 'ssl' in cfg.task:
+                            track_dict['chamferL1'].append(tr_agent.recon_loss.cpu().numpy().mean())
+                        else:
+                            track_dict['chamferL1'].append(tr_agent.recon_canon_loss.cpu().numpy().mean())
                 if cfg.use_wandb:
                     for key, value in track_dict.items():
                         if len(value) < 1:

@@ -725,6 +725,7 @@ class SO3OutBlockR(nn.Module):
         self.temperature = params['temperature']
         self.representation = params['representation']
         self.feat_mode_num = feat_mode_num
+
         if rp == 'up_axis':
             self.out_channel = 3
             print('---SO3OutBlockR output up axis')

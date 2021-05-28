@@ -11,6 +11,7 @@ import torch.utils.data as data
 from os.path import join as pjoin
 import matplotlib.pyplot as plt
 import __init__
+
 try:
     import vgtk.so3conv.functional as L
     import vgtk.pc as pctk
@@ -41,6 +42,7 @@ def rotation_distance_np(r0, r1):
         traces = np.einsum('bii->b', diff_r)
 
         return traces, np.argmax(traces), diff_r
+
 
 def get_index(src_length, tgt_length):
     idx = np.arange(0, src_length)
@@ -79,17 +81,13 @@ class Dataloader_ModelNet40New(data.Dataset):
             print(f'---using {self.num_points} points as input')
         else:
             self.num_points = cfg.num_points
+
         self.add_noise = cfg.DATASET.add_noise
         self.noise_trans = cfg.DATASET.noise_trans
 
         self.dataset_path = cfg.DATASET.dataset_path
-        self.render_path = pjoin(self.dataset_path, 'render_cst' if cfg.upper_hemi else 'render', cfg.target_category, self.mode)
+        self.render_path = pjoin(self.dataset_path, 'render', cfg.target_category, self.mode)
         self.points_path = pjoin(self.dataset_path, 'points', cfg.target_category, self.mode)
-
-
-        scale_dict = {'bottle': 0.5, 'bowl': 0.25, 'camera': 0.27,
-                           'can': 0.2, 'laptop': 0.5, 'mug': 0.21}
-        self.scale_factor = scale_dict[cfg.target_category.split('_')[0]]
 
         with open(pjoin(self.render_path, 'meta.pkl'), 'rb') as f:
             self.meta_dict = pickle.load(f)  # near, far, projection
@@ -124,34 +122,26 @@ class Dataloader_ModelNet40New(data.Dataset):
         category, _, instance = self.all_data[index].split('/')[-5:-2]  # ../render/airplane/train/0001/gt/001.npy
         model_points = self.get_complete_cloud(instance)
         boundary_pts = [np.min(model_points, axis=0), np.max(model_points, axis=0)]
-        # center_pt = (boundary_pts[0] + boundary_pts[1])/2
-        center_pt = np.array([0, 0, 0]).astype(np.float32)
+        if 'ssl' not in self.cfg.task:
+            center_pt = np.array([0, 0, 0]).astype(np.float32)
+        else:
+            center_pt = (boundary_pts[0] + boundary_pts[1])/2
+
         length_bb = np.linalg.norm(boundary_pts[0] - boundary_pts[1])
-        # center_pt = np.array([0, 0, 0]).astype(np.float32)
-        # length_bb = 1
-        # all normalize into 0
-        model_points = (model_points - center_pt.reshape(1, 3))/length_bb  + 0.5  #
+        model_points = (model_points - center_pt.reshape(1, 3))/length_bb  + 0.5#
 
         cloud, gt_pose = get_modelnet40_data(self.all_data[index], self.meta_dict, self.num_points)
         cloud = cloud/length_bb
-        target_s = 1.0 / gt_pose[3, 3]
         target_r = gt_pose[:3, :3]
+        target_t = gt_pose[:3, 3]/length_bb + center_pt.reshape(1, 3) @ target_r.T / length_bb
+        add_t = np.array([random.uniform(-self.noise_trans, self.noise_trans) for i in range(3)])
+        canon_cloud = np.dot(cloud - target_t, target_r) + 0.5
+        if self.add_noise:
+            cloud = cloud + add_t.astype(cloud.dtype)
 
-        if abs(target_s - 1) > 0.001:
-            target_t = gt_pose[:3, 3] * target_s
-            canon_cloud = np.dot(cloud - target_t, target_r) / target_s + 0.5
-            scale_norm = target_s if self.cfg.normalize_scale else self.scale_factor
-            cloud = cloud / scale_norm
-            target_t = target_t / scale_norm
-        else:
-            target_t = gt_pose[:3, 3]/length_bb
-            canon_cloud = np.dot(cloud - target_t, target_r) + 0.5
-
-        """
         if self.cfg.augment:
             cloud, R = pctk.rotate_point_cloud(cloud)
             target_r = np.matmul(R, target_r)
-        """
 
         _, R_label, R0 = rotation_distance_np(target_r, self.anchors)
 
@@ -165,7 +155,6 @@ class Dataloader_ModelNet40New(data.Dataset):
         else:
             target = np.add(target, target_t)
         """
-
         if self.cfg.eval and self.cfg.pre_compute_delta:
             cloud = model_points - 0.5
             R_gt  = torch.from_numpy(np.eye(3).astype(np.float32)) #
@@ -195,7 +184,8 @@ def check_data(data_dict):
     R, T = data_dict['R_gt'].numpy(), data_dict['T'].numpy()
     posed_canon_cloud = np.dot(canon_cloud - 0.5, R.T) + T
     posed_full_cloud = np.dot(full - 0.5, R.T) + T
-    num_plots = 1
+
+    num_plots = 3
     plt.figure(figsize=(6 * num_plots, 6))
 
     def plot(ax, pt_list, title):
@@ -204,7 +194,8 @@ def check_data(data_dict):
         center = (pmin + pmax) * 0.5
         lim = max(pmax - pmin) * 0.5 + 0.2
         for pts in pt_list:
-            ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2], alpha=0.8, s=5**2)
+            ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2], alpha=0.8, s=2**2)
+
         ax.set_xlim3d([center[0] - lim, center[0] + lim])
         ax.set_ylim3d([center[1] - lim, center[1] + lim])
         ax.set_zlim3d([center[2] - lim, center[2] + lim])
@@ -212,17 +203,17 @@ def check_data(data_dict):
         ax.set_ylabel('y')
         ax.set_zlabel('z')
         ax.set_title(title)
-    for i, (name, pt_list) in enumerate(zip(
-            ['posed_canon_partial_and_complete'],
-            [[posed_canon_cloud]])):
-        ax = plt.subplot(1, num_plots, i + 1, projection='3d')
-        plot(ax, pt_list, name)
+
     # for i, (name, pt_list) in enumerate(zip(
-    #         ['partial', 'canon_partial_and_complete', 'posed_canon_partial_and_complete'],
-    #         [[cloud], [canon_cloud, full], [posed_canon_cloud, posed_full_cloud]])):
+    #         ['posed_canon_partial_and_complete'],
+    #         [[posed_canon_cloud]])):
     #     ax = plt.subplot(1, num_plots, i + 1, projection='3d')
     #     plot(ax, pt_list, name)
-
+    for i, (name, pt_list) in enumerate(zip(
+            ['partial', 'canon_partial_and_complete', 'posed_canon_partial_and_complete'],
+            [[cloud], [canon_cloud, full], [posed_canon_cloud, posed_full_cloud]])):
+        ax = plt.subplot(1, num_plots, i + 1, projection='3d')
+        plot(ax, pt_list, name)
     plt.show()
 
 
@@ -257,6 +248,7 @@ modelnet40new/
             train/
                 0001.npz
             test/
+
 
 Pose and size:
 - all models are of unit size

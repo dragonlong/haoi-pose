@@ -9,16 +9,30 @@ from pytorch3d.renderer.cameras import (
     PerspectiveCameras,
     look_at_view_transform,
 )
-
+import __init__
+from global_info import global_info
 from common.train_utils import TrainClock
 from utils.extensions.chamfer_dist import ChamferDistance
 from utils.p2i_utils import ComputeDepthMaps
+from common.quaternion import matrix_to_unit_quaternion, unit_quaternion_to_matrix
+
 import vgtk
 from vgtk.loss import CrossEntropyLoss
 import vgtk.so3conv.functional as L
 import wandb
 def bp():
     import pdb;pdb.set_trace()
+
+infos           = global_info()
+my_dir          = infos.base_path
+project_path    = infos.project_path
+categories_id   = infos.categories_id
+categories      = infos.categories
+
+whole_obj = infos.whole_obj
+part_obj  = infos.part_obj
+obj_urdf  = infos.obj_urdf
+sym_type  = infos.sym_type
 
 class BaseAgent(object):
     """Base trainer that provides common training behavior.
@@ -54,6 +68,20 @@ class BaseAgent(object):
         far = 10.0
         self.cam = FoVPerspectiveCameras(znear=0.1, zfar=far, fov=60.0, device="cuda:0") # aspect ratio is 1.0, with same
 
+
+        sym_dict = infos.sym_type[self.config.target_category]
+        chosen_axis = None
+        for key, M in sym_dict.items():
+            if M > 20:
+                chosen_axis = key
+                if 'modelnet' in self.config.name_dset:
+                    chosen_axis = 'z'
+        self.chosen_axis = chosen_axis
+        if chosen_axis == 'y':
+            self.symmetry_axis = torch.Tensor([0, 1, 0]).view(1, 1, 3).contiguous().cuda()
+        elif chosen_axis == 'z':
+            self.symmetry_axis = torch.Tensor([0, 0, 1]).view(1, 1, 3).contiguous().cuda()
+
     @abstractmethod
     def build_net(self, config):
         raise NotImplementedError
@@ -66,6 +94,9 @@ class BaseAgent(object):
         if 'ssl' in self.config.task or 'so3' in self.config.encoder_type:
             self.classifier = CrossEntropyLoss()
             self.anchors = torch.from_numpy(L.get_anchors(self.config.model.kanchor)).cuda()
+            with torch.no_grad():
+                self.anchor_quat = matrix_to_unit_quaternion(self.anchors)
+
         if self.config.pred_t:
             self.render_loss = torch.nn.L1Loss()
             self.chamfer_dist_2d = ChamferDistance() # newly add
@@ -126,7 +157,7 @@ class BaseAgent(object):
 
         self.net.cuda()
 
-    def load_ckpt(self, name=None):
+    def load_ckpt(self, name=None, model_dir=None):
         """load checkpoint from saved checkpoint"""
         """load checkpoint from saved checkpoint"""
         if name == 'latest':
@@ -135,7 +166,12 @@ class BaseAgent(object):
             pass
         else:
             name = "ckpt_epoch{}".format(name)
-        load_path = os.path.join(self.model_dir, "{}.pth".format(name))
+
+        if model_dir is None:
+            load_path = os.path.join(self.model_dir, "{}.pth".format(name))
+        else:
+            load_path = os.path.join(model_dir, "{}.pth".format(name))
+            
         if not os.path.exists(load_path):
             raise ValueError("Checkpoint {} not exists.".format(load_path))
 
