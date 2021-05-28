@@ -245,7 +245,8 @@ rclone sync drive:Object_and_hands/data/YCB_Video_Dataset.zip .
 rclone sync drive:Object_and_hands/data/YCB_Video_Dataset.zip . -P
 rclone sync drive:Object_and_hands/data/modelnet_render.tar . -P
 rclone sync drive:Object_and_hands/data/modelnet_points.tar . -P
-rclone sync drive:Object_and_hands/data/modelnet_render_sofa_chair.tar . -P
+
+ sync drive:Object_and_hands/data/modelnet_render_sofa_chair.tar . -P
 rclone sync drive:Object_and_hands/data/modelnet_points_sofa_chair.tar . -P
 rclone sync 03624134.zip drive:Object_and_hands/external/ShapeNetCore.v2/ -P
 rclone sync . --include "*.{zip}" drive:Object_and_hands/external/ShapeNetCore.v2/ -P
@@ -271,3 +272,22 @@ gifski --fps 24 -o output.gif *.png
 ffmpeg -i img%02d.png -vf palettegen palette.png
 ffmpeg -i img%02d.png -i palette.png -lavfi paletteuse video.gif
 ffmpeg -i input.mp4 -an -vf “fps=15,split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse” -f gif - | gifsicle -o output.gif
+
+
+ablation study:
+- use Kpconv as backbone;
+- EPN--> SE(3) network;
+
+1. laptop supervised training + ssl-supervision on 6 categories; (by 12:00)
+2. txt file with our methods on all categories, to Eric (by 1:00pm)
+3. median R/T, 5 degrees in Table for partial shape;
+4. write experiments section on complete + partial; (by 3:00pm)
+5. show reconstruction results, message to show: horonzontal 6 per category; (by 3:30pm)
+6. update pipeline figure; (by 4:00pm)
+7. update all existing results; (before going to bed)
+
+after getting up:
+- prepare ICP baselines for NOCS;
+- NOCS evaluation for all categories;
+- check car prediction distribution;(2 modes??)
+- check Kpconv baselines;

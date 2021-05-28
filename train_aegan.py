@@ -306,8 +306,8 @@ def main(cfg):
         track_dict = {'rdiff': [], 'tdiff': [], 'sdiff': [],
                       '5deg': [], '5cm': [], '5deg5cm': [], 'chamferL1': [], 'r_acc': [], 'chirality': []}
         num_iteration = 1
-        if 'complete' in cfg.task:
-            num_iteration = 2
+        if 'partial' not in cfg.task:
+            num_iteration = 5
         for iteration in range(num_iteration):
             cfg.iteration = iteration
             for num, data in enumerate(test_loader):
@@ -436,7 +436,7 @@ def main(cfg):
                     best_5deg = np.array(track_dict['5deg']).mean()
 
                 if np.array(track_dict['chamferL1']).mean() < best_chamferL1:
-                    tr_agent.save_ckpt('best')
+                    tr_agent.save_ckpt('best_recon')
                     best_chamferL1 = np.array(track_dict['chamferL1']).mean()
 
             clock.tick()

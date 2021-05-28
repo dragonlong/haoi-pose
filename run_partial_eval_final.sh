@@ -14,7 +14,7 @@ datasets=modelnet40new item=modelnet40new name_dset=modelnet40new target_categor
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
 use_fps_points=True \
-eval=True save=True 2>&1 | tee evaluation/logs/0.9141r.txt_new
+eval=True save=True 2>&1 | tee evaluation/logs/0.913r.txt_new
 
 echo 0.9141r: # corrected, supervision in camera space, random R, airplane, but add T estimation, use fps sampling, use quaternion activation, 36, 0.001
 python train_aegan.py task='ssl_partial_pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \

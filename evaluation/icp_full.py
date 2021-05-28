@@ -379,11 +379,6 @@ def plot3d_pts(pts, pts_name, s=1, dpi=350, title_name=None, sub_name='default',
 #     # np.savetxt(fn.replace('canon', 'icp'), transformed_pts)
 #     # print('saving to', fn.replace('canon', 'icp'))
 
-def load_input(cfg):
-    res_path = f'{my_dir}/results/test_pred/{cfg.name_dset}/{cfg.exp_num}_unseen_part_rt_pn_general.npy'
-    results = np.load(res_path, allow_pickle=True).item()
-    infos_dict, track_dict = results['info'], results['err']
-    return infos_dict, track_dict
 
 def rot_diff_rad(rot1, rot2, chosen_axis=None):
     if chosen_axis is not None:
@@ -522,16 +517,22 @@ def eval_pose(pose, r, t, chosen_axis=None):
             '5deg5cm': float(rdiff <= 5 and tdiff <= 0.05)}
 
 class simple_config(object):
-    def __init__(self, exp_num='0.813', target_category='airplane'):
+    def __init__(self, target_category='airplane', name_dset='modelnet40aligned'):
         self.log_dir = 'default'
-        self.exp_num    = exp_num     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
-        self.icp_method_type  = 0    # -1 for predicted shape, 0 for example shape, 1 for GT shape
         self.symmetry_type    = 0    # 0 for non-symmetric, 1 for symmetric;
+        self.chosen_axis= None
         self.name_dset='modelnet40aligned'
         self.target_category=target_category
+        if
+            self.exp_num    = exp_num     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
         self.dataset_path=f'{my_dir}/data/modelnet40aligned/EvenAlignedModelNet40PC'
-        self.chosen_axis= None
 
+def load_input(cfg):
+    res_path = f'{my_dir}/results/test_pred/{cfg.name_dset}/{cfg.exp_num}_unseen_part_rt_pn_general.npy'
+    results = np.load(res_path, allow_pickle=True).item()
+    infos_dict, track_dict = results['info'], results['err']
+    return infos_dict, track_dict
+    
 if __name__ == "__main__":
     voxel_size = 0.02  # means 5cm for the dataset
     pv.set_plot_theme("document")

@@ -146,6 +146,7 @@ models=epn exp_num='0.858b1' model.model='enc_so3net' encoder_type=enc_so3net mo
 datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='chair' dataset_class=AE \
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 augment=True MODEL.num_in_channels=1 use_objective_R=True model.kpconv=True \
+eval=True save=True 2>&1 | tee evaluation/logs/0.858b1.txt
 use_wandb=True
 ##>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> sofa >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>.
 #>
@@ -191,6 +192,7 @@ models=epn exp_num='0.859b1' model.model='enc_so3net' encoder_type=enc_so3net mo
 datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='sofa' dataset_class=AE \
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 augment=True MODEL.num_in_channels=1 use_objective_R=True model.kpconv=True \
+eval=True save=True 2>&1 | tee evaluation/logs/0.859b1.txt
 use_wandb=True
 ##>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>  bottle >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>.
 0.856: # bottle, ca221
@@ -209,7 +211,7 @@ models=epn exp_num='0.8561' model.model='enc_so3net' model.pooling_method='max' 
 datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='bottle' dataset_class=AE \
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 augment=True MODEL.num_in_channels=1 \
-r_method_type=1 \
+r_method_type=1  \
 use_wandb=True
 
 0.8562: # bottle, add quaternion limitation
@@ -229,6 +231,18 @@ TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 MODEL.num_in_channels=1 \
 use_objective_R=True use_objective_M=True \
 use_fps_points=True use_axis=True  \
+eval=True save=True
+
+use_wandb=True
+
+0.8562a1: # random R, airplane, but add T estimation, dense per-point voting, R0, ca201 1
+python train_aegan.py task='pcloud_pose' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
+models=epn exp_num='0.8562a1' model.model='enc_so3net' model.pooling_method='max' \
+datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='bottle' dataset_class=AE \
+TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
+MODEL.num_in_channels=1 \
+use_objective_R=True use_objective_M=True \
+use_fps_points=True use_axis=True  \
 use_wandb=True
 
 0.8562b: # random R, airplane, but add T estimation, dense per-point voting, R0, ca201 1
@@ -239,6 +253,7 @@ TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 MODEL.num_in_channels=1 \
 use_objective_R=True use_objective_M=True \
 use_fps_points=True use_axis=True \
+eval=True save=True
 use_wandb=True
 
 0.8562b1: # random R, airplane, but add T estimation, dense per-point voting, R0, ca201 1
@@ -249,6 +264,7 @@ TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 MODEL.num_in_channels=1 \
 use_objective_R=True use_objective_M=True \
 use_fps_points=True use_axis=True \
+eval=True save=True 2>&1 | tee evaluation/logs/0.8562b1.txt
 use_wandb=True
 
 #

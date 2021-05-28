@@ -78,16 +78,23 @@ class NOCSDatasetNewer(data.Dataset):
             split_folder = 'val'
         self.object_path = join(second_path, f'data/nocs/obj_models/{split_folder}', category_id)
         self.object_path_external = join(group_path, f'external/ShapeNetCore.v2/{category_id}/')
-        instances_used = [f for f in os.listdir(self.object_path_external) if os.path.isdir(join(self.object_path, f))]
-        instances = [f for f in os.listdir(self.object_path_external) if os.path.isdir(join(self.object_path_external, f))]
+        instances_used = [f for f in os.listdir(self.object_path) if os.path.isdir(join(self.object_path, f))]
+        if self.target_category == 'laptop':
+            instances = instances_used
+        else:
+            instances = [f for f in os.listdir(self.object_path_external) if os.path.isdir(join(self.object_path_external, f))]
         print('--checking ', self.object_path, f' with {len(instances_used)} instances')
         print('--checking ', self.object_path_external, f' with {len(instances)} instances')
         self.instance_points = {}
         self.instances = instances
         for instance in instances:
-            model_path = join(self.object_path_external, instance, 'models', 'surface_points.pkl')
-            with open(model_path, "rb") as obj_f:
-                self.instance_points[instance] = pickle.load(obj_f)
+            if self.target_category == 'laptop':
+                model_path = join('/groups/arcadm/xiaolong/nocs_newer/model_pts', f'{instance}.npy')
+                self.instance_points[instance] = np.load(model_path, allow_pickle=True)
+            else:
+                model_path = join(self.object_path_external, instance, 'models', 'surface_points.pkl')
+                with open(model_path, "rb") as obj_f:
+                    self.instance_points[instance] = pickle.load(obj_f)
 
         # create NOCS dict
         manager = Manager()
@@ -121,12 +128,15 @@ class NOCSDatasetNewer(data.Dataset):
         instance_id   = fn.split('.')[-2].split('/')[-4]
 
         model_points  = self.get_complete_cloud(instance_id)
-        boundary_pts = [np.min(model_points, axis=0), np.max(model_points, axis=0)]
-        center_pt = (boundary_pts[0] + boundary_pts[1])/2
-        length_bb = np.linalg.norm(boundary_pts[0] - boundary_pts[1])
-        model_points = (model_points - center_pt.reshape(1, 3))/length_bb
-        calib_mat = rotate_about_axis(90 / 180 * np.pi, axis='y')
-        model_points = model_points @ calib_mat  + 0.5
+        if self.target_category == 'laptop':
+            model_points = model_points  + 0.5
+        else:
+            boundary_pts = [np.min(model_points, axis=0), np.max(model_points, axis=0)]
+            center_pt = (boundary_pts[0] + boundary_pts[1])/2
+            length_bb = np.linalg.norm(boundary_pts[0] - boundary_pts[1])
+            model_points = (model_points - center_pt.reshape(1, 3))/length_bb
+            calib_mat = rotate_about_axis(90 / 180 * np.pi, axis='y')
+            model_points = model_points @ calib_mat  + 0.5
 
         data_dict = np.load(fn, allow_pickle=True)['all_dict'].item()
         p_arr = data_dict['points']
@@ -247,7 +257,7 @@ def main(cfg):
     cfg.name_dset='nocs_newer'
     cfg.log_dir  = infos.second_path + cfg.log_dir
     # dset = NOCSDatasetNewer(cfg=cfg, split='train')
-    dset = NOCSDatasetNewer(cfg=cfg, split='real_train')
+    dset = NOCSDatasetNewer(cfg=cfg, split='train')
     #
     for i in range(len(dset)):  #
         dp = dset.__getitem__(i, verbose=True)

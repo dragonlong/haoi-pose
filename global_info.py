@@ -502,6 +502,7 @@ class global_info(object):
                             'cellphone': '02992529',# 831
                             'camera': '02942699',   # 113,
                             'remote': '04074963',   # 66
+                            'laptop': '03642806',   # 03642806?
                             'airplane': 'airplane',
                             'chair': 'chair',
                             'car': 'car'
@@ -515,6 +516,7 @@ class global_info(object):
                             '02992529': 'cellphone' ,# 831
                             '02942699': 'camera', # 113,
                             '04074963': 'remote', # 66
+                            '03642806': 'laptop',
                             'airplane': 'airplane',
                             'chair': 'chair',
                             'car': 'car'
