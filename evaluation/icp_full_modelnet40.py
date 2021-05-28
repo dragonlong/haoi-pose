@@ -498,8 +498,8 @@ class simple_config(object):
 
 
 def sub_proc(cfg, pc_canon, inputs, basenames, i_range, r_gt, t_gt):
-    err_dict = {'global': {}, 'rotate_60': {}}
-    all_poses = {'global': [], 'rotate_60': []}
+    err_dict = {'rotate_60': {}}
+    all_poses = {'rotate_60': []}
     for i in tqdm.tqdm(i_range):
         if cfg.icp_method_type == 1:
             # canon_name
@@ -516,7 +516,7 @@ def sub_proc(cfg, pc_canon, inputs, basenames, i_range, r_gt, t_gt):
         target_pts, source_pts = o3d.geometry.PointCloud(), o3d.geometry.PointCloud()
         target_pts.points = o3d.utility.Vector3dVector(inputs[i])
         source_pts.points = o3d.utility.Vector3dVector(pc_canon)
-        for init_method in ['global', 'rotate_60']:
+        for init_method in ['rotate_60']:
             pose = icp_registeration(copy.deepcopy(source_pts),
                                      copy.deepcopy(target_pts),
                                      init_method=init_method)
@@ -533,7 +533,7 @@ def sub_proc(cfg, pc_canon, inputs, basenames, i_range, r_gt, t_gt):
 
 
     final_dict = {}
-    for init_method in ['global', 'rotate_60']:
+    for init_method in ['rotate_60']:
         cur_dict = err_dict[init_method]
         final_dict[init_method] = {}
         cur_final = final_dict[init_method]
@@ -542,12 +542,12 @@ def sub_proc(cfg, pc_canon, inputs, basenames, i_range, r_gt, t_gt):
             cur_final[key] = np.mean(np.array(value))
             if key == 'rdiff':
                 cur_final['rdiff_mid'] = np.median(np.array(value))
-    all = {'err': err_dict, 'pose': all_poses}
-    results_folder = pjoin(cur_path, '..', 'icp_results', f'{cfg.name_dset}', f'{cfg.target_category}')
-    os.makedirs(results_folder, exist_ok=True)
-    np.savez_compressed(pjoin(results_folder, f'{i_range[0]}_{i_range[-1]}.npz'), all=all)
+    # all = {'err': err_dict, 'pose': all_poses}
+    # results_folder = pjoin(cur_path, '..', 'icp_results', f'{cfg.name_dset}', f'{cfg.target_category}')
+    # os.makedirs(results_folder, exist_ok=True)
+    # np.savez_compressed(pjoin(results_folder, f'{i_range[0]}_{i_range[-1]}.npz'), all=all)
     print(f'>>>>>>>>>>>>>>>>--{cfg.name_dset}--{cfg.target_category}--{i_range[0]}-{i_range[1]}<<<<<<<<<<<<<<<<<<')
-    for init_method in ['global', 'rotate_60']:
+    for init_method in ['rotate_60']:
         print('\n---Init:', init_method)
         for key, value in final_dict[init_method].items():
             print(f'{key}: {value}')
@@ -629,8 +629,10 @@ if __name__ == "__main__":
     # p.show_grid()
     # p.show()
 
-    for array in [inputs, basenames, r_gt, t_gt]:
-        array = array[::args.ds]
+    inputs = inputs[::args.ds]
+    basenames = basenames[::args.ds]
+    r_gt = r_gt[::args.ds]
+    t_gt = t_gt[::args.ds]
 
     total = len(inputs)
     length = (total + args.proc_num - 1) // args.proc_num

@@ -709,6 +709,9 @@ class PointAEPoseAgent(BaseAgent):
             self.delta_r = torch.eye(3).reshape((1, 3, 3)).cuda()
             self.delta_t = torch.zeros(1, 3).cuda()
 
+        self.delta_r = self.delta_r.reshape(1, 3, 3)
+        self.delta_t = self.delta_t.reshape(1, 3)
+
         # if self.config.use_axis or chosen_axis is not None:
         pred_rot    = torch.matmul(self.r_pred, self.delta_r.float().permute(0, 2, 1).contiguous())
         gt_rot      = data['R_gt'].cuda()  # [B, 3, 3]
