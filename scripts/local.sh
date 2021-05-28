@@ -54,3 +54,55 @@ scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/modelnet40new/0
 scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/modelnet40new/0.951r/generation/test*txt 0.951r/generation/
 scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/modelnet40new/0.96r/generation/test*txt 0.96r/generation/
 scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/modelnet40new/0.961r/generation/test*txt 0.961r/generation/
+
+
+cp -r 0.921r/ complete_car/
+cp -r 0.941r/ complete_bottle/
+cp -r 0.951r/ complete_chair/
+cp -r 0.961r/ complete_sofa/
+cp -r 0.913r/ complete_airplane/
+zip -r complete_bottle.zip complete_bottle/
+zip -r complete_car.zip complete_car/
+zip -r complete_chair.zip complete_chair/
+zip -r complete_sofa.zip complete_sofa/
+zip -r complete_airplane.zip complete_airplane/
+rclone sync . --include "{complete}*.{zip}" drive:Object_and_hands/results/preds/ -P
+
+if self.target_category == 'airplane':
+    self.exp_num    = '0.813'
+elif self.target_category == 'car':
+    self.exp_num    = '0.851'
+elif self.target_category == 'chair':
+    self.exp_num    = '0.8581'
+elif self.target_category == 'sofa':
+    self.exp_num    = '0.8591'
+elif self.target_category == 'bottle':
+    self.exp_num    = '0.8562'
+
+mkdir -p 0.813/generation/
+mkdir -p 0.851/generation/
+mkdir -p 0.8518/generation/
+mkdir -p 0.8591/generation/
+mkdir -p 0.8562/generation/
+scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/modelnet40aligned/0.851/generation/test*txt 0.851/generation/
+scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/modelnet40aligned/0.813/generation/test*txt 0.813/generation/
+scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/modelnet40aligned/0.8581/generation/test*txt 0.8581/generation/
+scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/modelnet40aligned/0.8591/generation/test*txt 0.8591/generation/
+scp lxiaol9@newriver1.arc.vt.edu:/groups/CESCA-CV/ICML2021/model/modelnet40aligned/0.8562/generation/test*txt 0.8562/generation/
+
+cp -r 0.851/ complete_car/
+cp -r 0.8562/ complete_bottle/
+cp -r 0.8581/ complete_chair/
+cp -r 0.8591/ complete_sofa/
+cp -r 0.813/ complete_airplane/
+zip -r complete_bottle.zip complete_bottle/
+zip -r complete_car.zip complete_car/
+zip -r complete_chair.zip complete_chair/
+zip -r complete_sofa.zip complete_sofa/
+zip -r complete_airplane.zip complete_airplane/
+
+
+'canon': our predicted Z in canonical space
+'target': reference NOCS
+'input': input points with RT
+'pred': transformed Z using RT predictions

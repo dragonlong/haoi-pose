@@ -85,7 +85,7 @@ def random_choice_noreplace(l, n_sample, num_draw):
                              axis=-1)[:, :n_sample]]
 
 
-def ransac_fit_r(batch_dr, max_iter=100, thres=1.0, chosen_axis=None):
+def ransac_fit_r(batch_dr, max_iter=100, thres=3.0, chosen_axis=None):
     # B, 3, 3
     best_score = 0
     chosen_hyp = None
@@ -198,7 +198,6 @@ def main(cfg):
     test_loader  = parser.validloader
     valid_dataset= parser.valid_dataset
     dp = valid_dataset.__getitem__(0)
-
     if cfg.eval_mini or cfg.eval:
         if 'ycb' in cfg.task:
             track_dict = {key: [] for key in ['rdiff', 'tdiff', '5deg', '5cm', '5deg5cm',
@@ -225,7 +224,8 @@ def main(cfg):
                 print(key, ':', np.array(value).mean())
                 if key == 'rdiff':
                     print(key, '_mid:', np.median(np.array(value)))
-
+                if key == 'tdiff':
+                    print(key, '_mid:\t ', np.median(np.array(value)))
                 value = np.array(value)
                 plot_distribution(value.reshape(-1), labelx=key, labely='frequency', title_name=f'{key}',
                                   sub_name=cfg.exp_num, save_fig=True)
@@ -352,6 +352,8 @@ def main(cfg):
                 continue
             print(key, '\t', np.array(value).mean())
             if key == 'rdiff':
+                print(key, '_mid \t', np.median(np.array(value)))
+            if key == 'tdiff':
                 print(key, '_mid \t', np.median(np.array(value)))
         if cfg.save:
             print('--saving to ', file_name)

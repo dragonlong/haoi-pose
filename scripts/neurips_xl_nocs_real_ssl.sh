@@ -12,14 +12,14 @@ use_pretrain=True pretrained_path='/groups/CESCA-CV/ICML2021/model/nocs_newer/1.
 use_wandb=True
 
 # 1.2: # su R T, scaled shape Z, laptop, ca213 1
-# python train_aegan.py task='partial_pcloud_pose_completion_ssl' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
-# models=epn exp_num='1.2_ssl' model.model='enc_so3net' model.pooling_method='max' \
-# datasets=nocs_newer item=nocs_newer name_dset=nocs_real target_category='laptop' dataset_class=AE \
-# TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
-# MODEL.num_in_channels=1 pred_t=True t_method_type=0 r_method_type=1 \
-#  \
-# use_fps_points=True \
-# use_wandb=True
+python train_aegan.py task='partial_pcloud_pose_completion_ssl' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \
+models=epn exp_num='1.2_ssl' model.model='enc_so3net' model.pooling_method='max' \
+datasets=nocs_newer item=nocs_newer name_dset=nocs_real target_category='laptop' dataset_class=AE \
+TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
+MODEL.num_in_channels=1 pred_t=True t_method_type=0 r_method_type=1 \
+use_fps_points=True \
+use_pretrain=True pretrained_path='/groups/CESCA-CV/ICML2021/model/nocs_newer/1.2_su_nocs/checkpoints' \
+use_wandb=True
 
 1.3_ssl: # su R T, scaled shape Z, mug, ca218 1
 python train_aegan.py task='partial_pcloud_pose_completion_ssl' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=5 \

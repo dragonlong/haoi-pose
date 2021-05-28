@@ -156,7 +156,7 @@ class Dataloader_ModelNet40New(data.Dataset):
             target = np.add(target, target_t)
         """
         if self.cfg.eval and self.cfg.pre_compute_delta:
-            cloud = model_points - 0.5
+            cloud = canon_cloud - 0.5
             R_gt  = torch.from_numpy(np.eye(3).astype(np.float32)) #
             T     = torch.from_numpy(np.zeros((1, 3)).astype(np.float32)) #
 
