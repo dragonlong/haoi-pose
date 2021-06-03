@@ -167,7 +167,7 @@ def ransac_fit_t(batch_dt, batch_dr, delta_r, max_iter=100, thres=0.025):
     def compute_t(sample_idx):
         t_samples = batch_dt[sample_idx]
         t_hyp = t_samples.mean(dim=0, keepdim=True)
-        err = torch.norm(t_hyp, batch_dt, dim=-1)
+        err = torch.norm(t_hyp - batch_dt, dim=-1)
         inliers = (err < thres) * 1.0
         curr_score = inliers.mean()
         return curr_score, t_hyp, torch.where(inliers)[0]
