@@ -127,6 +127,7 @@ class InterDownGraph(nn.Module): #
 
         return Gmid, Gout, xyz_ind
 
+
 class BuildGraph(nn.Module):
     """
     GPU-based graph builder, given input points, output/update a graph
@@ -138,9 +139,9 @@ class BuildGraph(nn.Module):
             self.npoint      = npoint
             self.n_sampler   = Sample(npoint)
         self.num_samples = num_samples
-        self.e_sampler   = SampleNeighbors(r, self.num_samples, knn=True)
+        self.e_sampler   = SampleNeighbors(r, self.num_samples, knn=True) # cpu or gpu, default CPU
 
-    def forward(self, xyz=None, G=None, h=None, BS=2):
+    def forward(self, xyz=None, G=None, h=None, BS=2, f_dim=3):
         """
         xyz: B, N, 3
         G and h are not necessary here(only add them when we want to downsample a graph)
@@ -162,15 +163,61 @@ class BuildGraph(nn.Module):
         neighbors_ind = self.e_sampler(pos, pos)
         glist = []
         for i in range(B):
-            src = neighbors_ind[i].contiguous().view(-1).cpu()
-            dst = torch.arange(pos[i].shape[0]).view(-1, 1).repeat(1, self.num_samples).view(-1)
-            g = dgl.DGLGraph((src.cpu(), dst.cpu()))
+            src = neighbors_ind[i].contiguous().view(-1)
+            dst = torch.arange(pos[i].shape[0]).view(-1, 1).repeat(1, self.num_samples).view(-1).cuda()
+            g = dgl.DGLGraph((src.long(), dst.long()))
             g.ndata['x'] = pos[i]
-            g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
+            g.ndata['f'] = torch.ones(pos[i].shape[0], f_dim, 1, device=pos.device).float() # num=3
             g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()] #[num_atoms,3] but we only supervise the half
+            #
             glist.append(g)
         G = dgl.batch(glist)
         return G, h
+
+# class BuildGraph(nn.Module):
+#     """
+#     GPU-based graph builder, given input points, output/update a graph
+#     """
+#     def __init__(self, num_samples=20, r=0.1, npoint=256, downsample=False):
+#         super().__init__()
+#         self.downsample=downsample
+#         if downsample:
+#             self.npoint      = npoint
+#             self.n_sampler   = Sample(npoint)
+#         self.num_samples = num_samples
+#         self.e_sampler   = SampleNeighbors(r, self.num_samples, knn=True)
+#
+#     def forward(self, xyz=None, G=None, h=None, BS=2):
+#         """
+#         xyz: B, N, 3
+#         G and h are not necessary here(only add them when we want to downsample a graph)
+#         BS: batch size
+#         """
+#         glist = []
+#         if xyz is None:
+#             xyz = G.ndata['x'].view(BS, -1, 3).contiguous()
+#         if self.downsample:
+#             xyz_ind, pos = self.n_sampler(xyz)
+#             if h is not None:
+#                 for key in h.keys():
+#                     h[key] = torch.gather(h[key].view(BS, -1, h[key].shape[-2], h[key].shape[-1]).contiguous(), 1, xyz_ind.long().unsqueeze(-1).unsqueeze(-1).repeat(1, 1, h[key].shape[-2], h[key].shape[-1]).contiguous())
+#                     h[key] = h[key].view(-1, h[key].shape[-2], h[key].shape[-1]).contiguous()
+#         else:
+#             pos = xyz
+#
+#         B, N, _ = pos.shape
+#         neighbors_ind = self.e_sampler(pos, pos)
+#         glist = []
+#         for i in range(B):
+#             src = neighbors_ind[i].contiguous().view(-1).cpu()
+#             dst = torch.arange(pos[i].shape[0]).view(-1, 1).repeat(1, self.num_samples).view(-1)
+#             g = dgl.DGLGraph((src.cpu(), dst.cpu()))
+#             g.ndata['x'] = pos[i]
+#             g.ndata['f'] = torch.ones(pos[i].shape[0], 1, 1, device=pos.device).float()
+#             g.edata['d'] = pos[i][dst.long()] - pos[i][src.long()] #[num_atoms,3] but we only supervise the half
+#             glist.append(g)
+#         G = dgl.batch(glist)
+#         return G, h
 
 def pdist2squared(x, y):
     """
@@ -200,7 +247,29 @@ class Sample(nn.Module):
 
         return xyz1_ind, xyz1.permute(0, 2, 1).contiguous()
 
-# class for neighborhoods sampling of points
+# # class for neighborhoods sampling of points
+# class SampleNeighbors(nn.Module):
+#     def __init__(self, radius, num_samples, knn=False):
+#         super(SampleNeighbors, self).__init__()
+#
+#         self.radius = radius
+#         self.num_samples = num_samples
+#         self.knn    = knn
+#
+#     def forward(self, xyz2, xyz1):
+#         """
+#         [BS, N, 3],
+#         find nearest points in xyz2 for every points in xyz1
+#         return [B, N, K]
+#         """
+#         if self.knn:
+#             dist= pdist2squared(xyz2.permute(0, 2, 1).contiguous(), xyz1.permute(0, 2, 1).contiguous())
+#             ind = dist.topk(self.num_samples+1, dim=1, largest=False)[1].int().permute(0, 2, 1).contiguous()[:, :, 1:]
+#         else:
+#             # TODO: need to remove self from neighborhood index
+#             ind = ball_query(self.radius, self.num_samples+1, xyz2, xyz1, False)
+#
+#         return ind
 class SampleNeighbors(nn.Module):
     def __init__(self, radius, num_samples, knn=False):
         super(SampleNeighbors, self).__init__()
@@ -218,6 +287,8 @@ class SampleNeighbors(nn.Module):
         if self.knn:
             dist= pdist2squared(xyz2.permute(0, 2, 1).contiguous(), xyz1.permute(0, 2, 1).contiguous())
             ind = dist.topk(self.num_samples+1, dim=1, largest=False)[1].int().permute(0, 2, 1).contiguous()[:, :, 1:]
+            # print('knn neighbors, ', self.num_samples, ':')
+            # print(ind[0])
         else:
             # TODO: need to remove self from neighborhood index
             ind = ball_query(self.radius, self.num_samples+1, xyz2, xyz1, False)
@@ -329,6 +400,7 @@ class SE3Transformer(nn.Module):
         self.num_mid_channels = cfg.MODEL.num_mid_channels
         self.num_out_channels = cfg.MODEL.num_out_channels
         self.num_channels_R   = cfg.MODEL.num_channels_R
+        self.num_channels_T   = cfg.MODEL.num_channels_T
         self.num_degrees     = cfg.MODEL.num_degrees
         self.edge_dim        = cfg.MODEL.edge_dim
         self.encoder_only    = cfg.MODEL.encoder_only
@@ -344,8 +416,8 @@ class SE3Transformer(nn.Module):
                        'out': Fiber(self.num_degrees, self.num_out_channels),         # should matche last upsampling layer ouput
                        'out_type0': Fiber(1, self.latent_dim),                        # latent_dim matches with Decoder
                        'out_type1_R': Fiber(self.num_degrees, self.num_channels_R),
-                       'out_type1_T': Fiber(self.num_degrees, 1)}                     # additional type 1 for center voting;
-
+                       'out_type1_T': Fiber(self.num_degrees, self.num_channels_T)}                     # additional type 1 for center voting;
+        self.builder = BuildGraph(num_samples=10)
         self._build_gcn(cfg.MODEL)
 
     def _build_gcn(self, opt, verbose=False):
@@ -391,10 +463,12 @@ class SE3Transformer(nn.Module):
 
         return
     # len(tr_agent.net.encoder.Gblock)
-    def forward(self, G, verbose=False):
+    def forward(self, G, xyz=None, verbose=False):
         """
         input graph
         """
+        if xyz is not None:
+            G, _    = self.builder(xyz, f_dim=1)
         # Compute equivariant weight basis from relative positions
         basis, r = get_basis_and_r(G, self.num_degrees-1)
         h0 = {'0': G.ndata['f']}
@@ -436,13 +510,14 @@ class SE3Transformer(nn.Module):
         pred_R   = self.Oblock[1](h, G=G, r=r, basis=basis) #
         pred_T   = self.Oblock[2](h, G=G, r=r, basis=basis) # 1. dense type 1 feature for T
 
-        output_R = pred_R['1']/(torch.norm(pred_R['1'], dim=-1, keepdim=True) + eps)
-        pred_dict.update({'R': output_R, 'R0': pred_R['0'], 'T': pred_T['1'], 'N': pred_S['0']})
+        output_R = F.normalize(pred_R['1'], p=2, dim=-1)
+        pred_dict.update({'R_raw': output_R, 'R0': pred_R['0'], 'T': pred_T['1'], 'N': pred_S['0']})
 
-        out      = {'0': pred_S['0'], '1': pred_R['1']}
+        out      = {'0': pred_S['0'], '1': output_R}
         out      = self.Pblock(out, G=G, r=r, basis=basis) # pooling
         pred_dict['0'] = out['0']                          # for shape embedding
         pred_dict['1'] = out['1']                          # for rotation average
+        pred_dict['R'] = out['1']
         pred_dict['G'] = G
         if verbose:
             print(pred_dict['N'].shape, pred_dict['R'].shape)
@@ -927,7 +1002,7 @@ if __name__ == '__main__':
     npoints        = cfg.num_points
 
     # model
-    model = SE3Transformer(cfg=cfg, edge_dim=0, pooling='avg', n_heads=cfg.MODEL.n_heads).cuda()
+    model     = SE3Transformer(cfg=cfg, edge_dim=0, pooling='avg', n_heads=cfg.MODEL.n_heads).cuda()
     frnn      = FixedRadiusNearNeighbors(0.2, 10)
     device = torch.device("cuda")
     batch_size = 2

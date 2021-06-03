@@ -1,10 +1,23 @@
 # @package _global_
+# Network arguments
+model:
+  input_num: 512
+  dropout_rate: 0.
+  init_method: "xavier"
+  kpconv: False
+  kanchor: 60
+  normals: False # action='store_true', help='If set, add normals to the input')
+  flag: 'rotation'    # help='pooling method: max | mean | attention | rotation')
+  representation: 'quat' #ortho6d
+  pooling_method: 'mean'
+
 MODEL:
   num_layers: 12
   num_in_channels: 1
   num_mid_channels: 16
   num_out_channels: 32
   num_channels_R: 2 # or 1
+  num_channels_T: 1
   num_nlayers: 1
   num_degrees: 2
   edge_dim: 0

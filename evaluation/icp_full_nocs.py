@@ -559,7 +559,20 @@ class simple_config(object):
                 self.exp_num    = '0.941r'     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
                 self.symmetry_type = 1
                 self.chosen_axis = 'z'
-
+        elif name_dset == 'nocs_newer':
+            self.dataset_path=f'{my_dir}/data/modelnet40new/render/{target_category}/test/gt'
+            if self.target_category == 'airplane':
+                self.exp_num    = '0.913r'     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
+            elif self.target_category == 'car':
+                self.exp_num    = '0.921r'     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
+            elif self.target_category == 'chair':
+                self.exp_num    = '0.951r'     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
+            elif self.target_category == 'sofa':
+                self.exp_num    = '0.96r'     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
+            elif self.target_category == 'bottle':
+                self.exp_num    = '0.941r'     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
+                self.symmetry_type = 1
+                self.chosen_axis = 'z'
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

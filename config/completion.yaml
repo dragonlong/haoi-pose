@@ -30,6 +30,7 @@ item: 'obman'
 target_category: ''
 n_max_parts : 2
 num_points: 512
+in_points: 1024
 nocs_type: 'A'
 use_hand: False
 

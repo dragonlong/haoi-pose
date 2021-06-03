@@ -15,3 +15,5 @@ wandb
 .png
 .pcd
 /others
+.png
+.gif

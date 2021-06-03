@@ -240,6 +240,8 @@ class PointAEPoseAgent(BaseAgent):
         M  = self.config.num_modes_R
         CS = self.config.MODEL.num_channels_R
         device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+
+        # build Graph here!!!
         self.latent_vect = self.net.encoder(data['G'].to(device))
         if self.config.pred_nocs:
             self.output_N = self.net.regressor_nocs(self.latent_vect['N'].squeeze(-1).view(BS, -1, self.latent_vect['N'].shape[1]).contiguous().permute(0, 2, 1).contiguous()) # assume to be B*N, 128? --> 3 channel

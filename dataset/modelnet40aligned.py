@@ -56,9 +56,9 @@ class Dataloader_ModelNet40(data.Dataset):
     def __getitem__(self, index):
         data = sio.loadmat(self.all_data[index])
         if self.opt.use_fps_points:
-            _, pc = pctk.uniform_resample_np(data['pc'], 4 * self.opt.model.input_num)
+            _, pc = pctk.uniform_resample_np(data['pc'], 4 * self.opt.in_points)
         else:
-            _, pc = pctk.uniform_resample_np(data['pc'], self.opt.model.input_num)
+            _, pc = pctk.uniform_resample_np(data['pc'], self.opt.in_points)
 
         boundary_pts = [np.min(pc, axis=0), np.max(pc, axis=0)]
         center_pt = (boundary_pts[0] + boundary_pts[1])/2

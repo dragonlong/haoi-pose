@@ -77,10 +77,10 @@ class Dataloader_ModelNet40New(data.Dataset):
         if 'val' in self.mode:
             self.mode = 'test'
         if cfg.use_fps_points:
-            self.num_points = 4 * cfg.num_points
+            self.num_points = 4 * cfg.in_points
             print(f'---using {self.num_points} points as input')
         else:
-            self.num_points = cfg.num_points
+            self.num_points = cfg.in_points
 
         self.add_noise = cfg.DATASET.add_noise
         self.noise_trans = cfg.DATASET.noise_trans

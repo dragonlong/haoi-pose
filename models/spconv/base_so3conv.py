@@ -759,7 +759,7 @@ class SO3OutBlockR(nn.Module):
             c_in = c
 
     def forward(self, x, anchors=None):
-        batch_size = len(x.feats)
+        nb = len(x.feats)
         x_out = x.feats
         # if x_out.shape[-1] == 1:
         #     x_out = x_out.repeat(1, 1, 1, 60).contiguous()
@@ -844,11 +844,11 @@ class SO3OutBlockRT(nn.Module):
 
     def forward(self, x, anchors=None):
         x_out = x.feats         # nb, nc, np, na -> nb, nc, na
+        nb, nc, np, na = x_out.shape
         # if x_out.shape[-1] == 1:
         #     x_out = x_out.repeat(1, 1, 1, 60).contiguous()
         end = len(self.linear)
         for lid, linear in enumerate(self.linear):
-            # norm = self.norm[norm_cnt]
             x_out = linear(x_out)
             if self.norm is not None:
                 x_out = self.norm[lid](x_out)
@@ -863,15 +863,14 @@ class SO3OutBlockRT(nn.Module):
         elif self.pooling_method == 'pointnet':
             x_in = sptk.SphericalPointCloud(x.xyz, x_out, None)
             x_out = self.pointnet(x_in)
-
         t_out = self.regressor_dense_layer(torch.cat([x_out.unsqueeze(2).repeat(1, 1, shared_feat.shape[2], 1).contiguous(),
                                                       shared_feat], dim=1))  # dense branch, [B, 3 * num_heads, P, A]
-        t_out = t_out.reshape((batch_size, self.num_heads, 3) + t_out.shape[-2:])  # [B, num_heads, 3, P, A]
+        t_out = t_out.reshape((nb, self.num_heads, 3) + t_out.shape[-2:])  # [B, num_heads, 3, P, A]
         # anchors = torch.from_numpy(L.get_anchors(self.config.model.kanchor)).to(self.output_pts)
         if self.global_scalar:
-            y_t = self.regressor_scalar_layer(shared_feat.max(dim=-1)[0]).reshape(
-                batch_size, self.num_heads, -1)  # [B, num_heads, P]
-            y_t = F.normalize(t_out, p=2, dim=2) * y_t.unsqueeze(-1)   # 4, 3, 64, 60 [B, num_heads, 3, P, A]
+            y_t = self.regressor_scalar_layer(shared_feat.max(dim=-1)[0]).reshape(nb, self.num_heads, -1)  # [B, num_heads, P] --> [B, num_heads, P, A]
+            # y_t = F.normalize(t_out, p=2, dim=2) * y_t.unsqueeze(-1)   #  [B, num_heads, 3, P, A]
+            y_t = F.normalize(t_out, p=2, dim=2) * y_t.unsqueeze(2).unsqueeze(-1)
             if self.use_anchors:
                 y_t = (torch.matmul(anchors.unsqueeze(1),
                                    y_t.permute(0, 1, 4, 2, 3).contiguous())

@@ -49,6 +49,51 @@ augment=True MODEL.num_in_channels=1 use_objective_R=True model.kpconv=True \
 eval=True save=True
 use_wandb=True
 
+# 0.813c1: # self-supervision in camera space, random R, pointnet++, 60 modes
+# python train_aegan.py task='ssl_pcloud_pose_completion' training=ae_gan name_model=ae exp_num='0.813c1' save_frequency=10 vis=True \
+# models=pnet2 encoder_type=pnet2plusplus_so3 use_head_assemble=True \
+# datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='airplane' dataset_class=AE \
+# TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
+# augment=True MODEL.num_in_channels=0 \
+# eval=True save=True pre_compute_delta=True
+# use_wandb=True
+
+0.813d: # supervision in camera space, random R, with adaptive R label cls loss
+python train_aegan.py task='ssl_pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True save_frequency=10 nr_epochs=500 \
+models=epn exp_num='0.813d' model.model='enc_so3net' model.pooling_method='max' \
+datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='airplane' dataset_class=AE \
+TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 in_points=1024 model.input_num=1024 \
+augment=True MODEL.num_in_channels=1 \
+model.kpconv=True \
+use_wandb=True
+#
+# 0.813d1: # supervision in camera space, random R, kpconv, 60 heads modes
+# python train_aegan.py task='ssl_pcloud_pose_completion' training=ae_gan name_model=ae vis=True exp_num='0.813d1' save_frequency=10 vis=True \
+# models=epn encoder_type=enc_so3net model.model='enc_so3net' model.pooling_method='max' \
+# datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned target_category='airplane' dataset_class=AE \
+# TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
+# augment=True MODEL.num_in_channels=0 model.kpconv=True \
+# use_wandb=True
+# eval=True save=True pre_compute_delta=True
+
+0.813e: # self-supervised with SE3-transformer
+python train_aegan.py task='ssl_pcloud_pose_completion' training=ae_gan name_model=ae vis=True save_frequency=10 nr_epochs=500 \
+exp_num='0.813e' target_category='airplane' \
+models=se3_transformer_default encoder_type=se3_transformer MODEL.num_in_channels=1 MODEL.num_channels_R=4  MODEL.num_channels_T=2 num_points=1024 in_points=512 model.input_num=512 num_modes_R=2 \
+datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned dataset_class=AE \
+TRAIN.train_batch=2 TRAIN.test_batch=2 \
+augment=True use_head_assemble=True mode_features='[2, 'softmax']' \
+use_wandb=True
+
+0.813f: # self-supervised with SE3-transformer
+python train_aegan.py task='ssl_pcloud_pose_completion' training=ae_gan name_model=ae vis=True save_frequency=10 nr_epochs=500 \
+exp_num='0.813f' target_category='airplane' \
+models=se3_transformer_default encoder_type=se3_transformer MODEL.num_in_channels=1 num_modes_R=1 MODEL.num_channels_R=2 num_points=1024 in_points=512 model.input_num=512 \
+datasets=modelnet40aligned item=modelnet40aligned name_dset=modelnet40aligned dataset_class=AE \
+TRAIN.train_batch=2 TRAIN.test_batch=2 \
+augment=True use_head_assemble=True mode_features='[2, 'softmax']' \
+use_wandb=True
+
 ##>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>  car >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>.
 0.851: # car, ca202
 python train_aegan.py task='ssl_pcloud_pose_completion' training=ae_gan encoder_type=enc_so3net name_model=ae vis=True nr_epochs=1000 save_frequency=20 \

@@ -106,3 +106,72 @@ zip -r complete_airplane.zip complete_airplane/
 'target': reference NOCS
 'input': input points with RT
 'pred': transformed Z using RT predictions
+
+(py36) dragon@dragon:~/Dropbox/ICML2021/code/haoi-pose/evaluation$ h | g partial_car
+ 1899  cp -r 0.921r/ partial_car/
+ 1905  zip -r partial_car.zip partial_car/
+ 2004  h | g partial_car
+(py36) dragon@dragon:~/Dropbox/ICML2021/code/haoi-pose/evaluation$ h | g partial_airplane
+ 1903  cp -r 0.913r/ partial_airplane/
+ 1908  zip -r partial_airplane.zip partial_airplane/
+ 2005  h | g partial_airplane
+(py36) dragon@dragon:~/Dropbox/ICML2021/code/haoi-pose/evaluation$ h | g partial_sofa
+ 1902  cp -r 0.961r/ partial_sofa/
+ 1907  zip -r partial_sofa.zip partial_sofa/
+ 2006  h | g partial_sofa
+(py36) dragon@dragon:~/Dropbox/ICML2021/code/haoi-pose/evaluation$ h | g partial_chair
+ 1901  cp -r 0.951r/ partial_chair/
+ 1906  zip -r partial_chair.zip partial_chair/
+ 2007  h | g partial_chair
+(py36) dragon@dragon:~/Dropbox/ICML2021/code/haoi-pose/evaluation$ h | g partial_bottle
+ 1898  zip -r partial_bottle.zip 0.921r/
+ 1900  cp -r 0.941r/ partial_bottle/
+ 1904  zip -r partial_bottle.zip partial_bottle/
+ 2008  h | g partial_bottle
+
+ python viz_pyvista.py --target_entry complete_car
+
+ (py36) dragon@dragon:~/Dropbox/ICML2021/code/haoi-pose/evaluation$ python viz_pyvista.py --target_entry complete_car
+ [(0.5309164815493399, -3.769319975096356, 1.921953276803789),
+  (0.5, 0.5, 0.5),
+  (-0.8475796668394029, 0.16215458883588682, 0.5052866490219897)]
+ (py36) dragon@dragon:~/Dropbox/ICML2021/code/haoi-pose/evaluation$ python viz_pyvista.py --target_entry complete_sofa
+ [(1.6142431664203394, 0.3717558586450132, 4.857982974530071),
+  (0.5, 0.5, 0.5),
+  (-0.9688074820127506, 0.0031137579585255124, 0.24779501065899134)]
+ (py36) dragon@dragon:~/Dropbox/ICML2021/code/haoi-pose/evaluation$ python viz_pyvista.py --target_entry complete_sofa
+ [(0.5, 0.5, 5.0),
+  (0.5, 0.5, 0.5),
+  (-1.0, 0.0, 0.0)]
+ (py36) dragon@dragon:~/Dropbox/ICML2021/code/haoi-pose/evaluation$ python viz_pyvista.py --target_entry complete_sofa
+ [(0.5, 0.5, 5.0),
+  (0.5, 0.5, 0.5),
+  (-1.0, 0.0, 0.0)]
+ (py36) dragon@dragon:~/Dropbox/ICML2021/code/haoi-pose/evaluation$ python viz_pyvista.py --target_entry complete_sofa
+ [(-3.955601057111286, 3.0758286534868624, 2.277850097096413),
+  (0.5, 0.5, 0.5),
+  (0.06874823767700966, -0.48341465603108646, 0.872687773576926)]
+ (py36) dragon@dragon:~/Dropbox/ICML2021/code/haoi-pose/evaluation$ python viz_pyvista.py --target_entry complete_bottle
+ [(2.5952189832029404, -4.452374507640515, 1.355610395273453),
+  (0.5, 0.5, 0.5),
+  (-0.060068642651314674, 0.14520779338842588, 0.9875760501902084)]
+ (py36) dragon@dragon:~/Dropbox/ICML2021/code/haoi-pose/evaluation$ python viz_pyvista.py --target_entry partial_airplane
+ [(0.5, 0.5, 5.0),
+  (0.5, 0.5, 0.5),
+  (-1.0, 0.0, 0.0)]
+ (py36) dragon@dragon:~/Dropbox/ICML2021/code/haoi-pose/evaluation$ python viz_pyvista.py --target_entry partial_car
+ [(3.4900215341750975, 3.4519476397528868, 2.111141321339517),
+  (0.5, 0.5, 0.5),
+  (-0.23706881250698866, -0.2693215875542848, 0.9334153741040299)]
+ (py36) dragon@dragon:~/Dropbox/ICML2021/code/haoi-pose/evaluation$ python viz_pyvista.py --target_entry partial_chair
+ [(4.29269707970993, -2.0102320189096123, 3.493694886390554),
+  (0.5, 0.5, 0.5),
+  (-0.6587681047843262, -0.10724692248497691, 0.7446627973360616)]
+ (py36) dragon@dragon:~/Dropbox/ICML2021/code/haoi-pose/evaluation$ python viz_pyvista.py --target_entry partial_sofa
+ [(-2.8929695341676167, 3.963088479451781, 2.97846745463794),
+  (0.5, 0.5, 0.5),
+  (0.25372528310130393, -0.38612518761463016, 0.8868657283967685)]
+ (py36) dragon@dragon:~/Dropbox/ICML2021/code/haoi-pose/evaluation$ python viz_pyvista.py --target_entry partial_bottle
+ [(-4.799448973047865, -0.5000692310061894, 1.2508176311576813),
+  (0.5, 0.5, 0.5),
+  (0.13377648488659183, 0.0346694120842685, 0.9904049090938103)]

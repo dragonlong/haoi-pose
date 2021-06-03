@@ -4,12 +4,24 @@ import numpy as np
 from os import makedirs, remove
 from os.path import exists, join
 from glob import glob
+import scipy.io as sio
+import argparse
 # import matplotlib
 # import matplotlib.pyplot as plt
 ###############################################################################
 # Glyphying can be done via the :func:`pyvista.DataSetFilters.glyph` filter
 def bp():
     import pdb;pdb.set_trace()
+import __init__
+from global_info import global_info
+infos           = global_info()
+my_dir          = infos.base_path
+project_path    = infos.project_path
+categories_id   = infos.categories_id
+categories      = infos.categories
+my_dir          = infos.base_path
+delta_R         = infos.delta_R
+delta_T         = infos.delta_T
 
 """
 >>>>>>>>>>>>>>>>>>>>>>>  knowledge <<<<<<<<<<<<<<<<<<<<<<<
@@ -86,100 +98,181 @@ def get_axis(r_mat):
     z_axis = np.matmul(np.array([[0.0, 0.0, 1.0]])[np.newaxis, :, :], r_mat.transpose(0, 2, 1))
     return x_axis, y_axis, z_axis
 
+class simple_config(object):
+    def __init__(self, target_entry, icp_method_type=0):
+        target_category=target_entry.split('_')[1]
+        if target_entry.split('_')[0] == 'complete':
+            name_dset='modelnet40aligned'
+        else:
+            name_dset='modelnet40new'
+        self.log_dir = 'default'
+        self.icp_method_type  = icp_method_type    # -1 for predicted shape, 0 for example shape, 1 for GT shape
+        self.symmetry_type    = 0                  # 0 for non-symmetric, 1 for symmetric;
+        self.name_dset        = name_dset
+        self.target_category=target_category
+        self.chosen_axis= None
+        self.canonical_path=f'{my_dir}/data/modelnet40aligned/EvenAlignedModelNet40PC'
+        if name_dset == 'modelnet40aligned':
+            self.dataset_path=f'{my_dir}/data/modelnet40aligned/EvenAlignedModelNet40PC'
+            if self.target_category == 'airplane':
+                self.exp_num    = '0.813'     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
+            elif self.target_category == 'car':
+                self.exp_num    = '0.851'     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
+            elif self.target_category == 'chair':
+                self.exp_num    = '0.8581'     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
+            elif self.target_category == 'sofa':
+                self.exp_num    = '0.8591'     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
+            elif self.target_category == 'bottle':
+                self.exp_num    = '0.8562'     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
+                self.symmetry_type = 1
+                self.chosen_axis = 'z'
+        elif name_dset == 'modelnet40new':
+            self.dataset_path=f'{my_dir}/data/modelnet40new/render/{target_category}/test/gt'
+            if self.target_category == 'airplane':
+                self.exp_num    = '0.913r'     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
+            elif self.target_category == 'car':
+                self.exp_num    = '0.921r'     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
+            elif self.target_category == 'chair':
+                self.exp_num    = '0.951r'     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
+            elif self.target_category == 'sofa':
+                self.exp_num    = '0.961r'     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
+            elif self.target_category == 'bottle':
+                self.exp_num    = '0.941r'     # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
+                self.symmetry_type = 1
+                self.chosen_axis = 'z'
+
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--target_entry', default='complete_airplane', help='yyds')
+    args = parser.parse_args()
+
     pv.set_plot_theme("document")
     off_screen = False
     color      = 'gold' #'deepskyblue'
-    exp_num    = '0.913r' # '0.961r' #'0.94r' # 0.92 #0.81 # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
-    window_shape = (1,3)
+    target_entry    = args.target_entry # 'complete_airplane' # '0.961r' #'0.94r' # 0.92 #0.81 # 0.8475 # 0.855 #0.862 # 0.851 # 0.845 # 0.81 # 0.84
     k = 1.3
     k1 = 1.05
+    point_size   = 10
     font_size    = 18
     query_keys   = ['canon', 'target', 'input', 'pred'] #
-    fpath   = f'/home/dragon/Documents/ICML2021/results/preds/{exp_num}/generation/' # generation/generation
-    ###############################################################################
-    # Another approach is to load the vectors directly to the mesh object and then
-    # access the :attr:`pyvista.DataSet.arrows` property.
-    # fn = '/home/dragon/Documents/ICML2021/results/preds/train_0_0002_0_0.txt'
-    # fn = '/home/dragon/Documents/ICML2021/results/preds/0.59/train_2850_0002_850_0.txt'
-    # fn = '/home/dragon/Documents/ICML2021/results/preds/0.63/train_990_0002_0_0.txt'
-    # fn = '/home/dragon/Documents/ICML2021/results/preds/0.61/train_1000_0002_0_0.txt'
+    fpath   = f'/home/dragon/Documents/ICML2021/results/preds/{target_entry}/generation/' # generation/generation
     fnames = {}
     for key in query_keys:
-        fnames[key] = sorted(glob(f'{fpath}/*{key}*txt'))
+        fnames[key] = sorted(glob(f'{fpath}/*_0*_{key}*txt'))
 
     idxs = np.random.permutation(len(fnames['canon']))
-    p = pv.Plotter(off_screen=off_screen, lighting='light_kit')
-    for i in idxs:
-        fn = fnames['canon'][i]
-        point_cloud = pv.PolyData(np.loadtxt(fn, delimiter=' ').astype(np.float32)[:, :3]+0.4*i)
-        p.add_mesh(point_cloud, color=np.random.rand(3), point_size=5, render_points_as_spheres=True)
-    p.add_title('predicted shape space(100 unseen)', font_size=font_size)
-    p.show_grid()
-    p.show()
+    # p = pv.Plotter(off_screen=off_screen, lighting='light_kit', shape=(1, 1))
+    num  = 10
+    colors = np.random.rand(num, 3)
+    p = pv.Plotter(notebook=0, shape=(2, 10), border=False)
 
-    p = pv.Plotter(off_screen=off_screen, lighting='light_kit')
-    for i in idxs:
-        fn = fnames['canon'][i].replace('canon', 'target')
-        point_cloud = pv.PolyData(np.loadtxt(fn, delimiter=' ').astype(np.float32)[:, :3])
-        p.add_mesh(point_cloud, color=np.random.rand(3), point_size=5, render_points_as_spheres=True)
-    p.add_title('human-aligned shape space(100 unseen)', font_size=font_size)
-    p.show_grid()
-    p.show()
-    for fn in fnames['canon']:
-        points = {}
-        for key in query_keys:
-            point_normal_set = np.loadtxt(fn.replace('canon', key), delimiter=' ').astype(np.float32)
-            pts = point_normal_set[:, :3]
-            # if key == 'input':
-            #     refer_shift = pts.mean(axis=0, keepdims=True)
-            # if key == 'pred':
-            #     pts = pts + refer_shift
-            # r_mat  = point_normal_set[:, 4:].reshape(-1, 3, 3)
-            points[key] = pv.PolyData(pts)
-        # point_cloud['vectors'] = x_axis[:, 0, :]
-        # arrows = point_cloud.glyph(orient='vectors', scale=False, factor=0.15,)
-        p = pv.Plotter(off_screen=off_screen, lighting='light_kit', shape=window_shape)
-        p.add_mesh(points['target'], color='r', point_size=15, render_points_as_spheres=True)
-        # p.camera_position = [(0.1*k, 1.8*k, 2.0*k),
-        #                  (0.5, 0.5, 0.5),
-        #                  (-0.9814055156571295, -0.1437895877734097, -0.12715253943872534)]
-        p.camera_position = [(0.42189609206584944, 0.3720949834155453, 3.312479348599398),
-                         (0.5, 0.5, 0.5),
-                         (-0.999559884631558, 0.011789591923156638, -0.027222096863255326)]
-        # p.add_legend([['nocs', 'r']], bcolor=(1.0, 1.0, 1.0))
-        p.add_title('input(canonicalized)', font_size=font_size)
-        p.show_grid()
+    cfg = simple_config(target_entry)
+    # get delta_r, delta_t
+    entry_key = f'{cfg.exp_num}_{cfg.name_dset}_{cfg.target_category}'
+    delta_r = np.squeeze(delta_R[entry_key]) # I --> delta_r,
+    if entry_key in delta_T:
+        delta_t = delta_T[entry_key]
+    else:
+        delta_t = None
+    for i in range(num):
+        p.subplot(0,i)
+        index = idxs[i]
+        fn = fnames['canon'][index]
+        if delta_t is not None:
+            point_cloud = pv.PolyData((np.loadtxt(fn, delimiter=' ').astype(np.float32)[:, :3] - 0.5 - delta_t.reshape(1, 3) ) @ delta_r.T + 0.5)
+        else:
+            point_cloud = pv.PolyData((np.loadtxt(fn, delimiter=' ').astype(np.float32)[:, :3] - 0.5) @ delta_r.T + 0.5)
+        p.add_mesh(point_cloud, color=colors[i], point_size=point_size, render_points_as_spheres=True)
+        p.subplot(1,i)
+        instance_id = fn.split('.txt')[0].split('/')[-1].split('_')[2]
+        complete_fname = cfg.canonical_path + f'/{cfg.target_category}/test/{cfg.target_category}_{instance_id}.mat'
 
-        p.subplot(0,1)
-        p.add_mesh(points['canon'], color='g', point_size=15, render_points_as_spheres=True)
-        # p.camera_position = [(0.1*k, 1.8*k, 2.0*k),
-        #                  (0.5, 0.5, 0.5),
-        #                  (-0.9814055156571295, -0.1437895877734097, -0.12715253943872534)]
-        p.camera_position = [(1.6224649540075546*k1, 2.558959462540017*k1, -0.18487386521674765*k1),
-                         (0.5058576315641403, 0.5140270888805389, 0.5149073377251625),
-                         (-0.1485912819656584, -0.24657874854598089, -0.9576635900405216)]
+        pc = sio.loadmat(complete_fname)['pc']
+        boundary_pts = [np.min(pc, axis=0), np.max(pc, axis=0)]
+        center_pt = (boundary_pts[0] + boundary_pts[1])/2
+        length_bb = np.linalg.norm(boundary_pts[0] - boundary_pts[1])
+        pc_canon = (pc - center_pt.reshape(1, 3))/length_bb
+        pc_canon = pc_canon + 0.5 # NOCS space
+        pc_canon = np.random.permutation(pc_canon)[:3072]
+        point_cloud = pv.PolyData(pc_canon.astype(np.float32)[:, :3])
+        # complete_fname = glob(fpath.replace('partial', 'complete') + f'*{instance_id}_target*')
+        # point_cloud = pv.PolyData(np.loadtxt(complete_fname[0], delimiter=' ').astype(np.float32)[:, :3])
+        p.add_mesh(point_cloud, color=colors[i], point_size=point_size, render_points_as_spheres=True)
+    p.link_views()  # link all the views
+    p.camera_position = [(0.5, 0.5, 5), (0.5, 0.5, 0.5), (-1, 0, 0)]
 
-        # p.add_legend([['pred', 'g']], bcolor=(1.0, 1.0, 1.0))
-        p.add_title('predicted shape', font_size=font_size)
-        p.show_grid()
-        p.subplot(0,2)
-        sphere = pv.Sphere(radius=0.1)
-        p.add_mesh(sphere,  color='b')
-        p.add_mesh(points['pred'],  color='g', point_size=15, render_points_as_spheres=True)
-        p.add_mesh(points['input'], color='r', point_size=15, render_points_as_spheres=True)
-        p.add_legend([['pred', 'g'], ['input', 'r']], bcolor=(1.0, 1.0, 1.0))
-        p.add_title('pose estimation', font_size=font_size)
-        p.show_grid()
+    p.show(auto_close=False)
+    print(p.camera_position)
+    p.open_gif(f"./viz/{entry_key}.gif")
 
-        # p.subplot(0,3)
-        # sphere = pv.Sphere(radius=0.1)
-        # p.add_mesh(sphere,  color='b')
-        #
-        # p.add_mesh(points['icp'],  color='g', point_size=15, render_points_as_spheres=True)
-        # p.add_mesh(points['input'], color='r', point_size=15, render_points_as_spheres=True)
-        # p.add_legend([['icp', 'g'], ['input', 'r']], bcolor=(1.0, 1.0, 1.0))
-        # p.add_title('icp estimation', font_size=font_size)
-        # p.show_grid()
-        cpos = p.show(screenshot='test.png', window_size=(1980, 920))
-        print(cpos)
+    nframe = 1
+    for i in range(nframe):
+        p.camera_position = [(0.5, 0.5, 5), (0.5, 0.5, 0.5), (-1, 0, 0)]
+        p.write_frame()
+
+    p.close()
+    # p = pv.Plotter(off_screen=off_screen, lighting='light_kit')
+    # for i in idxs:
+    #     fn = fnames['canon'][i].replace('canon', 'target')
+    #     point_cloud = pv.PolyData(np.loadtxt(fn, delimiter=' ').astype(np.float32)[:, :3]+0.4*i)
+    #     p.add_mesh(point_cloud, color=np.random.rand(3), point_size=5, render_points_as_spheres=True)
+    # p.add_title('human-aligned shape space(100 unseen)', font_size=font_size)
+    # p.show()
+
+    # for fn in fnames['canon']:
+    #     points = {}
+    #     for key in query_keys:
+    #         point_normal_set = np.loadtxt(fn.replace('canon', key), delimiter=' ').astype(np.float32)
+    #         pts = point_normal_set[:, :3]
+    #         # if key == 'input':
+    #         #     refer_shift = pts.mean(axis=0, keepdims=True)
+    #         # if key == 'pred':
+    #         #     pts = pts + refer_shift
+    #         # r_mat  = point_normal_set[:, 4:].reshape(-1, 3, 3)
+    #         points[key] = pv.PolyData(pts)
+    #     # point_cloud['vectors'] = x_axis[:, 0, :]
+    #     # arrows = point_cloud.glyph(orient='vectors', scale=False, factor=0.15,)
+    #     p = pv.Plotter(off_screen=off_screen, lighting='light_kit', shape=window_shape)
+    #     p.add_mesh(points['target'], color='r', point_size=15, render_points_as_spheres=True)
+    #     # p.camera_position = [(0.1*k, 1.8*k, 2.0*k),
+    #     #                  (0.5, 0.5, 0.5),
+    #     #                  (-0.9814055156571295, -0.1437895877734097, -0.12715253943872534)]
+    #     p.camera_position = [(0.42189609206584944, 0.3720949834155453, 3.312479348599398),
+    #                      (0.5, 0.5, 0.5),
+    #                      (-0.999559884631558, 0.011789591923156638, -0.027222096863255326)]
+    #     # p.add_legend([['nocs', 'r']], bcolor=(1.0, 1.0, 1.0))
+    #     p.add_title('input(canonicalized)', font_size=font_size)
+    #     p.show_grid()
+    #
+    #     p.subplot(0,1)
+    #     p.add_mesh(points['canon'], color='g', point_size=15, render_points_as_spheres=True)
+    #     # p.camera_position = [(0.1*k, 1.8*k, 2.0*k),
+    #     #                  (0.5, 0.5, 0.5),
+    #     #                  (-0.9814055156571295, -0.1437895877734097, -0.12715253943872534)]
+    #     p.camera_position = [(1.6224649540075546*k1, 2.558959462540017*k1, -0.18487386521674765*k1),
+    #                      (0.5058576315641403, 0.5140270888805389, 0.5149073377251625),
+    #                      (-0.1485912819656584, -0.24657874854598089, -0.9576635900405216)]
+    #
+    #     # p.add_legend([['pred', 'g']], bcolor=(1.0, 1.0, 1.0))
+    #     p.add_title('predicted shape', font_size=font_size)
+    #     p.show_grid()
+    #     p.subplot(0,2)
+    #     sphere = pv.Sphere(radius=0.1)
+    #     p.add_mesh(sphere,  color='b')
+    #     p.add_mesh(points['pred'],  color='g', point_size=15, render_points_as_spheres=True)
+    #     p.add_mesh(points['input'], color='r', point_size=15, render_points_as_spheres=True)
+    #     p.add_legend([['pred', 'g'], ['input', 'r']], bcolor=(1.0, 1.0, 1.0))
+    #     p.add_title('pose estimation', font_size=font_size)
+    #     p.show_grid()
+    #
+    #     # p.subplot(0,3)
+    #     # sphere = pv.Sphere(radius=0.1)
+    #     # p.add_mesh(sphere,  color='b')
+    #     #
+    #     # p.add_mesh(points['icp'],  color='g', point_size=15, render_points_as_spheres=True)
+    #     # p.add_mesh(points['input'], color='r', point_size=15, render_points_as_spheres=True)
+    #     # p.add_legend([['icp', 'g'], ['input', 'r']], bcolor=(1.0, 1.0, 1.0))
+    #     # p.add_title('icp estimation', font_size=font_size)
+    #     # p.show_grid()
+    #     cpos = p.show(screenshot='test.png', window_size=(1980, 920))
+    #     print(cpos)
