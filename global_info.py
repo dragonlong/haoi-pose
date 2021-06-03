@@ -537,6 +537,9 @@ class global_info(object):
         sym_type['car']= {'y': 1}
         sym_type['sofa']= {'y': 1}
         sym_type['laptop']= {'y': 1}
+        sym_type['1'] = {'x' : 1, 'y': 2, 'z': 100}
+        sym_type['2'] = {'x' : 2, 'y': 2, 'z': 2}
+        sym_type['15'] = {'y': 1}
         self.sym_type = sym_type
 
         delta_R = {}

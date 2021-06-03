@@ -69,6 +69,8 @@ class BaseAgent(object):
         self.cam = FoVPerspectiveCameras(znear=0.1, zfar=far, fov=60.0, device="cuda:0") # aspect ratio is 1.0, with same
 
 
+        if self.config.target_category == '':
+            self.config.target_category = str(self.config.instance)
         sym_dict = infos.sym_type[self.config.target_category]
         chosen_axis = None
         for key, M in sym_dict.items():
