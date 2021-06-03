@@ -853,6 +853,14 @@ class PointAEPoseAgent(BaseAgent):
         else:
             return None
 
+    def get_pose_dict(self, data):
+        ret_dict = {}
+        for i, name in enumerate(data['fn']):
+            ret_dict[name] = {'r': self.r_pred[i].numpy().cpu(),
+                              't': self.t_pred[i].numpy().cpu()}
+        return ret_dict
+
+
     def visualize_batch(self, data, mode, **kwargs):
         tb = self.train_tb if mode == 'train' else self.val_tb
         num = min(data['points'].shape[0], 12)

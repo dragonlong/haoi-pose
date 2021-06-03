@@ -263,6 +263,7 @@ def main(cfg):
         if 'ycb' in cfg.task:
             track_dict = {key: [] for key in ['rdiff', 'tdiff', '5deg', '5cm', '5deg5cm',
                                               'add', 'adds', 'add_acc', 'adds_acc', 'chamferL1']}
+            pose_dict = {}
             for num, data in tqdm(enumerate(test_loader), total=len(test_loader)):
                 torch.cuda.empty_cache()
                 tr_agent.val_func(data)
@@ -276,14 +277,15 @@ def main(cfg):
                     track_dict[key] += value.float().cpu().numpy().tolist()
                 if 'completion' in cfg.task:
                     track_dict['chamferL1'].append(torch.sqrt(tr_agent.recon_loss).cpu().numpy().tolist())
+                pose_dict.update(tr_agent.get_pose_dict(data))
 
-                tr_agent.visualize_batch(data, "test")
+                # tr_agent.visualize_batch(data, "test")
 
             for key, value in track_dict.items():
                 if len(value) < 1:
                     continue
                 print(key, ':', np.array(value).mean())
-                if key == 'rdiff':
+                if key in ['rdiff', 'tdiff']:
                     print(key, '_mid:', np.median(np.array(value)))
 
                 value = np.array(value)
@@ -299,6 +301,12 @@ def main(cfg):
             os.makedirs(os.path.dirname(file_name), exist_ok=True)
             print('--saving to ', file_name)
             np.savez_compressed(file_name, err=track_dict)
+
+            file_name = os.path.join(os.path.dirname(__file__), 'results', 'test_pred', 'ycb',
+                                     str(cfg.instance), f'{cfg.exp_num}_pose.npz')
+            os.makedirs(os.path.dirname(file_name), exist_ok=True)
+            print('--saving to ', file_name)
+            np.savez_compressed(file_name, pose=pose_dict)
             return
 
         if cfg.pre_compute_delta:
@@ -420,7 +428,7 @@ def main(cfg):
             if len(value) < 1:
                 continue
             print(key, '\t', np.array(value).mean())
-            if key == 'rdiff':
+            if key in ['rdiff', 'tdiff']:
                 print(key, '_mid \t', np.median(np.array(value)))
         if cfg.save:
             print('--saving to ', file_name)
