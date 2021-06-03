@@ -856,8 +856,8 @@ class PointAEPoseAgent(BaseAgent):
     def get_pose_dict(self, data):
         ret_dict = {}
         for i, name in enumerate(data['fn']):
-            ret_dict[name] = {'r': self.r_pred[i].numpy().cpu(),
-                              't': self.t_pred[i].numpy().cpu()}
+            ret_dict[name] = {'r': self.r_pred[i].cpu().numpy(),
+                              't': self.t_pred[i].cpu().numpy()}
         return ret_dict
 
 
