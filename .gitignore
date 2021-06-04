@@ -13,5 +13,6 @@ wandb
 /results
 .npy
 .png
-.pcd
-.gif
+*.pcd
+*.gif
+*.npz

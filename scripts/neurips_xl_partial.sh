@@ -193,6 +193,7 @@ datasets=modelnet40new item=modelnet40new name_dset=modelnet40new target_categor
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 MODEL.num_in_channels=1 pred_t=True t_method_type=1 \
 use_fps_points=True \
+eval=True save=True pre_compute_delta=True
 use_wandb=True
 
 0.913d1: # supervision in camera space, airplane, but add T estimation, use fps sampling, use KPConv, t_methods = 0
@@ -202,6 +203,7 @@ datasets=modelnet40new item=modelnet40new name_dset=modelnet40new target_categor
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
 use_fps_points=True \
+eval=True save=True pre_compute_delta=True
 use_wandb=True
 
 0.91e: # self-supervised with SE3-transformer
@@ -212,6 +214,18 @@ datasets=modelnet40new item=modelnet40new name_dset=modelnet40new dataset_class=
 TRAIN.train_batch=2 TRAIN.test_batch=2 \
 augment=True use_head_assemble=True mode_features='[2, 'softmax']' \
 pred_t=True t_method_type=1 \
+eval=True save=True pre_compute_delta=True
+use_wandb=True
+
+0.911e: # self-supervised with SE3-transformer
+python train_aegan.py task='ssl_partial_pcloud_pose_completion' training=ae_gan name_model=ae vis=True save_frequency=10 nr_epochs=500 \
+exp_num='0.911e' target_category='airplane' \
+models=se3_transformer_default encoder_type=se3_transformer MODEL.num_in_channels=1 MODEL.num_channels_R=4 MODEL.num_channels_T=2 num_points=1024 model.input_num=512 num_modes_R=2 \
+datasets=modelnet40new item=modelnet40new name_dset=modelnet40new dataset_class=AE \
+TRAIN.train_batch=2 TRAIN.test_batch=2 \
+augment=True use_head_assemble=True mode_features='[2, 'softmax']' \
+pred_t=True t_method_type=1 \
+eval=True save=True pre_compute_delta=True
 use_wandb=True
 
 0.91f: # self-supervised with SE3-transformer
@@ -222,6 +236,21 @@ datasets=modelnet40new item=modelnet40new name_dset=modelnet40new dataset_class=
 TRAIN.train_batch=2 TRAIN.test_batch=2 \
 augment=True use_head_assemble=True mode_features='[2, 'softmax']' \
 pred_t=True t_method_type=1 \
+eval=True save=True pre_compute_delta=True
+2>&1 | tee evaluation/logs/0.91f.txt
+
+pre_compute_delta=True
+use_wandb=True
+
+0.91f1: # self-supervised with SE3-transformer
+python train_aegan.py task='ssl_partial_pcloud_pose_completion' training=ae_gan name_model=ae vis=True save_frequency=10 nr_epochs=500 \
+exp_num='0.91f1' target_category='airplane' \
+models=se3_transformer_default encoder_type=se3_transformer MODEL.num_in_channels=1 num_modes_R=1 MODEL.num_channels_R=2 num_points=1024 in_points=512 model.input_num=512 \
+datasets=modelnet40new item=modelnet40new name_dset=modelnet40new dataset_class=AE \
+TRAIN.train_batch=2 TRAIN.test_batch=2 \
+augment=True use_head_assemble=True mode_features='[2, 'softmax']' \
+pred_t=True t_method_type=1 use_fps_points=True \
+eval=True save=True pre_compute_delta=True 2>&1 | tee evaluation/logs/0.91f1.txt
 use_wandb=True
 # >>>> 0.92, car
 # 0.92: # supervision in camera space, random R, airplane, but add T estimation, R0
@@ -309,7 +338,25 @@ MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
 use_objective_R=True use_objective_M=True use_objective_T=True \
 use_wandb=True
 
+0.92e: # self-supervised with SE3-transformer
+python train_aegan.py task='ssl_partial_pcloud_pose_completion' training=ae_gan name_model=ae vis=True save_frequency=10 nr_epochs=500 \
+exp_num='0.92e' target_category='car' \
+models=se3_transformer_default encoder_type=se3_transformer MODEL.num_in_channels=1 MODEL.num_channels_R=4 MODEL.num_channels_T=2 num_points=1024 model.input_num=512 num_modes_R=2 \
+datasets=modelnet40new item=modelnet40new name_dset=modelnet40new dataset_class=AE \
+TRAIN.train_batch=2 TRAIN.test_batch=2 \
+augment=True use_head_assemble=True mode_features='[2, 'softmax']' \
+pred_t=True t_method_type=1 \
+use_wandb=True
 
+0.92f: # self-supervised with SE3-transformer
+python train_aegan.py task='ssl_partial_pcloud_pose_completion' training=ae_gan name_model=ae vis=True save_frequency=10 nr_epochs=500 \
+exp_num='0.92f' target_category='car' \
+models=se3_transformer_default encoder_type=se3_transformer MODEL.num_in_channels=1 num_modes_R=1 MODEL.num_channels_R=2 num_points=1024 in_points=512 model.input_num=512 \
+datasets=modelnet40new item=modelnet40new name_dset=modelnet40new dataset_class=AE \
+TRAIN.train_batch=2 TRAIN.test_batch=2 \
+augment=True use_head_assemble=True mode_features='[2, 'softmax']' \
+pred_t=True t_method_type=1 use_fps_points=True \
+use_wandb=True
 
 # # >>>> 0.93, ca203 1
 # 0.93: # supervision in camera space, random R, airplane, but add T estimation, dense per-point voting, R0
@@ -369,6 +416,16 @@ use_fps_points=True use_axis=True \
 eval=True save=True
 use_wandb=True
 
+0.94f: # self-supervised with SE3-transformer
+python train_aegan.py task='ssl_partial_pcloud_pose_completion' training=ae_gan name_model=ae vis=True save_frequency=10 nr_epochs=500 \
+exp_num='0.94f' target_category='bottle' \
+models=se3_transformer_default encoder_type=se3_transformer MODEL.num_in_channels=1 num_modes_R=1 MODEL.num_channels_R=2 num_points=1024 in_points=512 model.input_num=512 \
+datasets=modelnet40new item=modelnet40new name_dset=modelnet40new dataset_class=AE \
+TRAIN.train_batch=2 TRAIN.test_batch=2 \
+augment=True use_head_assemble=True mode_features='[2, 'softmax']' \
+pred_t=True t_method_type=1 \
+use_fps_points=True use_axis=True \
+use_wandb=True
 
 # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> chair <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<,
 0.95r: # supervision in camera space, bottle, but add T estimation, use fps sampling,
@@ -407,6 +464,16 @@ MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
 use_objective_R=True use_objective_M=True use_objective_T=True \
 use_wandb=True
 
+0.95f: # self-supervised with SE3-transformer
+python train_aegan.py task='ssl_partial_pcloud_pose_completion' training=ae_gan name_model=ae vis=True save_frequency=10 nr_epochs=500 \
+exp_num='0.95f' target_category='chair' \
+models=se3_transformer_default encoder_type=se3_transformer MODEL.num_in_channels=1 num_modes_R=1 MODEL.num_channels_R=2 num_points=1024 in_points=512 model.input_num=512 \
+datasets=modelnet40new item=modelnet40new name_dset=modelnet40new dataset_class=AE \
+TRAIN.train_batch=2 TRAIN.test_batch=2 \
+augment=True use_head_assemble=True mode_features='[2, 'softmax']' \
+pred_t=True t_method_type=1 \
+use_fps_points=True \
+use_wandb=True
 
 # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> sofa <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<,
 0.96r: # supervision in camera space,, but add T estimation, use fps sampling,
@@ -443,4 +510,15 @@ datasets=modelnet40new item=modelnet40new name_dset=modelnet40new target_categor
 TRAIN.train_batch=4 TRAIN.test_batch=4 num_points=1024 model.input_num=1024 \
 MODEL.num_in_channels=1 pred_t=True t_method_type=0 \
 use_objective_R=True use_objective_M=True use_objective_T=True \
+use_wandb=True
+
+0.96f: # self-supervised with SE3-transformer
+python train_aegan.py task='ssl_partial_pcloud_pose_completion' training=ae_gan name_model=ae vis=True save_frequency=10 nr_epochs=500 \
+exp_num='0.96f' target_category='sofa' \
+models=se3_transformer_default encoder_type=se3_transformer MODEL.num_in_channels=1 num_modes_R=1 MODEL.num_channels_R=2 num_points=1024 in_points=512 model.input_num=512 \
+datasets=modelnet40new item=modelnet40new name_dset=modelnet40new dataset_class=AE \
+TRAIN.train_batch=2 TRAIN.test_batch=2 \
+augment=True use_head_assemble=True mode_features='[2, 'softmax']' \
+pred_t=True t_method_type=1 \
+use_fps_points=True \
 use_wandb=True

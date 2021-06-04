@@ -714,6 +714,9 @@ class PointAEPoseAgent(BaseAgent):
         BS = data['points'].shape[0]
         N  = data['points'].shape[1]
         if 'ssl' in self.config.task and self.config.eval: # only apply this during eval
+            # if self.config.model.kpconv:
+            #     self.delta_r = torch.eye(3).reshape((1, 3, 3)).cuda()
+            #     self.delta_t = torch.zeros(1, 3).cuda()
             if f'{self.config.exp_num}_{self.config.name_dset}_{self.config.target_category}' in delta_R:
                 self.delta_r = torch.from_numpy(delta_R[f'{self.config.exp_num}_{self.config.name_dset}_{self.config.target_category}']).cuda()
                 print('use precomputed delta_r')

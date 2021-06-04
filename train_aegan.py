@@ -251,7 +251,7 @@ def main(cfg):
         if cfg.pretrained_path:
             tr_agent.load_ckpt('best', model_dir=cfg.pretrained_path)
         else:
-            tr_agent.load_ckpt('best')
+            tr_agent.load_ckpt('latest')
 
     #>>>>>>>>>>>>>>>>>>>> dataset
     parser = DatasetParser(cfg)
@@ -329,6 +329,7 @@ def main(cfg):
 
             delta_r, r_score = ransac_fit_r(torch.cat(set_dr, dim=0), chosen_axis=chosen_axis,
                                             flip_axis=flip_axis)
+            bp()
             if cfg.pred_t:
                 delta_t, t_score = ransac_fit_t(torch.cat(set_dt, dim=0), torch.cat(set_dr, dim=0), delta_r.squeeze() )
 
