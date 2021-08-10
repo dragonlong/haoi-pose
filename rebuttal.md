@@ -13,15 +13,15 @@ We are well aware of the reviewer’s concerns on intra-category shape variation
 3. We further show ablation studies using different backbones for pose and shape separately, this design will have direct influence on the reconstructed shape quality, which we could check the influence on pose estimation;
 
 - different backbones for pose and shape separately:
-   
-| Dataset | Shape Backbone | Pose Backbone | Mean R_err | Median R_err| Mean T_err | Median T_err | 5degrees Acc. | 5degree0.05 |
-|:--------|:---------|:------|:------|:------|:------|:------|:------|:------|
-| Complete airplane | EPN  | EPN |  |  |  |  |  |
-| Complete airplane | EPN | KPConv |  |  |  |  |  |
-| Complete airplane | KPConv | EPN |  |  |  |  |  |
-| Partial airplane | EPN  | EPN |  |  |  |  |  |
-| Partial airplane | EPN | KPConv |  |  |  |  |  |
-| partial airplane | KPConv | EPN |  |  |  |  |  |
+  
+| Dataset           | Shape Backbone | Pose Backbone | Mean R_err | Median R_err | Mean T_err | Median T_err                        | 5degrees Acc. | 5degree0.05 |
+| :---------------- | :------------- | :------------ | :--------- | :----------- | :--------- | :---------------------------------- | :------------ | :---------- |
+| Complete airplane | EPN            | EPN           | 23.09      | 1.66         | /          | /                                   | 0.87          | /           |
+| Complete airplane | EPN            | KPConv        | 21.24      | 1.70         | /          | /                                   | 0.88          | /           |
+| Complete airplane | KPConv         | EPN           | 133.89     | 169.96       | /          | /                                   | 0.00          | /           |
+| Partial airplane  | EPN            | EPN           | 3.31       | 1.46         | ?          | 0.02(from paper - sheet shows 0.04) | 0.95          | 0.76        |
+| Partial airplane  | EPN            | KPConv        | 4.24       | 1.96         | 0.03       | 0.02                                | 0.93          | 0.85        |
+| partial airplane  | KPConv         | EPN           | 134.34     | 174.98       | 0.07       | 0.08                                | 0.05          | 0.05        |
 
 minor:
  For lines 65-68, we modified it as ‘the estimated 6D pose should naturally be equivariant with…;
@@ -41,24 +41,24 @@ Quantitative ablations or examples of limitations to symmet, bias viewpoints dis
 
 - ablation study over training data scale:
   
-| Dataset | Data scale | Mean R_err | Median R_err| Mean T_err | Median T_err | 5degrees Acc. | 5degree0.05 |
-|:--------|:---------|:------|:------|:------|:------|:------|:------|
-| Complete airplane | 100% instance |  |  |  |  |  |
-| Complete airplane | 25% instance|  |  |  |  |  |
-| Complete airplane | 50% instance |  |  |  |  |  |
-| Partial airplane | 100% instance |  |  |  |  |  |
-| Partial airplane | 25% instance|  |  |  |  |  |
-| Partial airplane | 50% instance |  |  |  |  |  |
-| Partial airplane | 25% viewpoints|  |  |  |  |  |
-| Partial airplane | 50% viewpoints|  |  |  |  |  |
-| Partial airplane | 200% viewpoints|  |  |  |  |  |
+| Dataset           | Data scale      | Mean R_err | Median R_err | Mean T_err | Median T_err                        | 5degrees Acc. | 5degree0.05 |
+| :---------------- | :-------------- | :--------- | :----------- | :--------- | :---------------------------------- | :------------ | :---------- |
+| Complete airplane | 100% instance   | 23.09      | 1.66         | /          | /                                   | 0.87          | /           |
+| Complete airplane | 25% instance    | 18.38      | 2.41         | /          | /                                   | 0.88          | /           |
+| Complete airplane | 50% instance    | 20.22      | 2.38         | /          | /                                   | 0.86          | /           |
+| Partial airplane  | 100% instance   | 3.31       | 1.46         | ?          | 0.02(from paper - sheet shows 0.04) | 0.95          | 0.76        |
+| Partial airplane  | 25% instance    | 4.84       | 2.02         | 0.02       | 0.02                                | 0.94          | 0.87        |
+| Partial airplane  | 50% instance    | 4.53       | 1.34         | 0.02       | 0.02                                | 0.94          | 0.87        |
+| Partial airplane  | 25% viewpoints  | 3.00       | 1.49         | 0.02       | 0.02                                | 0.96          | 0.88        |
+| Partial airplane  | 50% viewpoints  | 3.14       | 1.37         | 0.02       | 0.02                                | 0.95          | 0.88        |
+| Partial airplane  | 200% viewpoints |            |              |            |                                     |               |             |
 
 
 - Quantitative ablations or examples of limitations to symmetry, bias viewpoints distribution, or occlusions:
 
-| Dataset | view points | Mean R_err | Median R_err| Mean T_err | Median T_err | 5degrees Acc. | 5degree0.05 |
-|:--------|:---------|:------|:------|:------|:------|:------|:------|
-| Complete airplane | 100% instance |  |  |  |  |  |
+| Dataset           | view points   | Mean R_err | Median R_err | Mean T_err | Median T_err | 5degrees Acc. | 5degree0.05 |
+| :---------------- | :------------ | :--------- | :----------- | :--------- | :----------- | :------------ | :---------- |
+| Complete airplane | 100% instance | 23.09      | 1.66         | /          | /            | 0.87          | /           |
 
 ### R3
 1. We will add reference to the mentioned related works to give a better backgrounds, but our paper is more focused on category-level 6D pose estimation with self-supervised methods, even though we do find the shape reconstruction results are impressive sometimes;
@@ -69,24 +69,25 @@ Quantitative ablations or examples of limitations to symmet, bias viewpoints dis
 
 - different backbones for pose and shape separately:
   
-| Dataset | view points | Mean R_err | Median R_err| Mean T_err | Median T_err | 5degrees Acc. | 5degree0.05 |
-|:--------|:---------|:------|:------|:------|:------|:------|:------|
-| Partial airplane | limited |  |  |  |  |  |
+| Dataset          | view points | Mean R_err | Median R_err | Mean T_err | Median T_err | 5degrees Acc. | 5degree0.05 |
+| :--------------- | :---------- | :--------- | :----------- | :--------- | :----------- | :------------ | :---------- |
+| Partial airplane | limited     |            |              |            |              |               |             |
 
 - EPN20 VS EPN60:
   
-| Dataset | Backbone | Mean R_err | Median R_err| Mean T_err | Median T_err | 5degrees Acc. | 5degree0.05 |
-|:--------|:---------|:------|:------|:------|:------|:------|:------|
-| Complete airplane | EPN20 |  |  |  |  |  |
-| Complete airplane | EPN60 |  |  |  |  |  |
-| Partial airplane | EPN20 |  |  |  |  |  |
-| Partial airplane | EPN60 |  |  |  |  |  |
+| Dataset           | Backbone | Mean R_err | Median R_err | Mean T_err | Median T_err                        | 5degrees Acc. | 5degree0.05 |
+| :---------------- | :------- | :--------- | :----------- | :--------- | :---------------------------------- | :------------ | :---------- |
+| Complete airplane | EPN20    |            |              |            |                                     |               |             |
+| Complete airplane | EPN60    | 23.09      | 1.66         | /          | /                                   | 0.87          | /           |
+| Partial airplane  | EPN20    |            |              |            |                                     |               |             |
+| Partial airplane  | EPN60    | 3.31       | 1.46         | ?          | 0.02(from paper - sheet shows 0.04) | 0.95          | 0.76        |
 
 - repeated runs for training stability:
   
-| Dataset | run_id | Mean R_err | Median R_err| Mean T_err | Median T_err | 5degrees Acc. | 5degree0.05 |
-|:--------|:---------|:------|:------|:------|:------|:------|:------|
-| Complete airplane | 1,2,3 |  |  |  |  |  |
-| Complete car |  1,2,3 | |  |  |  |  |
-| Partial airplane | 1,2,3 |  |  |  |  |  |
-| Partial car | 1,2,3 |  |  |  |  |  |
+| Dataset           | run_id | Mean R_err       | Median R_err   | Mean T_err | Median T_err                                                 | 5degrees Acc.  | 5degree0.05 |
+| :---------------- | :----- | :--------------- | :------------- | :--------- | :----------------------------------------------------------- | :------------- | :---------- |
+| Complete airplane | 1,2,3  | 14.24,17.47,     | 1.53,1.26      | /          | /                                                            | 0.91,0.89      | /           |
+| Complete car      | 1,2,3  | 15.46,14.16,9.95 | 2.19,1.74,1.94 | /          | /                                                            | 0.89,0.91,0.95 | /           |
+| Partial airplane  | 1,2,3  | 3.91,3.47,       | 1.75,1.58,     | 0.02,0.02  | 0.02,0.02                                                    | 0.94,0.95,     | 0.86,0.88   |
+| Partial car       | 1,2,3  | 138.19,136.51,   | 176.06,176.09  | 0.11,0.05  | 0.11,0.04(assuming "sdiff" in line 19 should be "tdiff_mid") | 0.18,0.17      | 0.00,0.13   |
+
